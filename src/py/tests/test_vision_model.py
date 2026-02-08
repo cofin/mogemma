@@ -1,0 +1,36 @@
+import pytest
+import numpy as np
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+from mogemma import GenerationConfig
+from mogemma.vision_model import VisionGemmaModel
+
+@pytest.fixture
+def dummy_model_path():
+    return "bert-base-uncased"
+
+@pytest.fixture
+def mock_tokenizer():
+    with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
+        tokenizer = MagicMock()
+        tokenizer.return_value = {
+            "input_ids": np.array([[1, 2, 3]], dtype=np.int32)
+        }
+        tokenizer.decode.return_value = "A cat"
+        mock.return_value = tokenizer
+        yield tokenizer
+
+def test_vision_model_init(dummy_model_path, mock_tokenizer):
+    config = GenerationConfig(model_path=Path(dummy_model_path))
+    model = VisionGemmaModel(config)
+    assert model is not None
+
+def test_generate_from_image(dummy_model_path, mock_tokenizer):
+    config = GenerationConfig(model_path=Path(dummy_model_path))
+    model = VisionGemmaModel(config)
+    
+    # Simulate a dummy image
+    image = np.zeros((224, 224, 3), dtype=np.uint8)
+    
+    response = model.generate_image("Describe this", image)
+    assert isinstance(response, str)
