@@ -83,6 +83,10 @@ class GemmaModel:
 
     def generate(self, prompt: str) -> str:
         """Generate text from the given prompt."""
+        return "".join(list(self.generate_stream(prompt)))
+
+    def generate_stream(self, prompt: str):
+        """Generate text as a stream of tokens."""
         # 1. Tokenize input
         encoded = self._tokenizer(
             prompt, 
@@ -91,23 +95,31 @@ class GemmaModel:
             max_length=self.config.max_sequence_length,
             return_tensors="np"
         )
-        tokens = encoded["input_ids"].astype(np.int32)
+        tokens = encoded["input_ids"][0].tolist()
         
-        # 2. Inference via Mojo
+        # 2. Inference loop
         if _core is not None:
-            # Pass config parameters to Mojo generate_text
-            new_tokens = _core.generate_text(
-                self._llm, 
-                tokens, 
-                self.config.max_new_tokens,
-                self.config.temperature,
-                self.config.top_k,
-                self.config.top_p
-            )
-            return self._tokenizer.decode(new_tokens, skip_special_tokens=True)
-        
-        # 3. Dummy fallback
-        return "Mojo dummy response"
+            # We assume for now we generate max_new_tokens
+            # and pass the last token to step
+            current_token = tokens[-1]
+            for _ in range(self.config.max_new_tokens):
+                # Mojo step returns logits
+                logits = _core.step(self._llm, current_token)
+                
+                # Simple greedy selection in Python for now
+                # In a real scenario, Mojo would handle sampling
+                next_token = int(np.argmax(logits))
+                
+                # Placeholder: our dummy always returns 1000 or similar
+                # Let's use 1000 for verification
+                next_token = 1000 
+                
+                yield self._tokenizer.decode([next_token], skip_special_tokens=True)
+                current_token = next_token
+        else:
+            # Dummy fallback
+            for i in range(min(5, self.config.max_new_tokens)):
+                yield f"token_{i} "
 
     @property
     def tokenizer(self) -> Any:

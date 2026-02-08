@@ -16,9 +16,12 @@ def test_gemma_model_init(dummy_model_path):
     model = GemmaModel(config)
     assert model is not None
 
-def test_gemma_generate(dummy_model_path):
-    config = GenerationConfig(model_path=dummy_model_path)
+def test_gemma_generate_stream(dummy_model_path):
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=10)
     model = GemmaModel(config)
-    response = model.generate("What is Mojo?")
-    assert isinstance(response, str)
-    assert len(response) > 0
+    
+    stream = model.generate_stream("Hello")
+    tokens = list(stream)
+    
+    assert len(tokens) == 10
+    assert all(isinstance(t, str) for t in tokens)

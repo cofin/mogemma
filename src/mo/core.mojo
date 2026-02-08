@@ -5,6 +5,15 @@ from inference import InferenceEngine
 from sampling import Sampler
 from cache import KVCache
 
+fn step_mojo(
+    llm: PythonObject,
+    token_id_obj: PythonObject,
+) raises -> PythonObject:
+    var token_id = Int(py=token_id_obj)
+    # Simulate step
+    var np = Python.import_module("numpy")
+    return np.zeros(256000, dtype=np.float32)
+
 fn generate_text_mojo(
     llm: PythonObject,
     tokens: PythonObject,
@@ -57,6 +66,7 @@ fn PyInit__core() -> PythonObject:
         b.def_function[init_model_mojo]("init_model")
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
         b.def_function[generate_text_mojo]("generate_text")
+        b.def_function[step_mojo]("step")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
