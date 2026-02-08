@@ -7,6 +7,7 @@ import numpy.typing as npt
 from transformers import AutoTokenizer
 
 from .hub import HubManager
+from .telemetry import tracer
 
 # Import the Mojo native module
 try:
@@ -42,8 +43,11 @@ class EmbeddingModel:
 
     def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
         """Generate embeddings for the given text."""
-        if isinstance(text, str):
-            text = [text]
+        with tracer.start_as_current_span("EmbeddingModel.embed") as span:
+            if isinstance(text, str):
+                text = [text]
+            
+            span.set_attribute("text_count", len(text))
 
         # 1. Tokenize input
         encoded = self._tokenizer(
@@ -94,8 +98,10 @@ class GemmaModel:
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
         """Generate text as a stream of tokens."""
-        # 1. Tokenize input
-        encoded = self._tokenizer(
+        with tracer.start_as_current_span("GemmaModel.generate_stream") as span:
+            span.set_attribute("prompt_length", len(prompt))
+            # 1. Tokenize input
+            encoded = self._tokenizer(
             prompt, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
         )
         tokens = encoded["input_ids"][0].tolist()

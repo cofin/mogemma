@@ -16,3 +16,4 @@ build/
 .claude
 .geminiignore
 .agent
+*.egg-info/
