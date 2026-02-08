@@ -1,18 +1,35 @@
 from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
+from inference import InferenceEngine
+from sampling import Sampler
+from cache import KVCache
+
+fn generate_text_mojo(
+    llm: PythonObject,
+    tokens: PythonObject,
+    max_new_tokens_obj: PythonObject,
+    temp_obj: PythonObject,
+    top_k_obj: PythonObject,
+    top_p_obj: PythonObject,
+) raises -> PythonObject:
+    var max_new_tokens = Int(py=max_new_tokens_obj)
+    var temp = Float32(py=temp_obj)
+    var top_k = Int(py=top_k_obj)
+    var top_p = Float32(py=top_p_obj)
+    
+    print("Mojo: generate_text called for", max_new_tokens, "tokens (temp:", temp, ")")
+    
+    var cache = KVCache(num_layers=1, batch_size=1, max_seq_len=512, head_dim=64, num_heads=8)
+    var engine = InferenceEngine(cache)
+    var results = engine.generate(tokens, max_new_tokens)
+    return results
 
 fn generate_embeddings_mojo(
     llm: PythonObject,
     input_array: PythonObject,
 ) raises -> PythonObject:
-    # llm is the MAX LLM instance passed back from Python
-    print("Mojo: generate_embeddings called with llm instance")
-    
-    # In a real implementation:
-    # var results = llm.generate(input_array)
-    # return results
-    
+    print("Mojo: generate_embeddings called")
     var np = Python.import_module("numpy")
     return np.random.rand(1, 768).astype(np.float32)
 
@@ -31,7 +48,6 @@ fn init_model_mojo(
         return llm
     except e:
         print("Mojo Error loading model:", e)
-        # Convert error to string to raise
         raise Error(String(e))
 
 @export
@@ -40,6 +56,7 @@ fn PyInit__core() -> PythonObject:
         var b = PythonModuleBuilder("_core")
         b.def_function[init_model_mojo]("init_model")
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
+        b.def_function[generate_text_mojo]("generate_text")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))

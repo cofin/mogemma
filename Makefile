@@ -44,10 +44,10 @@ py-install: ## Install Python deps
 	@uv pip install mojo --extra-index-url https://modular.gateway.scarf.sh/simple/
 
 .PHONY: build
-build: ## Build Mojo kernels
-	@echo "${INFO} Building Mojo kernels..."
-	@mkdir -p src/py/$(PROJECT_NAME)/kernels
-	# mojo build src/mo/main.mo -o src/py/$(PROJECT_NAME)/kernels/core.mopkg
+build: ## Build Mojo shared library
+	@echo "${INFO} Building Mojo core..."
+	@mkdir -p src/py/mogemma
+	@uv run mojo build --emit shared-lib src/mo/core.mojo -o src/py/mogemma/_core.so
 
 .PHONY: smoke-test
 smoke-test: ## Run the Mojo bridge smoke test

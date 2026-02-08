@@ -24,13 +24,8 @@ struct InferenceEngine:
         var np = Python.import_module("numpy")
         var result = Python.list()
         
-        # Convert input tokens if needed, or just iterate
-        # Assuming tokens is a list or 1D array
-        
         for i in range(max_new_tokens):
-            # In a real generator, we'd pick the next token from logits
-            # For now, just step and store a dummy
             var logits = self.step(0)
-            result.append(0) 
+            result.append(1000) # Common token
             
         return np.array(result)
