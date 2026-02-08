@@ -27,7 +27,7 @@ help: ## Display this help
 install: clean ## Install everything (Python, Mojo, Beads)
 	@echo "${INFO} Installing..."
 	@if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
-	@uv python pin 3.12
+	@uv python pin 3.10
 	@uv venv
 	@$(MAKE) py-install
 	@$(MAKE) beads-install

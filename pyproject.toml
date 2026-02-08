@@ -1,25 +1,30 @@
 [project]
 name = "mogemma"
 version = "0.1.0"
-description = "Python/Mojo bridge for Google Gemma 3"
-requires-python = ">=3.12"
+description = "Ultra-modern Python/Mojo bridge for Google Gemma 3"
+requires-python = ">=3.10"
 dependencies = [
     "mojo>=0.26.1",
     "msgspec>=0.18.0",
-    "numpy",
     "rich-click>=1.7.0",
+    "numpy>=1.26.0",
+    "transformers>=4.38.0",
+    "torch>=2.2.0",
+    "pydantic>=2.6.0",
+    "psutil>=5.9.0",
+    "tqdm>=4.66.0",
+    "huggingface-hub>=0.20.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["src/py/tests"]
 pythonpath = ["src/py"]
-asyncio_mode = "auto"
 
 [tool.ruff]
 exclude = [".venv", "node_modules", "tmp", ".tmp"]
 line-length = 120
 src = ["src/py/mogemma", "src/py/tests"]
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -45,12 +50,12 @@ split-on-trailing-comma = false
 [tool.mypy]
 exclude = ["tmp/", ".tmp/"]
 packages = ["mogemma", "tests"]
-python_version = "3.12"
+python_version = "3.10"
 strict = true
 
 [tool.pyright]
 include = ["src/py/mogemma", "src/py/tests"]
-pythonVersion = "3.12"
+pythonVersion = "3.10"
 venv = ".venv"
 
 [dependency-groups]
