@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: mogemma
+Version: 0.1.0
+Summary: Ultra-modern Python/Mojo bridge for Google Gemma 3
+Requires-Python: >=3.10
+Requires-Dist: mojo>=0.26.1
+Requires-Dist: msgspec>=0.18.0
+Requires-Dist: rich-click>=1.7.0
+Requires-Dist: numpy>=1.26.0
+Requires-Dist: transformers>=4.38.0
+Requires-Dist: torch>=2.2.0
+Requires-Dist: pydantic>=2.6.0
+Requires-Dist: psutil>=5.9.0
+Requires-Dist: tqdm>=4.66.0
+Requires-Dist: huggingface-hub>=0.20.0

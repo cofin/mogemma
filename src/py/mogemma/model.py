@@ -1,9 +1,12 @@
 from collections.abc import Iterator
 from typing import Any
+from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 from transformers import AutoTokenizer
+
+from .hub import HubManager
 
 # Import the Mojo native module
 try:
@@ -21,14 +24,17 @@ class EmbeddingModel:
     def __init__(self, config: EmbeddingConfig) -> None:
         """Initialize the embedding model."""
         self.config = config
+        
+        # Resolve model path (Hub or local)
+        self.model_path = HubManager().resolve_model(str(config.model_path))
 
         # Initialize Tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(str(config.model_path))
+        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
 
         # Initialize Mojo core
         if _core is not None:
             try:
-                self._llm = _core.init_model(str(config.model_path))
+                self._llm = _core.init_model(str(self.model_path))
             except Exception:
                 self._llm = None
         else:
@@ -67,13 +73,16 @@ class GemmaModel:
         """Initialize the text model."""
         self.config = config
 
+        # Resolve model path (Hub or local)
+        self.model_path = HubManager().resolve_model(str(config.model_path))
+
         # Initialize Tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(str(config.model_path))
+        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
 
         # Initialize Mojo core
         if _core is not None:
             try:
-                self._llm = _core.init_model(str(config.model_path))
+                self._llm = _core.init_model(str(self.model_path))
             except Exception:
                 self._llm = None
         else:
