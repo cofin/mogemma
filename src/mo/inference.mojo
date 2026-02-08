@@ -19,6 +19,16 @@ struct InferenceEngine:
         var np = Python.import_module("numpy")
         return np.zeros(256000, dtype=np.float32)
 
+    fn step_vision(mut self, visual_embedding: PythonObject) raises -> PythonObject:
+        """Run inference step for visual tokens."""
+        print("Mojo: Visual inference step")
+        
+        # In a real implementation, this would process the visual embedding
+        # and update the KV cache with visual tokens.
+        
+        var np = Python.import_module("numpy")
+        return np.zeros(256000, dtype=np.float32)
+
     fn generate(mut self, tokens: PythonObject, max_new_tokens: Int) raises -> PythonObject:
         """Run multiple inference steps."""
         var np = Python.import_module("numpy")
