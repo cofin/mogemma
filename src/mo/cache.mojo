@@ -3,7 +3,8 @@ from sys import size_of
 
 comptime UnsafePointer = LegacyUnsafePointer[mut=True, ...]
 
-struct KVCache:
+@fieldwise_init
+struct KVCache(ImplicitlyCopyable):
     """Stateful KV cache for Gemma 3 inference."""
     var num_layers: Int
     var batch_size: Int
@@ -30,11 +31,9 @@ struct KVCache:
             self.v_ptr[i] = 0.0
 
     fn is_allocated(self) -> Bool:
-        """Check if buffers are allocated."""
         return True
 
     fn get_k(self, layer: Int, batch: Int, head: Int, seq: Int, dim: Int) -> Float32:
-        """Get key value at specific index."""
         var idx = layer * (self.batch_size * self.num_heads * self.max_seq_len * self.head_dim) + \
                   batch * (self.num_heads * self.max_seq_len * self.head_dim) + \
                   head * (self.max_seq_len * self.head_dim) + \
@@ -43,15 +42,9 @@ struct KVCache:
         return self.k_ptr[idx]
 
     fn set_k(mut self, layer: Int, batch: Int, head: Int, seq: Int, dim: Int, val: Float32):
-        """Set key value at specific index."""
         var idx = layer * (self.batch_size * self.num_heads * self.max_seq_len * self.head_dim) + \
                   batch * (self.num_heads * self.max_seq_len * self.head_dim) + \
                   head * (self.max_seq_len * self.head_dim) + \
                   seq * (self.head_dim) + \
                   dim
         self.k_ptr[idx] = val
-
-    fn __del__(deinit self):
-        """Free allocated buffers."""
-        self.k_ptr.free()
-        self.v_ptr.free()
