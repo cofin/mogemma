@@ -4,6 +4,17 @@ from os import abort
 from inference import InferenceEngine
 from sampling import Sampler
 from cache import KVCache
+from vision import VisionProcessor
+
+fn process_image_mojo(
+    image_obj: PythonObject,
+) raises -> PythonObject:
+    var processor = VisionProcessor()
+    # We must pass it as a variable to satisfy 'mut' requirement if needed,
+    # though PythonObject is a reference type.
+    var image = image_obj
+    print("Mojo: process_image called")
+    return processor.preprocess(image)
 
 fn step_mojo(
     llm: PythonObject,
@@ -76,6 +87,7 @@ fn PyInit__core() -> PythonObject:
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
         b.def_function[generate_text_mojo]("generate_text")
         b.def_function[step_mojo]("step")
+        b.def_function[process_image_mojo]("process_image")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
