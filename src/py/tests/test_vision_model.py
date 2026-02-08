@@ -32,5 +32,15 @@ def test_generate_from_image(dummy_model_path, mock_tokenizer):
     # Simulate a dummy image
     image = np.zeros((224, 224, 3), dtype=np.uint8)
     
-    response = model.generate_image("Describe this", image)
+def test_generate_interleaved(dummy_model_path, mock_tokenizer):
+    config = GenerationConfig(model_path=Path(dummy_model_path))
+    model = VisionGemmaModel(config)
+    
+    image = np.zeros((224, 224, 3), dtype=np.uint8)
+    
+    # List of (type, content) tuples or just mixed content
+    # For MVP, let's say we pass a list: ["Look at this:", image, "What is it?"]
+    prompt = ["Look at this:", image, "What is it?"]
+    
+    response = model.generate_multimodal(prompt)
     assert isinstance(response, str)
