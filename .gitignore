@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+target/
+.agent/beads.db
+.agent/.agent
+dist/
+build/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+**/*.so
+.gemini
+.geminiignore
+.beads
+.claude
+.geminiignore
