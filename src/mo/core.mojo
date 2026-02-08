@@ -8,8 +8,17 @@ from cache import KVCache
 fn step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
+    temp_obj: PythonObject,
+    top_k_obj: PythonObject,
+    top_p_obj: PythonObject,
 ) raises -> PythonObject:
     var token_id = Int(py=token_id_obj)
+    var temp = Float32(py=temp_obj)
+    var top_k = Int(py=top_k_obj)
+    var top_p = Float32(py=top_p_obj)
+    
+    # print("Mojo: step called for token", token_id, "(temp:", temp, ")")
+    
     # Simulate step
     var np = Python.import_module("numpy")
     return np.zeros(256000, dtype=np.float32)

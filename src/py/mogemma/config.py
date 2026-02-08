@@ -57,6 +57,13 @@ class GenerationConfig:
     """Top-p (nucleus) sampling parameter."""
     
     def __post_init__(self) -> None:
+        if self.temperature < 0:
+            raise ValueError("temperature must be non-negative")
+        if self.top_k < 0:
+            raise ValueError("top_k must be non-negative")
+        if not (0.0 <= self.top_p <= 1.0):
+            raise ValueError("top_p must be between 0.0 and 1.0")
+            
         model_path_str = str(self.model_path)
         if "/" in model_path_str:
             return

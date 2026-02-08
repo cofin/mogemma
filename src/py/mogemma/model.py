@@ -104,7 +104,13 @@ class GemmaModel:
             current_token = tokens[-1]
             for _ in range(self.config.max_new_tokens):
                 # Mojo step returns logits
-                logits = _core.step(self._llm, current_token)
+                logits = _core.step(
+                    self._llm, 
+                    current_token,
+                    self.config.temperature,
+                    self.config.top_k,
+                    self.config.top_p
+                )
                 
                 # Simple greedy selection in Python for now
                 # In a real scenario, Mojo would handle sampling
