@@ -1,11 +1,12 @@
 [project]
 name = "mogemma"
 version = "0.1.0"
-description = "Ultra-modern Python/Mojo bridge for Google Gemma 3"
+description = "Python/Mojo bridge for Google Gemma 3"
 requires-python = ">=3.12"
 dependencies = [
     "mojo>=0.26.1",
     "msgspec>=0.18.0",
+    "numpy",
     "rich-click>=1.7.0",
 ]
 
