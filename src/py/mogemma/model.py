@@ -1,13 +1,18 @@
 from collections.abc import Iterator
 from typing import Any
-from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-from transformers import AutoTokenizer
 
+from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
 from .telemetry import tracer
+
+# Optional tokenizer dependency; required for text tokenization paths only.
+try:
+    from transformers import AutoTokenizer
+except ModuleNotFoundError:
+    AutoTokenizer = None  # type: ignore[assignment]
 
 # Import the Mojo native module
 try:
@@ -16,21 +21,73 @@ except ImportError:
     # Allow fallback for development/testing if .so is missing
     _core = None
 
-from .config import EmbeddingConfig, GenerationConfig
+
+def _sample_next_token(
+    logits: Any,
+    *,
+    temperature: float,
+    top_k: int,
+    top_p: float,
+) -> int:
+    """Sample the next token ID from backend logits."""
+    logits_array = np.asarray(logits, dtype=np.float64).reshape(-1)
+    if logits_array.size == 0:
+        msg = "backend returned empty logits"
+        raise ValueError(msg)
+
+    if temperature <= 0:
+        return int(np.argmax(logits_array))
+
+    filtered_logits = logits_array / temperature
+
+    if 0 < top_k < filtered_logits.size:
+        top_indices = np.argpartition(filtered_logits, -top_k)[-top_k:]
+        top_mask = np.zeros(filtered_logits.size, dtype=bool)
+        top_mask[top_indices] = True
+        filtered_logits = np.where(top_mask, filtered_logits, -np.inf)
+
+    if 0.0 < top_p < 1.0:
+        sorted_indices = np.argsort(filtered_logits)[::-1]
+        sorted_logits = filtered_logits[sorted_indices]
+        finite_mask = np.isfinite(sorted_logits)
+
+        if finite_mask.any():
+            finite_logits = sorted_logits[finite_mask]
+            finite_logits = finite_logits - np.max(finite_logits)
+            finite_probs = np.exp(finite_logits)
+            finite_probs = finite_probs / finite_probs.sum()
+
+            cumulative = np.cumsum(finite_probs)
+            overflow = cumulative > top_p
+            if overflow.any():
+                first_overflow = int(np.argmax(overflow))
+                remove_indices = sorted_indices[finite_mask][first_overflow + 1 :]
+                filtered_logits[remove_indices] = -np.inf
+
+    if not np.isfinite(filtered_logits).any():
+        return int(np.argmax(logits_array))
+
+    stable_logits = filtered_logits - np.max(filtered_logits)
+    probs = np.exp(stable_logits)
+    probs_sum = probs.sum()
+
+    if probs_sum <= 0 or not np.isfinite(probs_sum):
+        return int(np.argmax(logits_array))
+
+    probs = probs / probs_sum
+    return int(np.random.default_rng().choice(probs.size, p=probs))
 
 
 class EmbeddingModel:
-    """Python wrapper for the Mojo-powered Gemma 3 Embedding engine."""
+    """Python wrapper for the Mojo-powered Gemma 3 embedding engine."""
 
-    def __init__(self, config: EmbeddingConfig) -> None:
+    def __init__(self, config: EmbeddingConfig, tokenizer: Any | None = None) -> None:
         """Initialize the embedding model."""
         self.config = config
-        
+        self._tokenizer = tokenizer
+
         # Resolve model path (Hub or local)
         self.model_path = HubManager().resolve_model(str(config.model_path))
-
-        # Initialize Tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
 
         # Initialize Mojo core
         if _core is not None:
@@ -41,47 +98,80 @@ class EmbeddingModel:
         else:
             self._llm = None
 
+    def _ensure_tokenizer(self) -> Any:
+        if self._tokenizer is not None:
+            return self._tokenizer
+        if AutoTokenizer is None:
+            msg = (
+                "Text tokenization requires optional dependency 'transformers'. "
+                "Install with: pip install 'mogemma[text]' or call embed_tokens(...) with pre-tokenized inputs."
+            )
+            raise ModuleNotFoundError(msg)
+        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
+        return self._tokenizer
+
+    def _embed_token_array(self, tokens: npt.NDArray[np.int32], input_count: int) -> npt.NDArray[np.float32]:
+        if _core is None or self._llm is None:
+            msg = (
+                "Mojo core is unavailable for embeddings. "
+                "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
+            )
+            raise RuntimeError(msg)
+
+        raw_embeddings = _core.generate_embeddings(self._llm, tokens)
+        embeddings = np.asarray(raw_embeddings, dtype=np.float32)
+
+        if embeddings.ndim != 2:
+            msg = f"expected 2D embeddings from backend, got {embeddings.ndim}D"
+            raise ValueError(msg)
+        if embeddings.shape[0] != input_count:
+            msg = f"backend returned {embeddings.shape[0]} embedding rows for {input_count} inputs"
+            raise ValueError(msg)
+        return embeddings
+
     def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
-        """Generate embeddings for the given text."""
+        """Generate embeddings for text by tokenizing in Python, then running Mojo inference."""
         with tracer.start_as_current_span("EmbeddingModel.embed") as span:
             if isinstance(text, str):
                 text = [text]
-            
+
             span.set_attribute("text_count", len(text))
 
-        # 1. Tokenize input
-        encoded = self._tokenizer(
-            text, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
+        tokenizer = self._ensure_tokenizer()
+        encoded = tokenizer(
+            text,
+            padding=True,
+            truncation=True,
+            max_length=self.config.max_sequence_length,
+            return_tensors="np",
         )
-        tokens = encoded["input_ids"].astype(np.int32)
+        tokens = np.asarray(encoded["input_ids"], dtype=np.int32)
+        return self._embed_token_array(tokens, len(text))
 
-        # 2. Inference via Mojo
-        if _core is not None:
-            # Pass the LLM instance and the token array to Mojo
-            embeddings: npt.NDArray[np.float32] = _core.generate_embeddings(self._llm, tokens)
-            return embeddings
-
-        # 3. Dummy fallback for development
-        return np.random.default_rng().random((len(text), 768)).astype(np.float32)
+    def embed_tokens(self, tokens: npt.ArrayLike) -> npt.NDArray[np.float32]:
+        """Generate embeddings directly from pre-tokenized IDs using Mojo inference."""
+        token_array = np.asarray(tokens, dtype=np.int32)
+        if token_array.ndim != 2:
+            msg = f"tokens must be a 2D array of token IDs, got shape {token_array.shape}"
+            raise ValueError(msg)
+        return self._embed_token_array(token_array, int(token_array.shape[0]))
 
     @property
     def tokenizer(self) -> Any:
-        """Access to the underlying tokenizer."""
-        return self._tokenizer
+        """Access the tokenizer (loads lazily)."""
+        return self._ensure_tokenizer()
 
 
 class GemmaModel:
-    """Python wrapper for the Mojo-powered Gemma 3 Text generation engine."""
+    """Python wrapper for the Mojo-powered Gemma 3 text generation engine."""
 
-    def __init__(self, config: GenerationConfig) -> None:
+    def __init__(self, config: GenerationConfig, tokenizer: Any | None = None) -> None:
         """Initialize the text model."""
         self.config = config
+        self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
         self.model_path = HubManager().resolve_model(str(config.model_path))
-
-        # Initialize Tokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
 
         # Initialize Mojo core
         if _core is not None:
@@ -91,6 +181,15 @@ class GemmaModel:
                 self._llm = None
         else:
             self._llm = None
+
+    def _ensure_tokenizer(self) -> Any:
+        if self._tokenizer is not None:
+            return self._tokenizer
+        if AutoTokenizer is None:
+            msg = "Text generation requires optional dependency 'transformers'. Install with: pip install 'mogemma[text]'"
+            raise ModuleNotFoundError(msg)
+        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
+        return self._tokenizer
 
     def generate(self, prompt: str) -> str:
         """Generate text from the given prompt."""
@@ -98,25 +197,41 @@ class GemmaModel:
 
     def generate_stream(self, prompt: str) -> Iterator[str]:
         """Generate text as a stream of tokens."""
+        tokenizer = self._ensure_tokenizer()
         with tracer.start_as_current_span("GemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
-            # 1. Tokenize input
-            encoded = self._tokenizer(
-            prompt, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
-        )
-        tokens = encoded["input_ids"][0].tolist()
+            encoded = tokenizer(
+                prompt,
+                padding=True,
+                truncation=True,
+                max_length=self.config.max_sequence_length,
+                return_tensors="np",
+            )
+            tokens = encoded["input_ids"][0].tolist()
 
-        # 2. Inference loop
-        if _core is not None:
-            current_token = tokens[-1]
+        if _core is not None and self._llm is not None:
+            if tokens:
+                current_token = int(tokens[-1])
+            else:
+                eos_token_id = getattr(tokenizer, "eos_token_id", 0) or 0
+                current_token = int(eos_token_id)
+
             for _ in range(self.config.max_new_tokens):
-                # Mojo step returns logits
-                _ = _core.step(self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p)
+                logits = _core.step(
+                    self._llm,
+                    current_token,
+                    self.config.temperature,
+                    self.config.top_k,
+                    self.config.top_p,
+                )
 
-                # Simple greedy selection in Python for now
-                next_token = 1000
-
-                decoded = self._tokenizer.decode([next_token], skip_special_tokens=True)
+                next_token = _sample_next_token(
+                    logits,
+                    temperature=self.config.temperature,
+                    top_k=self.config.top_k,
+                    top_p=self.config.top_p,
+                )
+                decoded = tokenizer.decode([next_token], skip_special_tokens=True)
                 if isinstance(decoded, str):
                     yield decoded
                 current_token = next_token
@@ -127,5 +242,5 @@ class GemmaModel:
 
     @property
     def tokenizer(self) -> Any:
-        """Access to the underlying tokenizer."""
-        return self._tokenizer
+        """Access the tokenizer (loads lazily)."""
+        return self._ensure_tokenizer()

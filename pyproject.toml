@@ -5,22 +5,32 @@ description = "Ultra-modern Python/Mojo bridge for Google Gemma 3"
 requires-python = ">=3.10"
 dependencies = [
     "mojo>=0.26.1",
-    "msgspec>=0.18.0",
-    "rich-click>=1.7.0",
-    "numpy>=1.26.0",
-    "transformers>=4.38.0",
-    "torch>=2.2.0",
-    "pydantic>=2.6.0",
-    "psutil>=5.9.0",
-    "tqdm>=4.66.0",
-    "huggingface-hub>=0.20.0",
-    "protobuf>=6.33.5",
-    "opentelemetry-api>=1.39.1",
-    "opentelemetry-sdk>=1.39.1",
 ]
 
-[project.scripts]
-mogemma = "mogemma.cli:cli"
+[project.optional-dependencies]
+embed = [
+    "numpy>=1.26.0",
+]
+text = [
+    "numpy>=1.26.0",
+    "transformers>=4.38.0",
+]
+hub = [
+    "huggingface-hub>=0.20.0",
+]
+telemetry = [
+    "opentelemetry-api>=1.39.1",
+]
+vision = [
+    "numpy>=1.26.0",
+    "transformers>=4.38.0",
+]
+all = [
+    "numpy>=1.26.0",
+    "transformers>=4.38.0",
+    "huggingface-hub>=0.20.0",
+    "opentelemetry-api>=1.39.1",
+]
 
 [build-system]
 requires = ["hatchling"]

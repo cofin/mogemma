@@ -60,7 +60,10 @@ fn generate_embeddings_mojo(
 ) raises -> PythonObject:
     print("Mojo: generate_embeddings called")
     var np = Python.import_module("numpy")
-    return np.random.rand(1, 768).astype(np.float32)
+    var batch_size = Int(py=input_array.shape[0])
+    if batch_size < 1:
+        batch_size = 1
+    return np.random.rand(batch_size, 768).astype(np.float32)
 
 fn init_model_mojo(
     model_path_obj: PythonObject

@@ -3,8 +3,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
+import mogemma.model as model_module
 from mogemma import GemmaModel, GenerationConfig
 
 
@@ -19,9 +21,7 @@ def mock_tokenizer() -> Iterator[MagicMock]:
     """Fixture to mock the AutoTokenizer."""
     with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
-        # Mock encoding
         tokenizer.return_value = {"input_ids": np.array([[1, 2, 3]], dtype=np.int32)}
-        # Mock decoding
         tokenizer.decode.return_value = "decoded text"
         mock.return_value = tokenizer
         yield tokenizer
@@ -77,4 +77,47 @@ def test_gemma_consecutive_generations(dummy_model_path: str, mock_tokenizer: Ma
     res1 = model.generate("First prompt")
     res2 = model.generate("Second prompt")
 
-    assert res1 == res2  # In our mock/dummy mode, they should be the same
+    assert isinstance(res1, str)
+    assert isinstance(res2, str)
+    assert len(res1) > 0
+    assert len(res2) > 0
+
+
+def test_gemma_generate_stream_uses_backend_logits(
+    dummy_model_path: str,
+    mock_tokenizer: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure each generated token is selected from backend logits."""
+
+    class CoreStub:
+        def __init__(self) -> None:
+            self.step_calls: list[tuple[int, float, int, float]] = []
+
+        def init_model(self, _: str) -> object:
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm
+            self.step_calls.append((token_id, temp, top_k, top_p))
+            if len(self.step_calls) == 1:
+                return np.array([0.0, 0.0, 5.0], dtype=np.float32)
+            return np.array([4.0, 0.0, 0.0], dtype=np.float32)
+
+    core_stub = CoreStub()
+    monkeypatch.setattr(model_module, "_core", core_stub)
+
+    mock_tokenizer.decode.side_effect = lambda token_ids, skip_special_tokens=True: f"<{token_ids[0]}>"
+
+    config = GenerationConfig(
+        model_path=Path(dummy_model_path),
+        max_new_tokens=2,
+        temperature=0.0,
+        top_k=50,
+        top_p=1.0,
+    )
+    model = GemmaModel(config)
+
+    output = model.generate("Hello")
+    assert output == "<2><0>"
+    assert core_stub.step_calls == [(3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
