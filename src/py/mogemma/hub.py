@@ -37,15 +37,12 @@ class HubManager:
         try:
             from huggingface_hub import snapshot_download
         except ModuleNotFoundError as exc:
-            msg = "Hub downloads require optional dependency 'huggingface-hub'. Install with: pip install 'mogemma[hub]'"
+            msg = (
+                "Hub downloads require optional dependency 'huggingface-hub'. Install with: pip install 'mogemma[hub]'"
+            )
             raise ModuleNotFoundError(msg) from exc
 
         local_dir = self.cache_path / model_id.replace("/", "--")
 
-        path = snapshot_download(
-            repo_id=model_id,
-            local_dir=local_dir,
-            local_dir_use_symlinks=False,
-            **kwargs
-        )
+        path = snapshot_download(repo_id=model_id, local_dir=local_dir, local_dir_use_symlinks=False, **kwargs)
         return Path(path)

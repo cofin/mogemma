@@ -12,12 +12,10 @@ def mock_tokenizer():
     with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
         tokenizer.decode.return_value = "token "
-        tokenizer.return_value = {
-            "input_ids": np.array([[1, 2, 3]]),
-            "attention_mask": np.array([[1, 1, 1]])
-        }
+        tokenizer.return_value = {"input_ids": np.array([[1, 2, 3]]), "attention_mask": np.array([[1, 1, 1]])}
         mock.return_value = tokenizer
         yield tokenizer
+
 
 @pytest.mark.asyncio
 async def test_async_generate(tmp_path, mock_tokenizer):
@@ -31,6 +29,7 @@ async def test_async_generate(tmp_path, mock_tokenizer):
     response = await model.generate("Hello")
     assert isinstance(response, str)
     assert len(response) > 0
+
 
 @pytest.mark.asyncio
 async def test_async_generate_stream(tmp_path, mock_tokenizer):

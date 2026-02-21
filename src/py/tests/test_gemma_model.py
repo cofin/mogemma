@@ -84,9 +84,7 @@ def test_gemma_consecutive_generations(dummy_model_path: str, mock_tokenizer: Ma
 
 
 def test_gemma_generate_stream_uses_backend_logits(
-    dummy_model_path: str,
-    mock_tokenizer: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure each generated token is selected from backend logits."""
 
@@ -109,13 +107,7 @@ def test_gemma_generate_stream_uses_backend_logits(
 
     mock_tokenizer.decode.side_effect = lambda token_ids, skip_special_tokens=True: f"<{token_ids[0]}>"
 
-    config = GenerationConfig(
-        model_path=Path(dummy_model_path),
-        max_new_tokens=2,
-        temperature=0.0,
-        top_k=50,
-        top_p=1.0,
-    )
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=2, temperature=0.0, top_k=50, top_p=1.0)
     model = GemmaModel(config)
 
     output = model.generate("Hello")

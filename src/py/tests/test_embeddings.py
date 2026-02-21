@@ -86,9 +86,7 @@ def test_embed_list_of_strings(dummy_model_path: str, mock_tokenizer: MagicMock,
 
 
 def test_embed_raises_when_backend_returns_wrong_row_count(
-    dummy_model_path: str,
-    mock_tokenizer: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure backend row-count mismatches are not silently accepted."""
 
@@ -109,10 +107,7 @@ def test_embed_raises_when_backend_returns_wrong_row_count(
         model.embed(["first", "second"])
 
 
-def test_embed_tokens_uses_mojo_without_tokenizer(
-    dummy_model_path: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure pre-tokenized embedding path does not require transformers."""
 
     class CoreStub:
@@ -135,8 +130,7 @@ def test_embed_tokens_uses_mojo_without_tokenizer(
 
 
 def test_embed_text_requires_tokenizer_when_transformers_missing(
-    dummy_model_path: str,
-    monkeypatch: pytest.MonkeyPatch,
+    dummy_model_path: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure text embedding reports clear requirement when transformers is absent."""
     monkeypatch.setattr(model_module, "AutoTokenizer", None)
@@ -149,9 +143,7 @@ def test_embed_text_requires_tokenizer_when_transformers_missing(
 
 
 def test_embed_requires_mojo_core(
-    dummy_model_path: str,
-    mock_tokenizer: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure embedding never falls back to non-Mojo output when core is missing."""
     monkeypatch.setattr(model_module, "_core", None)

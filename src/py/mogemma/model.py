@@ -22,13 +22,7 @@ except ImportError:
     _core = None
 
 
-def _sample_next_token(
-    logits: Any,
-    *,
-    temperature: float,
-    top_k: int,
-    top_p: float,
-) -> int:
+def _sample_next_token(logits: Any, *, temperature: float, top_k: int, top_p: float) -> int:
     """Sample the next token ID from backend logits."""
     logits_array = np.asarray(logits, dtype=np.float64).reshape(-1)
     if logits_array.size == 0:
@@ -139,11 +133,7 @@ class EmbeddingModel:
 
         tokenizer = self._ensure_tokenizer()
         encoded = tokenizer(
-            text,
-            padding=True,
-            truncation=True,
-            max_length=self.config.max_sequence_length,
-            return_tensors="np",
+            text, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
         )
         tokens = np.asarray(encoded["input_ids"], dtype=np.int32)
         return self._embed_token_array(tokens, len(text))
@@ -186,7 +176,9 @@ class GemmaModel:
         if self._tokenizer is not None:
             return self._tokenizer
         if AutoTokenizer is None:
-            msg = "Text generation requires optional dependency 'transformers'. Install with: pip install 'mogemma[text]'"
+            msg = (
+                "Text generation requires optional dependency 'transformers'. Install with: pip install 'mogemma[text]'"
+            )
             raise ModuleNotFoundError(msg)
         self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
         return self._tokenizer
@@ -201,11 +193,7 @@ class GemmaModel:
         with tracer.start_as_current_span("GemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
             encoded = tokenizer(
-                prompt,
-                padding=True,
-                truncation=True,
-                max_length=self.config.max_sequence_length,
-                return_tensors="np",
+                prompt, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
             )
             tokens = encoded["input_ids"][0].tolist()
 
@@ -218,18 +206,11 @@ class GemmaModel:
 
             for _ in range(self.config.max_new_tokens):
                 logits = _core.step(
-                    self._llm,
-                    current_token,
-                    self.config.temperature,
-                    self.config.top_k,
-                    self.config.top_p,
+                    self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p
                 )
 
                 next_token = _sample_next_token(
-                    logits,
-                    temperature=self.config.temperature,
-                    top_k=self.config.top_k,
-                    top_p=self.config.top_p,
+                    logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
                 )
                 decoded = tokenizer.decode([next_token], skip_special_tokens=True)
                 if isinstance(decoded, str):

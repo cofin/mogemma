@@ -10,6 +10,7 @@ try:
 except ImportError:
     _core = None
 
+
 class VisionGemmaModel(GemmaModel):
     """Multimodal Vision-Language model."""
 
@@ -39,7 +40,7 @@ class VisionGemmaModel(GemmaModel):
                 padding=True,
                 truncation=True,
                 max_length=self.config.max_sequence_length,
-                return_tensors="np"
+                return_tensors="np",
             )
             tokens = encoded["input_ids"].astype(np.int32)
 
