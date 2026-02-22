@@ -8,6 +8,7 @@ import pytest
 
 import mogemma.model as model_module
 from mogemma import EmbeddingConfig, EmbeddingModel
+from mogemma.hub import HubManager
 
 
 @pytest.fixture
@@ -83,7 +84,7 @@ def test_embedding_model_init_uses_hub_resolution(
         called.append((model_id, download_if_missing, strict))
         return downloaded
 
-    monkeypatch.setattr(model_module.HubManager, "resolve_model", fake_resolve_model)
+    monkeypatch.setattr(HubManager, "resolve_model", fake_resolve_model)
 
     config = EmbeddingConfig(model_path="google/gemma-3-4b-it")
     model = EmbeddingModel(config)

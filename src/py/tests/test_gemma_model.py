@@ -8,6 +8,7 @@ import pytest
 
 import mogemma.model as model_module
 from mogemma import GenerationConfig, SyncGemmaModel
+from mogemma.hub import HubManager
 
 
 class CoreStub:
@@ -74,7 +75,7 @@ def test_gemma_model_init_uses_hub_resolution(
         called.append((model_id, download_if_missing, strict))
         return downloaded
 
-    monkeypatch.setattr(model_module.HubManager, "resolve_model", fake_resolve_model)
+    monkeypatch.setattr(HubManager, "resolve_model", fake_resolve_model)
 
     config = GenerationConfig(model_path="google/gemma-3-4b-it")
     model = SyncGemmaModel(config)
