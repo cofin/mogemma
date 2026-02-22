@@ -3,6 +3,12 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+_EMPTY_PATH_MSG = "model_path must be a non-empty local path or a valid Hugging Face model id"
+_EMPTY_SEQUENCE_MSG = "max_sequence_length must be greater than 0"
+_INVALID_BATCH_SIZE_MSG = "batch_size must be greater than 0"
+_INVALID_TOKENS_MSG = "max_new_tokens must be greater than 0"
+_EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Hugging Face model id"
+
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
@@ -25,14 +31,17 @@ class EmbeddingConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration."""
-        # Check if it's a local path or a HF model ID
         model_path_str = str(self.model_path)
-        if "/" in model_path_str:
-            return
+        if not model_path_str:
+            raise ValueError(_EMPTY_PATH_MSG)
 
-        # If it's a Path object, we can check exists
-        if isinstance(self.model_path, Path) and self.model_path.exists():
-            return
+        if model_path_str in {".", ".."}:
+            raise ValueError(_EMPTY_PATH_MSG)
+
+        if self.max_sequence_length <= 0:
+            raise ValueError(_EMPTY_SEQUENCE_MSG)
+        if self.batch_size <= 0:
+            raise ValueError(_INVALID_BATCH_SIZE_MSG)
 
 
 @dataclass(frozen=True)
@@ -73,7 +82,11 @@ class GenerationConfig:
             raise ValueError(msg)
 
         model_path_str = str(self.model_path)
-        if "/" in model_path_str:
-            return
-        if isinstance(self.model_path, Path) and self.model_path.exists():
-            return
+        if not model_path_str:
+            raise ValueError(_EMPTY_PATH_MSG)
+        if model_path_str in {".", ".."}:
+            raise ValueError(_EMPTY_PATH_MSG)
+        if self.max_sequence_length <= 0:
+            raise ValueError(_EMPTY_SEQUENCE_MSG)
+        if self.max_new_tokens <= 0:
+            raise ValueError(_INVALID_TOKENS_MSG)

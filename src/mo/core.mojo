@@ -95,7 +95,6 @@ fn init_model_mojo(
         var llm = max_llm.LLM(pipeline_config)
         return llm
     except e:
-        print("Mojo Error loading model:", e)
         var msg = "init_model failed while loading model from: "
         msg = msg + model_path
         msg = msg + " ("

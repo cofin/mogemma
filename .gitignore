@@ -22,3 +22,4 @@ coverage.xml
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+docs/*.json

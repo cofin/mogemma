@@ -10,7 +10,9 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "huggingface-hub>=0.20.0",
+]
 description = "Python/Mojo interface for Google Gemma 3 using MAX Engine"
 license = "MIT"
 name = "mogemma"
@@ -29,9 +31,6 @@ embed = [
 text = [
     "numpy>=1.26.0",
     "tokenizers>=0.15.0",
-]
-hub = [
-    "huggingface-hub>=0.20.0",
 ]
 telemetry = [
     "opentelemetry-api>=1.39.1",

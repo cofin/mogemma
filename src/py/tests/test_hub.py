@@ -62,6 +62,56 @@ def test_resolve_model_hf_id_downloads_when_missing(tmp_path: Path, monkeypatch:
     mocked_download.assert_called_once_with(model_id)
 
 
+def test_is_hf_model_id_edge_cases() -> None:
+    """Detect clearly local-looking identifiers as non-HF IDs."""
+    hub = HubManager()
+    assert hub.resolve_model("google/gemma-3-4b-it") == Path("google/gemma-3-4b-it")
+    with pytest.raises(ValueError, match="valid Hugging Face model id"):
+        hub.resolve_model("./google/gemma-3-4b-it", strict=True)
+    with pytest.raises(ValueError, match="valid Hugging Face model id"):
+        hub.resolve_model("../google/gemma-3-4b-it", strict=True)
+    with pytest.raises(ValueError, match="Cannot resolve model path"):
+        hub.resolve_model(str(Path.cwd() / "google" / "gemma-3-4b-it"), strict=True)
+
+
+def test_download_rejects_local_dir_override(tmp_path: Path) -> None:
+    """Cache directory should always be controlled by the HubManager."""
+    hub = HubManager(cache_path=tmp_path)
+
+    with pytest.raises(ValueError, match="local_dir"):
+        hub.download("google/gemma-3-4b-it", local_dir=tmp_path / "x")
+
+
+def test_download_maps_offline_error_to_actionable_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline failures should provide remediation guidance."""
+
+    def fake_snapshot_download(*, repo_id: str, local_dir: Path, **kwargs: object) -> str:
+        del local_dir, kwargs
+        msg = f"Offline mode is enabled for {repo_id}"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("mogemma.hub.snapshot_download", fake_snapshot_download)
+    hub = HubManager(cache_path=tmp_path)
+
+    with pytest.raises(ConnectionError, match="offline mode"):
+        hub.download("google/gemma-3-4b-it")
+
+
+def test_download_maps_auth_error_to_permission_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Auth failures should recommend token/login steps."""
+
+    def fake_snapshot_download(*, repo_id: str, local_dir: Path, **kwargs: object) -> str:
+        del local_dir, kwargs
+        msg = f"403 Forbidden: token required to access {repo_id}"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("mogemma.hub.snapshot_download", fake_snapshot_download)
+    hub = HubManager(cache_path=tmp_path)
+
+    with pytest.raises(PermissionError, match="HF_TOKEN"):
+        hub.download("google/gemma-3-4b-it")
+
+
 def test_resolve_model_strict_rejects_missing_local_path(tmp_path: Path) -> None:
     """Strict mode should reject unresolved local paths."""
     hub = HubManager(cache_path=tmp_path)

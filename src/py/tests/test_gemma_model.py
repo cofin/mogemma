@@ -59,9 +59,31 @@ def test_generation_config_validation() -> None:
         GenerationConfig(model_path="dummy", top_p=1.5)
 
 
-def test_gemma_model_init(
-    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub
+def test_gemma_model_init_uses_hub_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_tokenizer: MagicMock, mock_core: CoreStub
 ) -> None:
+    """Model init should resolve through HubManager for HF-style IDs."""
+    downloaded = tmp_path / "google--gemma-3-4b-it"
+    downloaded.mkdir()
+
+    called: list[tuple[str, bool, bool]] = []
+
+    def fake_resolve_model(
+        self: object, model_id: str, *, download_if_missing: bool, strict: bool, **_: object
+    ) -> Path:
+        called.append((model_id, download_if_missing, strict))
+        return downloaded
+
+    monkeypatch.setattr(model_module.HubManager, "resolve_model", fake_resolve_model)
+
+    config = GenerationConfig(model_path="google/gemma-3-4b-it")
+    model = SyncGemmaModel(config)
+
+    assert model is not None
+    assert called == [("google/gemma-3-4b-it", True, True)]
+
+
+def test_gemma_model_init(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path))
     model = SyncGemmaModel(config)
     assert model is not None
@@ -140,6 +162,62 @@ def test_gemma_generate_stream_uses_backend_logits(
     output = model.generate("Hello")
     assert output == "<2><0>"
     assert core_stub.step_calls == [(3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
+
+
+def test_gemma_generate_stream_stops_on_eos(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class EOSStub:
+        def __init__(self) -> None:
+            self.step_calls: list[int] = []
+
+        def init_model(self, _: str) -> object:
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            if not self.step_calls:
+                self.step_calls.append(1)
+                return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+            return np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+    core_stub = EOSStub()
+    monkeypatch.setattr(model_module, "_core", core_stub)
+    mock_tokenizer.token_to_id.return_value = 0
+
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=5, temperature=1.0)
+    model = SyncGemmaModel(config)
+    response = model.generate("Hello")
+
+    assert response == ""
+    assert core_stub.step_calls == [1]
+
+
+def test_gemma_generate_stream_raises_for_non_string_decode(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure decoder contract requires string output for decode path."""
+
+    class DecodeTypeStub:
+        def __init__(self) -> None:
+            self.step_calls = 0
+
+        def init_model(self, _: str) -> object:
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            self.step_calls += 1
+            return np.array([0.0, 0.0, 5.0], dtype=np.float32)
+
+    monkeypatch.setattr(model_module, "_core", DecodeTypeStub())
+    mock_tokenizer.decode.return_value = b"\xff"
+
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=1)
+    model = SyncGemmaModel(config)
+
+    with pytest.raises(TypeError, match=r"tokenizer\.decode returned non-string output"):
+        model.generate("Hello")
 
 
 def test_gemma_generate_raises_without_core(

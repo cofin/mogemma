@@ -63,17 +63,34 @@ test: ## Run all tests
 .PHONY: lint
 lint: ## Lint and format code (Python, Mojo)
 	@echo "${INFO} Linting Python (ruff)..."
-	@uv run ruff check --fix src/py
-	@uv run ruff format src/py
+	@uv run ruff check src/py
+	@uv run ruff format --check src/py
 	@echo "${INFO} Type checking Python (mypy)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run mypy src/py/mogemma || echo "  (mypy issues found - review above)"
+	@uv run mypy src/py/mogemma
 	@echo "${INFO} Type checking Python (pyright)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pyright src/py/mogemma || echo "  (pyright issues found - review above)"
+	@uv run pyright src/py/mogemma
 	@echo "${INFO} Formatting Mojo..."
 	# @mojo format src/mo
 	@echo "${OK} Lint complete"
+
+.PHONY: check-release
+check-release: ## Run release preflight checks (lint + tests)
+	@echo "${INFO} Running release preflight checks..."
+	@echo "${INFO} Linting Python (ruff check)..."
+	@uv run ruff check src/py
+	@echo "${INFO} Checking Python formatting..."
+	@uv run ruff format --check src/py
+	@echo "${INFO} Type checking Python (mypy)..."
+	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
+	@uv run mypy src/py/mogemma
+	@echo "${INFO} Type checking Python (pyright)..."
+	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
+	@uv run pyright src/py/mogemma
+	@$(MAKE) test
+	@$(MAKE) benchmark
+	@echo "${OK} Release preflight checks passed"
 
 .PHONY: type-check
 type-check: ## Run all type checkers
@@ -84,6 +101,14 @@ type-check: ## Run all type checkers
 coverage: ## Run tests with coverage reports
 	@uv run pytest src/py/tests --cov=src/py/$(PROJECT_NAME) --cov-report=html --cov-report=xml
 	@echo "${OK} Coverage report: htmlcov/index.html"
+
+.PHONY: benchmark
+benchmark: ## Run deterministic release benchmark harness
+	@echo "${INFO} Running benchmark (generation)..."
+	@uv run python tools/benchmark.py --mode generation --rounds 20 --max-new-tokens 64
+	@echo "${INFO} Running benchmark (embedding)..."
+	@uv run python tools/benchmark.py --mode embedding --rounds 20
+	@echo "${OK} Benchmark complete"
 
 .PHONY: check-all
 check-all: lint test coverage ## Run all checks (lint, test, coverage)

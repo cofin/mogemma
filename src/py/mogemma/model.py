@@ -1,7 +1,9 @@
 """Model wrappers for Gemma 3 inference."""
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator, Sequence
+import contextlib
+from collections.abc import AsyncIterator, Generator, Sequence
+from pathlib import Path
 from typing import Protocol, cast
 
 import numpy as np
@@ -38,6 +40,12 @@ class _Tokenizer(Protocol):
 
 
 _EXPECTED_MATRIX_DIMS = 2
+_EOS_TOKEN_ID_ALIASES = ("</s>", "<eos>", "<|eos|>")
+
+
+def _resolve_model_path(raw_model_path: str | Path) -> Path:
+    """Resolve user-supplied model input consistently for all model types."""
+    return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
 def _initialize_llm(model_path: str, *, model_type: str) -> object:
@@ -111,6 +119,15 @@ def _sample_next_token(logits: npt.ArrayLike, *, temperature: float, top_k: int,
     return int(np.random.default_rng().choice(probs.size, p=probs))
 
 
+def _normalize_eos_token_id(tokenizer: _Tokenizer) -> int:
+    """Return an EOS token id from tokenizer aliases."""
+    for eos_token in _EOS_TOKEN_ID_ALIASES:
+        eos_token_id = tokenizer.token_to_id(eos_token)
+        if eos_token_id is not None:
+            return int(eos_token_id)
+    return 0
+
+
 class EmbeddingModel:
     """Python interface for the Gemma 3 embedding engine."""
 
@@ -120,11 +137,7 @@ class EmbeddingModel:
         self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
-        self.model_path = HubManager().resolve_model(
-            str(config.model_path),
-            download_if_missing=True,
-            strict=True,
-        )
+        self.model_path = _resolve_model_path(config.model_path)
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(str(self.model_path), model_type="embedding")
@@ -165,6 +178,9 @@ class EmbeddingModel:
         with tracer.start_as_current_span("EmbeddingModel.embed") as span:
             if isinstance(text, str):
                 text = [text]
+            if not text:
+                msg = "text input must contain at least one value"
+                raise ValueError(msg)
 
             span.set_attribute("text_count", len(text))
 
@@ -180,6 +196,9 @@ class EmbeddingModel:
         token_array = np.asarray(tokens, dtype=np.int32)
         if token_array.ndim != _EXPECTED_MATRIX_DIMS:
             msg = f"tokens must be a 2D array of token IDs, got shape {token_array.shape}"
+            raise ValueError(msg)
+        if token_array.shape[0] == 0:
+            msg = "tokens must contain at least one row"
             raise ValueError(msg)
         return self._embed_token_array(token_array, int(token_array.shape[0]))
 
@@ -198,11 +217,7 @@ class SyncGemmaModel:
         self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
-        self.model_path = HubManager().resolve_model(
-            str(config.model_path),
-            download_if_missing=True,
-            strict=True,
-        )
+        self.model_path = _resolve_model_path(config.model_path)
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(str(self.model_path), model_type="generation")
@@ -220,7 +235,7 @@ class SyncGemmaModel:
         """Generate text from the given prompt."""
         return "".join(list(self.generate_stream(prompt)))
 
-    def generate_stream(self, prompt: str) -> Iterator[str]:
+    def generate_stream(self, prompt: str) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
@@ -240,20 +255,27 @@ class SyncGemmaModel:
         if tokens:
             current_token = int(tokens[-1])
         else:
-            eos_token_id = tokenizer.token_to_id("<eos>")
-            if eos_token_id is None:
-                eos_token_id = 0
+            eos_token_id = _normalize_eos_token_id(tokenizer)
             current_token = int(eos_token_id)
 
+        eos_token_id = _normalize_eos_token_id(tokenizer)
         for _ in range(self.config.max_new_tokens):
             logits = _core.step(self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p)
 
             next_token = _sample_next_token(
                 logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
             )
+            if next_token == eos_token_id:
+                return
+
             decoded = tokenizer.decode([next_token])
-            if isinstance(decoded, str):
-                yield decoded
+            if not isinstance(decoded, str):
+                msg = "tokenizer.decode returned non-string output"
+                raise TypeError(msg)
+            if not decoded:
+                return
+
+            yield decoded
             current_token = next_token
 
     @property
@@ -283,11 +305,18 @@ class AsyncGemmaModel:
             except StopIteration:
                 return None
 
-        while True:
-            token = await asyncio.to_thread(get_next)
-            if token is None:
-                break
-            yield token
+        try:
+            while True:
+                token = await asyncio.to_thread(get_next)
+                if token is None:
+                    break
+                yield token
+        except asyncio.CancelledError:
+            generator.close()
+            raise
+        finally:
+            with contextlib.suppress(RuntimeError):
+                generator.close()
 
     @property
     def tokenizer(self) -> _Tokenizer:

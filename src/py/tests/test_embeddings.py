@@ -62,13 +62,34 @@ def test_embedding_config(dummy_model_path: str) -> None:
     assert config.device == "cpu"
 
 
-def test_embedding_model_init(
-    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object
-) -> None:
+def test_embedding_model_init(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object) -> None:
     """Test embedding model initialization."""
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
     assert model is not None
+
+
+def test_embedding_model_init_uses_hub_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_tokenizer: MagicMock, mock_core: object
+) -> None:
+    """Embedding init should resolve through HubManager for HF-style IDs."""
+    downloaded = tmp_path / "google--gemma-3-4b-it"
+    downloaded.mkdir()
+    called: list[tuple[str, bool, bool]] = []
+
+    def fake_resolve_model(
+        self: object, model_id: str, *, download_if_missing: bool, strict: bool, **_: object
+    ) -> Path:
+        called.append((model_id, download_if_missing, strict))
+        return downloaded
+
+    monkeypatch.setattr(model_module.HubManager, "resolve_model", fake_resolve_model)
+
+    config = EmbeddingConfig(model_path="google/gemma-3-4b-it")
+    model = EmbeddingModel(config)
+
+    assert model is not None
+    assert called == [("google/gemma-3-4b-it", True, True)]
 
 
 def test_embedding_model_init_rejects_unknown_local_path() -> None:
@@ -143,6 +164,27 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
 
     assert embeddings.shape == (2, 768)
     assert embeddings.dtype == np.float32
+
+
+def test_embed_rejects_empty_text_input(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object) -> None:
+    del mock_core
+    config = EmbeddingConfig(model_path=Path(dummy_model_path))
+    model = EmbeddingModel(config)
+
+    with pytest.raises(ValueError, match="at least one value"):
+        model.embed([])
+
+
+def test_embed_tokens_rejects_empty_row(
+    dummy_model_path: str, mock_core: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del mock_core
+    del monkeypatch
+    config = EmbeddingConfig(model_path=Path(dummy_model_path))
+    model = EmbeddingModel(config)
+
+    with pytest.raises(ValueError, match="at least one row"):
+        model.embed_tokens(np.empty((0, 1), dtype=np.int32))
 
 
 def test_embed_text_requires_tokenizer_when_transformers_missing(
