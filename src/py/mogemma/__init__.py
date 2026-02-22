@@ -6,14 +6,7 @@ if TYPE_CHECKING:
     from .hub import HubManager
     from .model import AsyncGemmaModel, EmbeddingModel, SyncGemmaModel
 
-__all__ = [
-    "AsyncGemmaModel",
-    "EmbeddingConfig",
-    "EmbeddingModel",
-    "GenerationConfig",
-    "HubManager",
-    "SyncGemmaModel",
-]
+__all__ = ["AsyncGemmaModel", "EmbeddingConfig", "EmbeddingModel", "GenerationConfig", "HubManager", "SyncGemmaModel"]
 
 _EXPORT_TO_MODULE = {
     "AsyncGemmaModel": ".model",
@@ -46,7 +39,8 @@ def __getattr__(name: str) -> Any:
         hint = _EXTRA_HINT.get(name)
         if hint is None:
             raise
-        raise ModuleNotFoundError(f"{name} could not be imported. {hint}") from exc
+        msg = f"{name} could not be imported. {hint}"
+        raise ModuleNotFoundError(msg) from exc
 
     value = getattr(module, name)
     globals()[name] = value

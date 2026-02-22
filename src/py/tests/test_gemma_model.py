@@ -131,7 +131,9 @@ def test_gemma_generate_stream_uses_backend_logits(
     assert core_stub.step_calls == [(3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
 
 
-def test_gemma_generate_raises_without_core(dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gemma_generate_raises_without_core(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(model_module, "_core", None)
     config = GenerationConfig(model_path=Path(dummy_model_path))
     model = SyncGemmaModel(config)

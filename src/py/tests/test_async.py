@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -18,7 +20,7 @@ class CoreStub:
 
 
 @pytest.fixture
-def mock_tokenizer():
+def mock_tokenizer() -> Iterator[MagicMock]:
     with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
         tokenizer.decode.return_value = "token "
@@ -39,7 +41,7 @@ def mock_core(monkeypatch: pytest.MonkeyPatch) -> CoreStub:
 
 
 @pytest.mark.asyncio
-async def test_async_generate(tmp_path, mock_tokenizer, mock_core):
+async def test_async_generate(tmp_path: Path, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     model_dir = tmp_path / "dummy-model"
     model_dir.mkdir()
 
@@ -52,16 +54,14 @@ async def test_async_generate(tmp_path, mock_tokenizer, mock_core):
 
 
 @pytest.mark.asyncio
-async def test_async_generate_stream(tmp_path, mock_tokenizer, mock_core):
+async def test_async_generate_stream(tmp_path: Path, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     model_dir = tmp_path / "dummy-model"
     model_dir.mkdir()
 
     config = GenerationConfig(model_path=model_dir, max_new_tokens=5)
     model = AsyncGemmaModel(config)
 
-    tokens = []
-    async for token in model.generate_stream("Hello"):
-        tokens.append(token)
+    tokens = [token async for token in model.generate_stream("Hello")]
 
     assert len(tokens) > 0
     assert all(isinstance(t, str) for t in tokens)

@@ -177,9 +177,7 @@ class SyncGemmaModel:
         if self._tokenizer is not None:
             return self._tokenizer
         if Tokenizer is None:
-            msg = (
-                "Text generation requires optional dependency 'tokenizers'. Install with: pip install 'mogemma[text]'"
-            )
+            msg = "Text generation requires optional dependency 'tokenizers'. Install with: pip install 'mogemma[text]'"
             raise ModuleNotFoundError(msg)
         self._tokenizer = Tokenizer.from_pretrained(str(self.model_path))
         return self._tokenizer
@@ -214,9 +212,7 @@ class SyncGemmaModel:
             current_token = int(eos_token_id)
 
         for _ in range(self.config.max_new_tokens):
-            logits = _core.step(
-                self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p
-            )
+            logits = _core.step(self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p)
 
             next_token = _sample_next_token(
                 logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p

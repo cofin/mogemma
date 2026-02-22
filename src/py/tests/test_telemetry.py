@@ -1,10 +1,10 @@
 import importlib
 import sys
 
-from pytest import MonkeyPatch
+import pytest
 
 
-def test_import_telemetry_has_no_global_provider_side_effect(monkeypatch: MonkeyPatch) -> None:
+def test_import_telemetry_has_no_global_provider_side_effect(monkeypatch: pytest.MonkeyPatch) -> None:
     """Importing telemetry should not mutate the global tracer provider."""
     module_name = "mogemma.telemetry"
     sys.modules.pop(module_name, None)
