@@ -39,6 +39,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
 
+[tool.hatch.build.hooks.custom]
+path = "tools/hatch_build.py"
+
 [tool.uv]
 package = true
 
