@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -45,6 +46,20 @@ def test_resolve_model_hf_id_cache_miss_returns_model_id(tmp_path: Path) -> None
 
     resolved = hub.resolve_model(model_id)
     assert resolved == Path(model_id)
+
+
+def test_resolve_model_hf_id_downloads_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify missing HF IDs are downloaded when requested."""
+    hub = HubManager(cache_path=tmp_path)
+    model_id = "google/gemma-3-4b-it"
+    downloaded = tmp_path / "google--gemma-3-4b-it"
+    mocked_download = MagicMock(return_value=downloaded)
+    monkeypatch.setattr(hub, "download", mocked_download)
+
+    resolved = hub.resolve_model(model_id, download_if_missing=True)
+
+    assert resolved == downloaded
+    mocked_download.assert_called_once_with(model_id)
 
 
 @pytest.mark.skip(reason="Requires network/HF token")

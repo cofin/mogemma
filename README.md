@@ -1,12 +1,12 @@
 # mogemma
 
-A lightweight Python/Mojo bridge for Google Gemma 3 — embeddings and text generation powered by [MAX Engine](https://www.modular.com/max).
+Python/Mojo interface for Google Gemma 3 with [MAX Engine](https://www.modular.com/max).
 
 ## Features
 
-- **Embeddings** — Generate dense vector embeddings via the Mojo-accelerated backend
+- **Embeddings** — Generate dense vector embeddings through the Mojo backend
 - **Text generation** — Synchronous and async streaming text generation with configurable sampling (temperature, top-k, top-p)
-- **HuggingFace Hub** — Automatic model resolution from local paths or the HF Hub
+- **HuggingFace Hub** — Automatically resolves local paths and downloads missing HF IDs into cache
 - **OpenTelemetry** — Optional tracing instrumentation
 - **Lazy imports** — Only loads what you use; optional extras keep the install slim
 
@@ -36,7 +36,7 @@ from mogemma import EmbeddingConfig, EmbeddingModel
 config = EmbeddingConfig(model_path="google/gemma-3-1b")
 model = EmbeddingModel(config)
 
-embeddings = model.embed(["Hello, world!", "Mojo is fast."])
+embeddings = model.embed(["Hello, world!", "Model outputs are computed by MAX Engine."])
 print(embeddings.shape)  # (2, hidden_dim)
 ```
 

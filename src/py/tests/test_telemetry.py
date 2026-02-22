@@ -10,7 +10,11 @@ def test_import_telemetry_has_no_global_provider_side_effect(monkeypatch: pytest
     sys.modules.pop(module_name, None)
 
     calls: list[object] = []
-    monkeypatch.setattr("opentelemetry.trace.set_tracer_provider", lambda provider: calls.append(provider))
+
+    def _set_provider(provider: object) -> None:
+        calls.append(provider)
+
+    monkeypatch.setattr("opentelemetry.trace.set_tracer_provider", _set_provider)
 
     importlib.import_module(module_name)
     assert calls == []

@@ -1,7 +1,9 @@
+"""Model wrappers for Gemma 3 inference."""
+
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Iterator
-from typing import Any
+from collections.abc import AsyncIterator, Iterator, Sequence
+from typing import Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -9,14 +11,8 @@ import numpy.typing as npt
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
 from .telemetry import tracer
+from .typing import _TokenizerImpl
 
-# Optional tokenizer dependency; required for text tokenization paths only.
-try:
-    from tokenizers import Tokenizer  # type: ignore[import-untyped]
-except ModuleNotFoundError:
-    Tokenizer = None
-
-# Import the Mojo native module
 try:
     from . import _core
 except ImportError:
@@ -24,7 +20,28 @@ except ImportError:
     _core = None
 
 
-def _sample_next_token(logits: Any, *, temperature: float, top_k: int, top_p: float) -> int:
+class _EncodedToken(Protocol):
+    ids: Sequence[int]
+
+
+class _Tokenizer(Protocol):
+    def enable_truncation(self, *, max_length: int, **_: object) -> None: ...
+
+    def enable_padding(self, **_: object) -> None: ...
+
+    def encode_batch(self, text: Sequence[str]) -> Sequence[_EncodedToken]: ...
+
+    def encode(self, text: str) -> _EncodedToken: ...
+
+    def decode(self, ids: Sequence[int]) -> str: ...
+
+    def token_to_id(self, token: str) -> int | None: ...
+
+
+_EXPECTED_MATRIX_DIMS = 2
+
+
+def _sample_next_token(logits: npt.ArrayLike, *, temperature: float, top_k: int, top_p: float) -> int:
     """Sample the next token ID from backend logits."""
     logits_array = np.asarray(logits, dtype=np.float64).reshape(-1)
     if logits_array.size == 0:
@@ -75,32 +92,32 @@ def _sample_next_token(logits: Any, *, temperature: float, top_k: int, top_p: fl
 
 
 class EmbeddingModel:
-    """Python wrapper for the Mojo-powered Gemma 3 embedding engine."""
+    """Python interface for the Gemma 3 embedding engine."""
 
-    def __init__(self, config: EmbeddingConfig, tokenizer: Any | None = None) -> None:
+    def __init__(self, config: EmbeddingConfig, tokenizer: _Tokenizer | None = None) -> None:
         """Initialize the embedding model."""
         self.config = config
         self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
-        self.model_path = HubManager().resolve_model(str(config.model_path))
+        self.model_path = HubManager().resolve_model(str(config.model_path), download_if_missing=True)
 
         # Initialize Mojo core
-        self._llm: Any = None
+        self._llm: object | None = None
         if _core is not None:
             with contextlib.suppress(Exception):
                 self._llm = _core.init_model(str(self.model_path))
 
-    def _ensure_tokenizer(self) -> Any:
+    def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
-        if Tokenizer is None:
+        if _TokenizerImpl is None:
             msg = (
                 "Text tokenization requires optional dependency 'tokenizers'. "
                 "Install with: pip install 'mogemma[text]' or call embed_tokens(...) with pre-tokenized inputs."
             )
             raise ModuleNotFoundError(msg)
-        self._tokenizer = Tokenizer.from_pretrained(str(self.model_path))
+        self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
         return self._tokenizer
 
     def _embed_token_array(self, tokens: npt.NDArray[np.int32], input_count: int) -> npt.NDArray[np.float32]:
@@ -114,7 +131,7 @@ class EmbeddingModel:
         raw_embeddings = _core.generate_embeddings(self._llm, tokens)
         embeddings = np.asarray(raw_embeddings, dtype=np.float32)
 
-        if embeddings.ndim != 2:
+        if embeddings.ndim != _EXPECTED_MATRIX_DIMS:
             msg = f"expected 2D embeddings from backend, got {embeddings.ndim}D"
             raise ValueError(msg)
         if embeddings.shape[0] != input_count:
@@ -140,41 +157,41 @@ class EmbeddingModel:
     def embed_tokens(self, tokens: npt.ArrayLike) -> npt.NDArray[np.float32]:
         """Generate embeddings directly from pre-tokenized IDs using Mojo inference."""
         token_array = np.asarray(tokens, dtype=np.int32)
-        if token_array.ndim != 2:
+        if token_array.ndim != _EXPECTED_MATRIX_DIMS:
             msg = f"tokens must be a 2D array of token IDs, got shape {token_array.shape}"
             raise ValueError(msg)
         return self._embed_token_array(token_array, int(token_array.shape[0]))
 
     @property
-    def tokenizer(self) -> Any:
+    def tokenizer(self) -> _Tokenizer:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
 
 
 class SyncGemmaModel:
-    """Python wrapper for the Mojo-powered Gemma 3 text generation engine."""
+    """Python interface for the Gemma 3 text generation engine."""
 
-    def __init__(self, config: GenerationConfig, tokenizer: Any | None = None) -> None:
+    def __init__(self, config: GenerationConfig, tokenizer: _Tokenizer | None = None) -> None:
         """Initialize the text model."""
         self.config = config
         self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
-        self.model_path = HubManager().resolve_model(str(config.model_path))
+        self.model_path = HubManager().resolve_model(str(config.model_path), download_if_missing=True)
 
         # Initialize Mojo core
-        self._llm: Any = None
+        self._llm: object | None = None
         if _core is not None:
             with contextlib.suppress(Exception):
                 self._llm = _core.init_model(str(self.model_path))
 
-    def _ensure_tokenizer(self) -> Any:
+    def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
-        if Tokenizer is None:
+        if _TokenizerImpl is None:
             msg = "Text generation requires optional dependency 'tokenizers'. Install with: pip install 'mogemma[text]'"
             raise ModuleNotFoundError(msg)
-        self._tokenizer = Tokenizer.from_pretrained(str(self.model_path))
+        self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
         return self._tokenizer
 
     def generate(self, prompt: str) -> str:
@@ -218,7 +235,7 @@ class SyncGemmaModel:
             current_token = next_token
 
     @property
-    def tokenizer(self) -> Any:
+    def tokenizer(self) -> _Tokenizer:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
 
@@ -251,6 +268,6 @@ class AsyncGemmaModel:
             yield token
 
     @property
-    def tokenizer(self) -> Any:
+    def tokenizer(self) -> _Tokenizer:
         """Access to the underlying tokenizer."""
         return self._model.tokenizer

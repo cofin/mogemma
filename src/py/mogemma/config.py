@@ -1,3 +1,5 @@
+"""Configuration objects for model runtime settings."""
+
 from dataclasses import dataclass, field
 from pathlib import Path
 

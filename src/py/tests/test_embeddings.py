@@ -19,7 +19,7 @@ def dummy_model_path() -> str:
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
     """Fixture to mock the AutoTokenizer."""
-    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
+    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
         tokenizer = MagicMock()
 
         def _encode_batch(inputs: str | list[str], **_: object) -> list[MagicMock]:
@@ -84,7 +84,7 @@ def test_embed_list_of_strings(dummy_model_path: str, mock_tokenizer: MagicMock,
     del mock_core
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
-    texts = ["Hello", "Mojo is fast"]
+    texts = ["Hello", "Mojo runs Gemma inference."]
     embeddings = model.embed(texts)
 
     assert embeddings.shape == (2, 768)
@@ -124,7 +124,7 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
             return np.ones((tokens.shape[0], 768), dtype=np.float32)
 
     monkeypatch.setattr(model_module, "_core", CoreStub())
-    monkeypatch.setattr(model_module, "Tokenizer", None)
+    monkeypatch.setattr(model_module, "_TokenizerImpl", None)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
@@ -138,7 +138,7 @@ def test_embed_text_requires_tokenizer_when_transformers_missing(
     dummy_model_path: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure text embedding reports clear requirement when transformers is absent."""
-    monkeypatch.setattr(model_module, "Tokenizer", None)
+    monkeypatch.setattr(model_module, "_TokenizerImpl", None)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)

@@ -33,7 +33,7 @@ def dummy_model_path() -> str:
 
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
-    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
+    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
         tokenizer = MagicMock()
         encoded_mock = MagicMock()
         encoded_mock.ids = [1, 2, 3]

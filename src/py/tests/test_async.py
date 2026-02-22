@@ -22,7 +22,7 @@ class CoreStub:
 
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
-    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
+    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
         tokenizer = MagicMock()
         tokenizer.decode.return_value = "token "
 
