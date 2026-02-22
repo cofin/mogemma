@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 
 class HubManager:
@@ -32,7 +33,7 @@ class HubManager:
         # 3. Fallback to HF Hub by preserving the model id string representation.
         return Path(model_id)
 
-    def download(self, model_id: str, **kwargs: object) -> Path:
+    def download(self, model_id: str, **kwargs: Any) -> Path:
         """Download a model from the Hugging Face Hub."""
         try:
             from huggingface_hub import snapshot_download
@@ -44,5 +45,5 @@ class HubManager:
 
         local_dir = self.cache_path / model_id.replace("/", "--")
 
-        path = snapshot_download(repo_id=model_id, local_dir=local_dir, local_dir_use_symlinks=False, **kwargs)
+        path = snapshot_download(repo_id=model_id, local_dir=local_dir, **kwargs)
         return Path(path)

@@ -1,4 +1,3 @@
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,8 +13,7 @@ class CustomBuildHook(BuildHookInterface):
         if self.target_name != "wheel":
             return
 
-        if os.environ.get("MOGEMMA_SKIP_MOJO") == "1":
-            print("Skipping Mojo compilation (MOGEMMA_SKIP_MOJO=1)")
+        if version == "editable":
             return
 
         root = Path(self.root)

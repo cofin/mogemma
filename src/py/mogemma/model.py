@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
@@ -11,13 +12,13 @@ from .telemetry import tracer
 
 # Optional tokenizer dependency; required for text tokenization paths only.
 try:
-    from tokenizers import Tokenizer
+    from tokenizers import Tokenizer  # type: ignore[import-untyped]
 except ModuleNotFoundError:
-    Tokenizer = None  # type: ignore[assignment]
+    Tokenizer = None
 
 # Import the Mojo native module
 try:
-    from . import _core  # type: ignore
+    from . import _core
 except ImportError:
     # Allow fallback for development/testing if .so is missing
     _core = None
@@ -85,13 +86,10 @@ class EmbeddingModel:
         self.model_path = HubManager().resolve_model(str(config.model_path))
 
         # Initialize Mojo core
+        self._llm: Any = None
         if _core is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._llm = _core.init_model(str(self.model_path))
-            except Exception:
-                self._llm = None
-        else:
-            self._llm = None
 
     def _ensure_tokenizer(self) -> Any:
         if self._tokenizer is not None:
@@ -165,13 +163,10 @@ class SyncGemmaModel:
         self.model_path = HubManager().resolve_model(str(config.model_path))
 
         # Initialize Mojo core
+        self._llm: Any = None
         if _core is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._llm = _core.init_model(str(self.model_path))
-            except Exception:
-                self._llm = None
-        else:
-            self._llm = None
 
     def _ensure_tokenizer(self) -> Any:
         if self._tokenizer is not None:

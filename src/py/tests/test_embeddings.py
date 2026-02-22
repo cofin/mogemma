@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 import mogemma.model as model_module
@@ -24,7 +25,7 @@ def mock_tokenizer() -> Iterator[MagicMock]:
         def _encode_batch(inputs: str | list[str], **_: object) -> list[MagicMock]:
             batch_size = len(inputs) if isinstance(inputs, list) else 1
             result = []
-            for _ in range(batch_size):
+            for _i in range(batch_size):
                 encoded = MagicMock()
                 encoded.ids = [1, 2, 3]
                 result.append(encoded)
@@ -43,7 +44,7 @@ def mock_core(monkeypatch: pytest.MonkeyPatch) -> object:
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: np.ndarray) -> np.ndarray:
+        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
             del llm
             return np.ones((tokens.shape[0], 768), dtype=np.float32)
 
@@ -98,7 +99,7 @@ def test_embed_raises_when_backend_returns_wrong_row_count(
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: np.ndarray) -> np.ndarray:
+        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
             del llm, tokens
             return np.zeros((1, 768), dtype=np.float32)
 
@@ -118,7 +119,7 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: np.ndarray) -> np.ndarray:
+        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
             del llm
             return np.ones((tokens.shape[0], 768), dtype=np.float32)
 

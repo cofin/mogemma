@@ -30,32 +30,6 @@ jobs:
           name: source-dist
           path: dist/*.tar.gz
 
-  build-wheel-pure:
-    name: Build pure Python wheel
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
-
-      - name: Build pure Python wheel
-        run: uv build --wheel
-        env:
-          MOGEMMA_SKIP_MOJO: "1"
-
-      - name: Upload wheel artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-pure
-          path: dist/*.whl
-
   build-wheel-mojo:
     name: Build Mojo wheel (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -85,13 +59,13 @@ jobs:
           path: dist/*.whl
 
   test-wheels:
-    name: Test wheel (${{ matrix.wheel-type }})
-    needs: [build-wheel-pure, build-wheel-mojo]
-    runs-on: ubuntu-latest
+    name: Test wheel (${{ matrix.os }})
+    needs: [build-wheel-mojo]
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        wheel-type: [pure, mojo]
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -101,18 +75,10 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Download pure wheel
-        if: matrix.wheel-type == 'pure'
+      - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: wheels-pure
-          path: dist/
-
-      - name: Download Mojo wheel (ubuntu)
-        if: matrix.wheel-type == 'mojo'
-        uses: actions/download-artifact@v4
-        with:
-          name: wheels-mojo-ubuntu-latest
+          name: wheels-mojo-${{ matrix.os }}
           path: dist/
 
       - name: Test wheel installation
@@ -123,7 +89,7 @@ jobs:
 
   publish-release:
     name: Publish to PyPI
-    needs: [build-source, build-wheel-pure, test-wheels]
+    needs: [build-source, build-wheel-mojo, test-wheels]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -140,10 +106,16 @@ jobs:
           name: source-dist
           path: dist/
 
-      - name: Download pure wheel
+      - name: Download wheels (ubuntu)
         uses: actions/download-artifact@v4
         with:
-          name: wheels-pure
+          name: wheels-mojo-ubuntu-latest
+          path: dist/
+
+      - name: Download wheels (macos)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels-mojo-macos-latest
           path: dist/
 
       - name: List built packages

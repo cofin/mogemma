@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 import mogemma.model as model_module
@@ -14,7 +15,7 @@ class CoreStub:
     def init_model(self, _: str) -> object:
         return object()
 
-    def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> np.ndarray:
+    def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
         del llm, token_id, temp, top_k, top_p
         return np.array([5.0, 0.0, 0.0], dtype=np.float32)
 
