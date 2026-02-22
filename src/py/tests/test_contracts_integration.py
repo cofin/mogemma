@@ -36,7 +36,7 @@ def mock_embedding_tokenizer() -> Iterator[MagicMock]:
 
         def _encode_batch(texts: list[str], **_: object) -> list[MagicMock]:
             encoded = []
-            for _ in texts:
+            for _text in texts:
                 tokenized = MagicMock()
                 tokenized.ids = [1, 2, 3]
                 encoded.append(tokenized)
