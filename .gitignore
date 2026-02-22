@@ -19,3 +19,6 @@ build/
 *.egg-info/
 coverage.xml
 .python-version
+AGENTS.md
+CLAUDE.md
+GEMINI.md
