@@ -19,9 +19,11 @@ def dummy_model_path() -> str:
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
     """Fixture to mock the AutoTokenizer."""
-    with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
+    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
-        tokenizer.return_value = {"input_ids": np.array([[1, 2, 3]], dtype=np.int32)}
+        encoded_mock = MagicMock()
+        encoded_mock.ids = [1, 2, 3]
+        tokenizer.encode.return_value = encoded_mock
         tokenizer.decode.return_value = "decoded text"
         mock.return_value = tokenizer
         yield tokenizer
@@ -105,7 +107,7 @@ def test_gemma_generate_stream_uses_backend_logits(
     core_stub = CoreStub()
     monkeypatch.setattr(model_module, "_core", core_stub)
 
-    mock_tokenizer.decode.side_effect = lambda token_ids, skip_special_tokens=True: f"<{token_ids[0]}>"
+    mock_tokenizer.decode.side_effect = lambda token_ids: f"<{token_ids[0]}>"
 
     config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=2, temperature=0.0, top_k=50, top_p=1.0)
     model = GemmaModel(config)

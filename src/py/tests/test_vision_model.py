@@ -15,9 +15,11 @@ def dummy_model_path():
 
 @pytest.fixture
 def mock_tokenizer():
-    with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
+    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
-        tokenizer.return_value = {"input_ids": np.array([[1, 2, 3]], dtype=np.int32)}
+        encoded_mock = MagicMock()
+        encoded_mock.ids = [1, 2, 3]
+        tokenizer.encode.return_value = encoded_mock
         tokenizer.decode.return_value = "A cat"
         mock.return_value = tokenizer
         yield tokenizer

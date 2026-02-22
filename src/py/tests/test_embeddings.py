@@ -18,15 +18,19 @@ def dummy_model_path() -> str:
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
     """Fixture to mock the AutoTokenizer."""
-    with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
+    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
 
-        def _encode(inputs: str | list[str], **_: object) -> dict[str, np.ndarray]:
+        def _encode_batch(inputs: str | list[str], **_: object) -> list[MagicMock]:
             batch_size = len(inputs) if isinstance(inputs, list) else 1
-            input_ids = np.tile(np.array([[1, 2, 3]], dtype=np.int32), (batch_size, 1))
-            return {"input_ids": input_ids}
+            result = []
+            for _ in range(batch_size):
+                encoded = MagicMock()
+                encoded.ids = [1, 2, 3]
+                result.append(encoded)
+            return result
 
-        tokenizer.side_effect = _encode
+        tokenizer.encode_batch.side_effect = _encode_batch
         mock.return_value = tokenizer
         yield tokenizer
 
@@ -119,7 +123,7 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
             return np.ones((tokens.shape[0], 768), dtype=np.float32)
 
     monkeypatch.setattr(model_module, "_core", CoreStub())
-    monkeypatch.setattr(model_module, "AutoTokenizer", None)
+    monkeypatch.setattr(model_module, "Tokenizer", None)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
@@ -133,7 +137,7 @@ def test_embed_text_requires_tokenizer_when_transformers_missing(
     dummy_model_path: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure text embedding reports clear requirement when transformers is absent."""
-    monkeypatch.setattr(model_module, "AutoTokenizer", None)
+    monkeypatch.setattr(model_module, "Tokenizer", None)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)

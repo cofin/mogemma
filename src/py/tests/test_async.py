@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 from mogemma import GenerationConfig
@@ -9,10 +8,14 @@ from mogemma.async_model import AsyncGemmaModel
 
 @pytest.fixture
 def mock_tokenizer():
-    with patch("mogemma.model.AutoTokenizer.from_pretrained") as mock:
+    with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
         tokenizer.decode.return_value = "token "
-        tokenizer.return_value = {"input_ids": np.array([[1, 2, 3]]), "attention_mask": np.array([[1, 1, 1]])}
+
+        encoded_mock = MagicMock()
+        encoded_mock.ids = [1, 2, 3]
+        tokenizer.encode.return_value = encoded_mock
+
         mock.return_value = tokenizer
         yield tokenizer
 
