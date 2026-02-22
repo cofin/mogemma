@@ -15,3 +15,11 @@ build/
 .beads
 .claude
 .geminiignore
+.agent
+*.egg-info/
+coverage.xml
+.python-version
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+docs/*.json
