@@ -154,7 +154,20 @@ def test_embed_requires_mojo_core(
     monkeypatch.setattr(model_module, "_core", None)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
-    model = EmbeddingModel(config)
-
     with pytest.raises(RuntimeError, match="Mojo core is unavailable"):
-        model.embed("hello")
+        EmbeddingModel(config)
+
+
+def test_embedding_init_raises_on_core_init_failure(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CoreInitFailure:
+        def init_model(self, _: str) -> object:
+            msg = "checkpoint missing or unreadable"
+            raise RuntimeError(msg)
+
+    monkeypatch.setattr(model_module, "_core", CoreInitFailure())
+    config = EmbeddingConfig(model_path=Path(dummy_model_path))
+
+    with pytest.raises(RuntimeError, match="embedding model failed to initialize"):
+        EmbeddingModel(config)

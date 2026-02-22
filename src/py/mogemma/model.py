@@ -1,7 +1,6 @@
 """Model wrappers for Gemma 3 inference."""
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Protocol, cast
 
@@ -39,6 +38,27 @@ class _Tokenizer(Protocol):
 
 
 _EXPECTED_MATRIX_DIMS = 2
+
+
+def _initialize_llm(model_path: str, *, model_type: str) -> object:
+    if _core is None:
+        if model_type == "embedding":
+            msg = (
+                "Mojo core is unavailable for embeddings. "
+                "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
+            )
+        else:
+            msg = (
+                "Mojo core is unavailable for text generation. "
+                "Build/install the `mogemma._core` extension before calling generate()."
+            )
+        raise RuntimeError(msg)
+
+    try:
+        return _core.init_model(model_path)
+    except Exception as exc:
+        msg = f"{model_type} model failed to initialize from '{model_path}': {exc}"
+        raise RuntimeError(msg) from exc
 
 
 def _sample_next_token(logits: npt.ArrayLike, *, temperature: float, top_k: int, top_p: float) -> int:
@@ -103,10 +123,7 @@ class EmbeddingModel:
         self.model_path = HubManager().resolve_model(str(config.model_path), download_if_missing=True)
 
         # Initialize Mojo core
-        self._llm: object | None = None
-        if _core is not None:
-            with contextlib.suppress(Exception):
-                self._llm = _core.init_model(str(self.model_path))
+        self._llm: object | None = _initialize_llm(str(self.model_path), model_type="embedding")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -180,10 +197,7 @@ class SyncGemmaModel:
         self.model_path = HubManager().resolve_model(str(config.model_path), download_if_missing=True)
 
         # Initialize Mojo core
-        self._llm: object | None = None
-        if _core is not None:
-            with contextlib.suppress(Exception):
-                self._llm = _core.init_model(str(self.model_path))
+        self._llm: object | None = _initialize_llm(str(self.model_path), model_type="generation")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:

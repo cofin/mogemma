@@ -136,6 +136,21 @@ def test_gemma_generate_raises_without_core(
 ) -> None:
     monkeypatch.setattr(model_module, "_core", None)
     config = GenerationConfig(model_path=Path(dummy_model_path))
-    model = SyncGemmaModel(config)
+
     with pytest.raises(RuntimeError, match="Mojo core is unavailable"):
-        model.generate("Hello")
+        SyncGemmaModel(config)
+
+
+def test_gemma_init_raises_on_core_init_failure(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CoreInitFailure:
+        def init_model(self, _: str) -> object:
+            msg = "checkpoint missing or unreadable"
+            raise RuntimeError(msg)
+
+    monkeypatch.setattr(model_module, "_core", CoreInitFailure())
+    config = GenerationConfig(model_path=Path(dummy_model_path))
+
+    with pytest.raises(RuntimeError, match="generation model failed to initialize"):
+        SyncGemmaModel(config)

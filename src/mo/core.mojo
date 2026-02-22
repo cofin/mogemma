@@ -32,8 +32,20 @@ fn init_model_mojo(
     model_path_obj: PythonObject
 ) raises -> PythonObject:
     var model_path = String(model_path_obj)
-    print("Mojo: Initializing Gemma 3 model from", model_path)
-    
+    if model_path == "":
+        raise Error("init_model requires a non-empty model_path")
+
+    var pathlib = Python.import_module("pathlib")
+    var resolved_path = pathlib.Path(model_path)
+    if not resolved_path.exists():
+        var msg = "init_model failed: model path does not exist: "
+        msg = msg + model_path
+        raise Error(msg)
+    if not resolved_path.is_dir():
+        var msg = "init_model failed: model path is not a directory: "
+        msg = msg + model_path
+        raise Error(msg)
+
     try:
         var max_llm = Python.import_module("max.entrypoints.llm")
         var pipeline_config = Python.import_module("max.pipelines").PipelineConfig(
@@ -43,7 +55,12 @@ fn init_model_mojo(
         return llm
     except e:
         print("Mojo Error loading model:", e)
-        raise Error(String(e))
+        var msg = "init_model failed while loading model from: "
+        msg = msg + model_path
+        msg = msg + " ("
+        msg = msg + String(e)
+        msg = msg + ")"
+        raise Error(msg)
 
 @export
 fn PyInit__core() -> PythonObject:
