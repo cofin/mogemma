@@ -10,9 +10,9 @@ from .telemetry import tracer
 
 # Optional tokenizer dependency; required for text tokenization paths only.
 try:
-    from transformers import AutoTokenizer
+    from tokenizers import Tokenizer
 except ModuleNotFoundError:
-    AutoTokenizer = None  # type: ignore[assignment]
+    Tokenizer = None  # type: ignore[assignment]
 
 # Import the Mojo native module
 try:
@@ -95,13 +95,13 @@ class EmbeddingModel:
     def _ensure_tokenizer(self) -> Any:
         if self._tokenizer is not None:
             return self._tokenizer
-        if AutoTokenizer is None:
+        if Tokenizer is None:
             msg = (
-                "Text tokenization requires optional dependency 'transformers'. "
+                "Text tokenization requires optional dependency 'tokenizers'. "
                 "Install with: pip install 'mogemma[text]' or call embed_tokens(...) with pre-tokenized inputs."
             )
             raise ModuleNotFoundError(msg)
-        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
+        self._tokenizer = Tokenizer.from_pretrained(str(self.model_path))
         return self._tokenizer
 
     def _embed_token_array(self, tokens: npt.NDArray[np.int32], input_count: int) -> npt.NDArray[np.float32]:
@@ -175,12 +175,12 @@ class GemmaModel:
     def _ensure_tokenizer(self) -> Any:
         if self._tokenizer is not None:
             return self._tokenizer
-        if AutoTokenizer is None:
+        if Tokenizer is None:
             msg = (
-                "Text generation requires optional dependency 'transformers'. Install with: pip install 'mogemma[text]'"
+                "Text generation requires optional dependency 'tokenizers'. Install with: pip install 'mogemma[text]'"
             )
             raise ModuleNotFoundError(msg)
-        self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
+        self._tokenizer = Tokenizer.from_pretrained(str(self.model_path))
         return self._tokenizer
 
     def generate(self, prompt: str) -> str:
