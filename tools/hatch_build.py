@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ class CustomBuildHook(BuildHookInterface):
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         """Called before the build starts."""
         if self.target_name != "wheel":
+            return
+
+        if os.environ.get("MOGEMMA_SKIP_MOJO") == "1":
+            print("Skipping Mojo compilation (MOGEMMA_SKIP_MOJO=1)")
             return
 
         root = Path(self.root)
