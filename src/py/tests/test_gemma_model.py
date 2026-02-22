@@ -7,18 +7,32 @@ import numpy.typing as npt
 import pytest
 
 import mogemma.model as model_module
-from mogemma import GemmaModel, GenerationConfig
+from mogemma import GenerationConfig, SyncGemmaModel
+
+
+class CoreStub:
+    """Stub for the Mojo _core module used in tests."""
+
+    def __init__(self) -> None:
+        self.step_calls: list[tuple[int, float, int, float]] = []
+
+    def init_model(self, _: str) -> object:
+        return object()
+
+    def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+        del llm
+        self.step_calls.append((token_id, temp, top_k, top_p))
+        # Return logits that always select token 0
+        return np.array([5.0, 0.0, 0.0], dtype=np.float32)
 
 
 @pytest.fixture
 def dummy_model_path() -> str:
-    """Fixture for a dummy model path."""
     return "bert-base-uncased"
 
 
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
-    """Fixture to mock the AutoTokenizer."""
     with patch("mogemma.model.Tokenizer.from_pretrained") as mock:
         tokenizer = MagicMock()
         encoded_mock = MagicMock()
@@ -29,8 +43,14 @@ def mock_tokenizer() -> Iterator[MagicMock]:
         yield tokenizer
 
 
+@pytest.fixture
+def mock_core(monkeypatch: pytest.MonkeyPatch) -> CoreStub:
+    stub = CoreStub()
+    monkeypatch.setattr(model_module, "_core", stub)
+    return stub
+
+
 def test_generation_config_validation() -> None:
-    """Test generation configuration validation logic."""
     with pytest.raises(ValueError, match="temperature"):
         GenerationConfig(model_path="dummy", temperature=-1.0)
     with pytest.raises(ValueError, match="top_p"):
@@ -38,43 +58,37 @@ def test_generation_config_validation() -> None:
 
 
 def test_gemma_model_init(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
-    """Test text generation model initialization."""
     config = GenerationConfig(model_path=Path(dummy_model_path))
-    model = GemmaModel(config)
+    model = SyncGemmaModel(config)
     assert model is not None
 
 
-def test_gemma_generate_sampling(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
-    """Test text generation with sampling parameters."""
+def test_gemma_generate_sampling(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=5, temperature=0.7, top_k=10, top_p=0.9)
-    model = GemmaModel(config)
+    model = SyncGemmaModel(config)
 
     response = model.generate("Hello")
     assert isinstance(response, str)
     assert len(response) > 0
 
 
-def test_gemma_generate_long_prompt(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
-    """Test text generation with a long prompt."""
+def test_gemma_generate_long_prompt(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path), max_sequence_length=1024)
-    model = GemmaModel(config)
-    long_prompt = "word " * 500
-    response = model.generate(long_prompt)
+    model = SyncGemmaModel(config)
+    response = model.generate("word " * 500)
     assert isinstance(response, str)
 
 
-def test_gemma_generate_empty_prompt(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
-    """Test text generation with an empty prompt."""
+def test_gemma_generate_empty_prompt(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path))
-    model = GemmaModel(config)
+    model = SyncGemmaModel(config)
     response = model.generate("")
     assert isinstance(response, str)
 
 
-def test_gemma_consecutive_generations(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
-    """Test consecutive text generations."""
+def test_gemma_consecutive_generations(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=5)
-    model = GemmaModel(config)
+    model = SyncGemmaModel(config)
 
     res1 = model.generate("First prompt")
     res2 = model.generate("Second prompt")
@@ -90,7 +104,7 @@ def test_gemma_generate_stream_uses_backend_logits(
 ) -> None:
     """Ensure each generated token is selected from backend logits."""
 
-    class CoreStub:
+    class PreciseStub:
         def __init__(self) -> None:
             self.step_calls: list[tuple[int, float, int, float]] = []
 
@@ -104,14 +118,22 @@ def test_gemma_generate_stream_uses_backend_logits(
                 return np.array([0.0, 0.0, 5.0], dtype=np.float32)
             return np.array([4.0, 0.0, 0.0], dtype=np.float32)
 
-    core_stub = CoreStub()
+    core_stub = PreciseStub()
     monkeypatch.setattr(model_module, "_core", core_stub)
 
     mock_tokenizer.decode.side_effect = lambda token_ids: f"<{token_ids[0]}>"
 
     config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=2, temperature=0.0, top_k=50, top_p=1.0)
-    model = GemmaModel(config)
+    model = SyncGemmaModel(config)
 
     output = model.generate("Hello")
     assert output == "<2><0>"
     assert core_stub.step_calls == [(3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
+
+
+def test_gemma_generate_raises_without_core(dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(model_module, "_core", None)
+    config = GenerationConfig(model_path=Path(dummy_model_path))
+    model = SyncGemmaModel(config)
+    with pytest.raises(RuntimeError, match="Mojo core is unavailable"):
+        model.generate("Hello")

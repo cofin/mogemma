@@ -1,9 +1,20 @@
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
+import mogemma.model as model_module
 from mogemma import GenerationConfig
-from mogemma.async_model import AsyncGemmaModel
+from mogemma.model import AsyncGemmaModel
+
+
+class CoreStub:
+    def init_model(self, _: str) -> object:
+        return object()
+
+    def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> np.ndarray:
+        del llm, token_id, temp, top_k, top_p
+        return np.array([5.0, 0.0, 0.0], dtype=np.float32)
 
 
 @pytest.fixture
@@ -20,9 +31,15 @@ def mock_tokenizer():
         yield tokenizer
 
 
+@pytest.fixture
+def mock_core(monkeypatch: pytest.MonkeyPatch) -> CoreStub:
+    stub = CoreStub()
+    monkeypatch.setattr(model_module, "_core", stub)
+    return stub
+
+
 @pytest.mark.asyncio
-async def test_async_generate(tmp_path, mock_tokenizer):
-    """Verify async generation returns a string."""
+async def test_async_generate(tmp_path, mock_tokenizer, mock_core):
     model_dir = tmp_path / "dummy-model"
     model_dir.mkdir()
 
@@ -35,8 +52,7 @@ async def test_async_generate(tmp_path, mock_tokenizer):
 
 
 @pytest.mark.asyncio
-async def test_async_generate_stream(tmp_path, mock_tokenizer):
-    """Verify async streaming yields tokens."""
+async def test_async_generate_stream(tmp_path, mock_tokenizer, mock_core):
     model_dir = tmp_path / "dummy-model"
     model_dir.mkdir()
 

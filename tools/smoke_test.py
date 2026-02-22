@@ -1,6 +1,6 @@
 import time
 
-from mogemma import GemmaModel, GenerationConfig
+from mogemma import GenerationConfig, SyncGemmaModel
 
 
 def main() -> None:
@@ -9,8 +9,8 @@ def main() -> None:
 
     config = GenerationConfig(model_path=model_name, max_new_tokens=10, temperature=0.7)
 
-    print(f"Initializing GemmaModel with {model_name}...")
-    model = GemmaModel(config)
+    print(f"Initializing SyncGemmaModel with {model_name}...")
+    model = SyncGemmaModel(config)
 
     print("\nGenerating stream:")
     start_time = time.time()

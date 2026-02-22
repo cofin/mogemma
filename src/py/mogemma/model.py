@@ -1,4 +1,5 @@
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import numpy as np
@@ -152,7 +153,7 @@ class EmbeddingModel:
         return self._ensure_tokenizer()
 
 
-class GemmaModel:
+class SyncGemmaModel:
     """Python wrapper for the Mojo-powered Gemma 3 text generation engine."""
 
     def __init__(self, config: GenerationConfig, tokenizer: Any | None = None) -> None:
@@ -190,40 +191,75 @@ class GemmaModel:
     def generate_stream(self, prompt: str) -> Iterator[str]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
-        with tracer.start_as_current_span("GemmaModel.generate_stream") as span:
+        with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
             tokenizer.enable_padding()
             encoded = tokenizer.encode(prompt)
             tokens = encoded.ids
 
-        if _core is not None and self._llm is not None:
-            if tokens:
-                current_token = int(tokens[-1])
-            else:
-                eos_token_id = tokenizer.token_to_id("<eos>")
-                if eos_token_id is None:
-                    eos_token_id = 0
-                current_token = int(eos_token_id)
+        if _core is None or self._llm is None:
+            msg = (
+                "Mojo core is unavailable for text generation. "
+                "Build/install the `mogemma._core` extension before calling generate()."
+            )
+            raise RuntimeError(msg)
 
-            for _ in range(self.config.max_new_tokens):
-                logits = _core.step(
-                    self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p
-                )
-
-                next_token = _sample_next_token(
-                    logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
-                )
-                decoded = tokenizer.decode([next_token])
-                if isinstance(decoded, str):
-                    yield decoded
-                current_token = next_token
+        if tokens:
+            current_token = int(tokens[-1])
         else:
-            # Dummy fallback
-            for i in range(min(5, self.config.max_new_tokens)):
-                yield f"token_{i} "
+            eos_token_id = tokenizer.token_to_id("<eos>")
+            if eos_token_id is None:
+                eos_token_id = 0
+            current_token = int(eos_token_id)
+
+        for _ in range(self.config.max_new_tokens):
+            logits = _core.step(
+                self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p
+            )
+
+            next_token = _sample_next_token(
+                logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
+            )
+            decoded = tokenizer.decode([next_token])
+            if isinstance(decoded, str):
+                yield decoded
+            current_token = next_token
 
     @property
     def tokenizer(self) -> Any:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
+
+
+class AsyncGemmaModel:
+    """Asynchronous wrapper for SyncGemmaModel."""
+
+    def __init__(self, config: GenerationConfig) -> None:
+        """Initialize the async model."""
+        self._model = SyncGemmaModel(config)
+
+    async def generate(self, prompt: str) -> str:
+        """Generate text asynchronously."""
+        return await asyncio.to_thread(self._model.generate, prompt)
+
+    async def generate_stream(self, prompt: str) -> AsyncIterator[str]:
+        """Generate text as an async stream of tokens."""
+        generator = self._model.generate_stream(prompt)
+
+        def get_next() -> str | None:
+            try:
+                return next(generator)
+            except StopIteration:
+                return None
+
+        while True:
+            token = await asyncio.to_thread(get_next)
+            if token is None:
+                break
+            yield token
+
+    @property
+    def tokenizer(self) -> Any:
+        """Access to the underlying tokenizer."""
+        return self._model.tokenizer

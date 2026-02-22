@@ -2,27 +2,26 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .async_model import AsyncGemmaModel
     from .config import EmbeddingConfig, GenerationConfig
     from .hub import HubManager
-    from .model import EmbeddingModel, GemmaModel
+    from .model import AsyncGemmaModel, EmbeddingModel, SyncGemmaModel
 
 __all__ = [
     "AsyncGemmaModel",
     "EmbeddingConfig",
     "EmbeddingModel",
-    "GemmaModel",
     "GenerationConfig",
     "HubManager",
+    "SyncGemmaModel",
 ]
 
 _EXPORT_TO_MODULE = {
-    "AsyncGemmaModel": ".async_model",
+    "AsyncGemmaModel": ".model",
     "EmbeddingConfig": ".config",
     "EmbeddingModel": ".model",
-    "GemmaModel": ".model",
     "GenerationConfig": ".config",
     "HubManager": ".hub",
+    "SyncGemmaModel": ".model",
 }
 
 _EXTRA_HINT = {
@@ -30,7 +29,8 @@ _EXTRA_HINT = {
         "Install optional runtime deps with: pip install 'mogemma[embed]' "
         "(or 'mogemma[text]' if you need built-in text tokenization)."
     ),
-    "GemmaModel": "Install optional runtime deps with: pip install 'mogemma[text]'",
+    "SyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[text]'",
+    "AsyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[text]'",
 }
 
 
