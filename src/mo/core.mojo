@@ -2,6 +2,26 @@ from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
 
+fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
+    var logits = np.asarray(logits_obj, dtype=np.float32)
+    if Int(logits.ndim) != 1:
+        raise Error("step output must be a 1D float32 tensor")
+    if Int(logits.shape[0]) <= 0:
+        raise Error("step output must contain at least one element")
+    return logits
+
+
+fn _ensure_embedding_matrix(embeddings_obj: PythonObject, expected_rows: Int, np: PythonObject) raises -> PythonObject:
+    var embeddings = np.asarray(embeddings_obj, dtype=np.float32)
+    if Int(embeddings.ndim) != 2:
+        raise Error("generate_embeddings output must be a 2D float32 matrix")
+    if Int(embeddings.shape[0]) != expected_rows:
+        raise Error("generate_embeddings output row count does not match inputs")
+    if Int(embeddings.shape[1]) != 768:
+        raise Error("generate_embeddings output must have 768 columns")
+    return embeddings
+
+
 fn step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
@@ -15,18 +35,37 @@ fn step_mojo(
     var top_p = Float32(py=top_p_obj)
     
     var np = Python.import_module("numpy")
-    return np.zeros(256000, dtype=np.float32)
+    var builtins = Python.import_module("builtins")
+
+    if builtins.hasattr(llm, "step"):
+        var logits = llm.step(token_id, temp, top_k, top_p)
+        return _ensure_step_logits(logits, np)
+
+    if builtins.hasattr(llm, "next_token"):
+        var logits = llm.next_token(token_id, temp, top_k, top_p)
+        return _ensure_step_logits(logits, np)
+
+    raise Error("step requires llm.step or llm.next_token")
 
 fn generate_embeddings_mojo(
     llm: PythonObject,
     input_array: PythonObject,
 ) raises -> PythonObject:
-    print("Mojo: generate_embeddings called")
     var np = Python.import_module("numpy")
-    var batch_size = Int(py=input_array.shape[0])
-    if batch_size < 1:
-        batch_size = 1
-    return np.random.rand(batch_size, 768).astype(np.float32)
+    var builtins = Python.import_module("builtins")
+
+    var np_input = np.asarray(input_array, dtype=np.int32)
+    var batch_size = Int(py=np_input.shape[0])
+
+    if builtins.hasattr(llm, "generate_embeddings"):
+        var embeddings = llm.generate_embeddings(np_input)
+        return _ensure_embedding_matrix(embeddings, batch_size, np)
+
+    if builtins.hasattr(llm, "encode"):
+        var embeddings = llm.encode(np_input)
+        return _ensure_embedding_matrix(embeddings, batch_size, np)
+
+    raise Error("generate_embeddings requires llm.generate_embeddings or llm.encode")
 
 fn init_model_mojo(
     model_path_obj: PythonObject
