@@ -11,9 +11,11 @@ from mogemma import EmbeddingConfig, EmbeddingModel
 
 
 @pytest.fixture
-def dummy_model_path() -> str:
+def dummy_model_path(tmp_path: Path) -> str:
     """Fixture for a dummy model path."""
-    return "bert-base-uncased"
+    model_dir = tmp_path / "bert-base-uncased"
+    model_dir.mkdir()
+    return str(model_dir)
 
 
 @pytest.fixture
@@ -60,11 +62,20 @@ def test_embedding_config(dummy_model_path: str) -> None:
     assert config.device == "cpu"
 
 
-def test_embedding_model_init(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
+def test_embedding_model_init(
+    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object
+) -> None:
     """Test embedding model initialization."""
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
     assert model is not None
+
+
+def test_embedding_model_init_rejects_unknown_local_path() -> None:
+    config = EmbeddingConfig(model_path="bert-base-uncased-missing")
+
+    with pytest.raises(ValueError, match="existing local directory"):
+        EmbeddingModel(config)
 
 
 def test_embed_single_string(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object) -> None:
@@ -135,7 +146,7 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
 
 
 def test_embed_text_requires_tokenizer_when_transformers_missing(
-    dummy_model_path: str, monkeypatch: pytest.MonkeyPatch
+    dummy_model_path: str, monkeypatch: pytest.MonkeyPatch, mock_core: object
 ) -> None:
     """Ensure text embedding reports clear requirement when transformers is absent."""
     monkeypatch.setattr(model_module, "_TokenizerImpl", None)

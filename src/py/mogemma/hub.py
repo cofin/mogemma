@@ -1,5 +1,6 @@
 """Model resolution and Hub download helpers."""
 
+import re
 from pathlib import Path
 
 from .typing import snapshot_download
@@ -21,15 +22,19 @@ class HubManager:
     def _is_hf_model_id(model_id: str) -> bool:
         """Check if a model id looks like a Hugging Face repo id."""
         path = Path(model_id)
-        return "/" in model_id and not path.exists()
+        hf_pattern = r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*)/[A-Za-z0-9](?:[A-Za-z0-9._-]*)$"
+        return re.match(hf_pattern, model_id) is not None and not path.exists()
 
-    def resolve_model(self, model_id: str, *, download_if_missing: bool = False, **download_kwargs: object) -> Path:
+    def resolve_model(
+        self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **download_kwargs: object
+    ) -> Path:
         """Resolve a model ID to a local path.
 
         If model_id is a local path that exists, return that path.
         If model_id exists in this cache, return the cached path.
         If model_id is an HF id and download_if_missing is False, return the original id.
         If download_if_missing is True, download missing HF ids before returning.
+        If strict=True, reject unresolved local paths with a clear contract error.
         """
         # 1. Check if model_id is a direct local path
         local_path = Path(model_id)
@@ -44,6 +49,14 @@ class HubManager:
         # 3. Fallback to HF Hub model id handling.
         if self._is_hf_model_id(model_id) and download_if_missing:
             return self.download(model_id, **download_kwargs)
+
+        if strict:
+            msg = (
+                f"Cannot resolve model path '{model_id}'. "
+                "Use an existing local directory or a valid Hugging Face model id (namespace/model)."
+            )
+            raise ValueError(msg)
+
         return Path(model_id)
 
     def download(self, model_id: str, **kwargs: object) -> Path:

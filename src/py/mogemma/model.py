@@ -120,7 +120,11 @@ class EmbeddingModel:
         self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
-        self.model_path = HubManager().resolve_model(str(config.model_path), download_if_missing=True)
+        self.model_path = HubManager().resolve_model(
+            str(config.model_path),
+            download_if_missing=True,
+            strict=True,
+        )
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(str(self.model_path), model_type="embedding")
@@ -194,7 +198,11 @@ class SyncGemmaModel:
         self._tokenizer = tokenizer
 
         # Resolve model path (Hub or local)
-        self.model_path = HubManager().resolve_model(str(config.model_path), download_if_missing=True)
+        self.model_path = HubManager().resolve_model(
+            str(config.model_path),
+            download_if_missing=True,
+            strict=True,
+        )
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(str(self.model_path), model_type="generation")

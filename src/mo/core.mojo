@@ -4,20 +4,22 @@ from os import abort
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
-    if Int(logits.ndim) != 1:
+    var builtins = Python.import_module("builtins")
+    if Int(py=builtins.len(logits.shape)) != 1:
         raise Error("step output must be a 1D float32 tensor")
-    if Int(logits.shape[0]) <= 0:
+    if Int(py=logits.shape[0]) <= 0:
         raise Error("step output must contain at least one element")
     return logits
 
 
 fn _ensure_embedding_matrix(embeddings_obj: PythonObject, expected_rows: Int, np: PythonObject) raises -> PythonObject:
     var embeddings = np.asarray(embeddings_obj, dtype=np.float32)
-    if Int(embeddings.ndim) != 2:
+    var builtins = Python.import_module("builtins")
+    if Int(py=builtins.len(embeddings.shape)) != 2:
         raise Error("generate_embeddings output must be a 2D float32 matrix")
-    if Int(embeddings.shape[0]) != expected_rows:
+    if Int(py=embeddings.shape[0]) != expected_rows:
         raise Error("generate_embeddings output row count does not match inputs")
-    if Int(embeddings.shape[1]) != 768:
+    if Int(py=embeddings.shape[1]) != 768:
         raise Error("generate_embeddings output must have 768 columns")
     return embeddings
 

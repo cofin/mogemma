@@ -62,6 +62,14 @@ def test_resolve_model_hf_id_downloads_when_missing(tmp_path: Path, monkeypatch:
     mocked_download.assert_called_once_with(model_id)
 
 
+def test_resolve_model_strict_rejects_missing_local_path(tmp_path: Path) -> None:
+    """Strict mode should reject unresolved local paths."""
+    hub = HubManager(cache_path=tmp_path)
+
+    with pytest.raises(ValueError, match="existing local directory"):
+        hub.resolve_model("bert-base-uncased-missing", download_if_missing=True, strict=True)
+
+
 @pytest.mark.skip(reason="Requires network/HF token")
 def test_download_model_from_hub() -> None:
     """Placeholder for hub download test."""

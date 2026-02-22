@@ -27,8 +27,10 @@ class CoreStub:
 
 
 @pytest.fixture
-def dummy_model_path() -> str:
-    return "bert-base-uncased"
+def dummy_model_path(tmp_path: Path) -> str:
+    model_dir = tmp_path / "bert-base-uncased"
+    model_dir.mkdir()
+    return str(model_dir)
 
 
 @pytest.fixture
@@ -57,10 +59,19 @@ def test_generation_config_validation() -> None:
         GenerationConfig(model_path="dummy", top_p=1.5)
 
 
-def test_gemma_model_init(dummy_model_path: str, mock_tokenizer: MagicMock) -> None:
+def test_gemma_model_init(
+    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub
+) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path))
     model = SyncGemmaModel(config)
     assert model is not None
+
+
+def test_gemma_model_init_rejects_unknown_model_path(mock_tokenizer: MagicMock) -> None:
+    config = GenerationConfig(model_path="bert-base-uncased-missing")
+
+    with pytest.raises(ValueError, match="existing local directory"):
+        SyncGemmaModel(config)
 
 
 def test_gemma_generate_sampling(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
