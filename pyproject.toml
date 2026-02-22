@@ -13,7 +13,7 @@ embed = [
 ]
 text = [
     "numpy>=1.26.0",
-    "transformers>=4.38.0",
+    "tokenizers>=0.15.0",
 ]
 hub = [
     "huggingface-hub>=0.20.0",
@@ -23,11 +23,11 @@ telemetry = [
 ]
 vision = [
     "numpy>=1.26.0",
-    "transformers>=4.38.0",
+    "tokenizers>=0.15.0",
 ]
 all = [
     "numpy>=1.26.0",
-    "transformers>=4.38.0",
+    "tokenizers>=0.15.0",
     "huggingface-hub>=0.20.0",
     "opentelemetry-api>=1.39.1",
 ]
