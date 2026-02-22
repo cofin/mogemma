@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from .config import EmbeddingConfig, GenerationConfig
     from .hub import HubManager
     from .model import EmbeddingModel, GemmaModel
-    from .vision_model import VisionGemmaModel
 
 __all__ = [
     "AsyncGemmaModel",
@@ -15,7 +14,6 @@ __all__ = [
     "GemmaModel",
     "GenerationConfig",
     "HubManager",
-    "VisionGemmaModel",
 ]
 
 _EXPORT_TO_MODULE = {
@@ -25,7 +23,6 @@ _EXPORT_TO_MODULE = {
     "GemmaModel": ".model",
     "GenerationConfig": ".config",
     "HubManager": ".hub",
-    "VisionGemmaModel": ".vision_model",
 }
 
 _EXTRA_HINT = {
@@ -34,7 +31,6 @@ _EXTRA_HINT = {
         "(or 'mogemma[text]' if you need built-in text tokenization)."
     ),
     "GemmaModel": "Install optional runtime deps with: pip install 'mogemma[text]'",
-    "VisionGemmaModel": "Install optional runtime deps with: pip install 'mogemma[vision]'",
 }
 
 

@@ -18,3 +18,4 @@ build/
 .agent
 *.egg-info/
 coverage.xml
+.python-version

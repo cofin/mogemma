@@ -41,7 +41,6 @@ beads-install: ## Install beads
 .PHONY: py-install
 py-install: ## Install Python deps
 	@uv sync --all-extras --dev
-	@uv pip install mojo --extra-index-url https://modular.gateway.scarf.sh/simple/
 
 .PHONY: build
 build: ## Build Mojo shared library
@@ -52,7 +51,7 @@ build: ## Build Mojo shared library
 .PHONY: smoke-test
 smoke-test: ## Run the Mojo bridge smoke test
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run python src/py/smoke_test.py
+	@uv run python tools/smoke_test.py
 
 ##@ Testing & Quality
 

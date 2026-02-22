@@ -1,4 +1,3 @@
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -11,32 +10,32 @@ class CustomBuildHook(BuildHookInterface):
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         """Called before the build starts."""
+        if self.target_name != "wheel":
+            return
+
         root = Path(self.root)
         mojo_src = root / "src" / "mo" / "core.mojo"
         so_dest = root / "src" / "py" / "mogemma" / "_core.so"
 
-        # Only build for wheels or if specifically requested, but safe to just build it always during initialize
-        if self.target_name != "wheel":
-            return
-
+        mojo_bin = self._find_mojo(root)
         print(f"Building Mojo core from {mojo_src} to {so_dest}...")
-
-        # Ensure the destination directory exists
         so_dest.parent.mkdir(parents=True, exist_ok=True)
-
-        # Run the mojo build command
-        try:
-            # First try using the `mojo` command directly if available
-            subprocess.check_call(
-                ["mojo", "build", "--emit", "shared-lib", str(mojo_src), "-o", str(so_dest)],
-                cwd=str(root)
-            )
-        except FileNotFoundError:
-            # Fallback to `uv run mojo` if in a uv environment and mojo isn't in PATH
-            print("mojo command not found in PATH, trying with `uv run mojo`")
-            subprocess.check_call(
-                ["uv", "run", "mojo", "build", "--emit", "shared-lib", str(mojo_src), "-o", str(so_dest)],
-                cwd=str(root)
-            )
-
+        subprocess.check_call(
+            [str(mojo_bin), "build", "--emit", "shared-lib", str(mojo_src), "-o", str(so_dest)],
+            cwd=str(root),
+        )
         print(f"Successfully built {so_dest.name}")
+
+    @staticmethod
+    def _find_mojo(root: Path) -> str:
+        """Locate the mojo compiler binary."""
+        import shutil
+
+        path = shutil.which("mojo")
+        if path:
+            return path
+        venv_mojo = root / ".venv" / "bin" / "mojo"
+        if venv_mojo.exists():
+            return str(venv_mojo)
+        msg = "mojo executable not found in PATH or .venv/bin/"
+        raise FileNotFoundError(msg)

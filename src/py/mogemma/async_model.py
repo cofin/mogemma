@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 
 from .config import GenerationConfig
 from .model import GemmaModel
@@ -23,7 +24,7 @@ class AsyncGemmaModel:
 
         generator = self._model.generate_stream(prompt)
 
-        def get_next():
+        def get_next() -> str | None:
             try:
                 return next(generator)
             except StopIteration:
@@ -36,6 +37,6 @@ class AsyncGemmaModel:
             yield token
 
     @property
-    def tokenizer(self):
+    def tokenizer(self) -> Any:
         """Access to the underlying tokenizer."""
         return self._model.tokenizer
