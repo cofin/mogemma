@@ -89,6 +89,30 @@ coverage: ## Run tests with coverage reports
 check-all: lint test coverage ## Run all checks (lint, test, coverage)
 	@echo "${OK} All checks passed"
 
+##@ Release
+
+.PHONY: release
+release: ## Bump version and create release tag: make release bump=patch
+	@echo "${INFO} Preparing for release..."
+	@uv run bump-my-version bump $(bump)
+	@echo "${OK} Release complete"
+
+.PHONY: pre-release
+pre-release: ## Start a pre-release: make pre-release version=0.2.0-alpha.1
+	@if [ -z "$(version)" ]; then \
+		echo "${ERROR} Usage: make pre-release version=X.Y.Z-alpha.N"; \
+		echo "Pre-release workflow:"; \
+		echo "  1. Start alpha:     make pre-release version=0.2.0-alpha.1"; \
+		echo "  2. Next alpha:      make pre-release version=0.2.0-alpha.2"; \
+		echo "  3. Move to beta:    make pre-release version=0.2.0-beta.1"; \
+		echo "  4. Move to rc:      make pre-release version=0.2.0-rc.1"; \
+		echo "  5. Final release:   make release bump=patch (from rc) OR bump=minor (from stable)"; \
+		exit 1; \
+	fi
+	@echo "${INFO} Preparing pre-release $(version)..."
+	@uv run bump-my-version bump --new-version $(version) pre
+	@echo "${OK} Pre-release $(version) complete"
+
 ##@ Utilities
 
 .PHONY: clean
