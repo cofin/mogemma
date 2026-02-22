@@ -132,10 +132,10 @@ class EmbeddingModel:
             span.set_attribute("text_count", len(text))
 
         tokenizer = self._ensure_tokenizer()
-        encoded = tokenizer(
-            text, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
-        )
-        tokens = np.asarray(encoded["input_ids"], dtype=np.int32)
+        tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
+        tokenizer.enable_padding()
+        encoded = tokenizer.encode_batch(text)
+        tokens = np.asarray([e.ids for e in encoded], dtype=np.int32)
         return self._embed_token_array(tokens, len(text))
 
     def embed_tokens(self, tokens: npt.ArrayLike) -> npt.NDArray[np.float32]:
@@ -192,16 +192,18 @@ class GemmaModel:
         tokenizer = self._ensure_tokenizer()
         with tracer.start_as_current_span("GemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
-            encoded = tokenizer(
-                prompt, padding=True, truncation=True, max_length=self.config.max_sequence_length, return_tensors="np"
-            )
-            tokens = encoded["input_ids"][0].tolist()
+            tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
+            tokenizer.enable_padding()
+            encoded = tokenizer.encode(prompt)
+            tokens = encoded.ids
 
         if _core is not None and self._llm is not None:
             if tokens:
                 current_token = int(tokens[-1])
             else:
-                eos_token_id = getattr(tokenizer, "eos_token_id", 0) or 0
+                eos_token_id = tokenizer.token_to_id("<eos>")
+                if eos_token_id is None:
+                    eos_token_id = 0
                 current_token = int(eos_token_id)
 
             for _ in range(self.config.max_new_tokens):
@@ -212,7 +214,7 @@ class GemmaModel:
                 next_token = _sample_next_token(
                     logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
                 )
-                decoded = tokenizer.decode([next_token], skip_special_tokens=True)
+                decoded = tokenizer.decode([next_token])
                 if isinstance(decoded, str):
                     yield decoded
                 current_token = next_token
