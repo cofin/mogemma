@@ -5,8 +5,30 @@ from memory import UnsafePointer
 from math import cos, sin
 from collections import List
 
-from mogemma.model import ModelWeights, LayerWeights, TensorInfo, KVCache
-from mogemma.layers import forward_sequence, forward_step
+from mogemma.model import (
+    ModelWeights,
+    LayerWeights,
+    TensorInfo,
+    KVCache,
+    NanoModelWeights,
+    NanoLayerWeights,
+    AltUpWeights,
+    LaurelWeights,
+    PerLayerMapWeights,
+)
+from mogemma.layers import (
+    forward_sequence,
+    forward_step,
+    forward_nano_sequence,
+    forward_nano_step,
+)
+
+fn _detect_architecture(metadata_obj: PythonObject) raises -> String:
+    var builtins = Python.import_module("builtins")
+    # Gemma 3 Nano has AltUp router weights
+    if builtins.bool(metadata_obj.get("model.layers.0.altup.router.weight")):
+        return "nano"
+    return "standard"
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
@@ -84,6 +106,72 @@ fn _build_model(metadata_obj: PythonObject) raises -> ModelWeights:
         
     return m^
 
+fn _build_nano_model(metadata_obj: PythonObject) raises -> NanoModelWeights:
+    var builtins = Python.import_module("builtins")
+    var m = NanoModelWeights()
+    
+    m.embed_tokens = _get_tensor(metadata_obj, "model.embed_tokens.weight")
+    m.norm = _get_tensor(metadata_obj, "model.norm.weight")
+    m.lm_head = _get_tensor(metadata_obj, "lm_head.weight")
+    
+    m.per_layer_embed = _get_tensor(metadata_obj, "model.per_layer_embed.weight")
+    m.per_layer_projection = _get_tensor(metadata_obj, "model.per_layer_embed.projection.weight")
+    m.per_layer_norm = _get_tensor(metadata_obj, "model.per_layer_embed.norm.weight")
+    
+    # AltUp global projections/unembeds
+    for i in range(3):
+        var p_key = "model.altup.projection." + String(i) + ".weight"
+        var u_key = "model.altup.unembed." + String(i) + ".weight"
+        m.altup_projections.append(_get_tensor(metadata_obj, p_key))
+        m.altup_unembeds.append(_get_tensor(metadata_obj, u_key))
+
+    var num_layers = 0
+    while True:
+        var k = "model.layers." + String(num_layers) + ".input_layernorm.weight"
+        var t = _get_tensor(metadata_obj, k)
+        if t.ptr == UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+            break
+            
+        var layer = NanoLayerWeights()
+        var pfx = "model.layers." + String(num_layers)
+        
+        # Base components
+        layer.base.input_layernorm = t^
+        layer.base.post_attention_layernorm = _get_tensor(metadata_obj, pfx + ".post_attention_layernorm.weight")
+        layer.base.q_proj = _get_tensor(metadata_obj, pfx + ".self_attn.q_proj.weight")
+        layer.base.k_proj = _get_tensor(metadata_obj, pfx + ".self_attn.k_proj.weight")
+        layer.base.v_proj = _get_tensor(metadata_obj, pfx + ".self_attn.v_proj.weight")
+        layer.base.o_proj = _get_tensor(metadata_obj, pfx + ".self_attn.o_proj.weight")
+        layer.base.gate_proj = _get_tensor(metadata_obj, pfx + ".mlp.gate_proj.weight")
+        layer.base.up_proj = _get_tensor(metadata_obj, pfx + ".mlp.up_proj.weight")
+        layer.base.down_proj = _get_tensor(metadata_obj, pfx + ".mlp.down_proj.weight")
+        layer.base.q_norm = _get_tensor(metadata_obj, pfx + ".self_attn.q_norm.weight")
+        layer.base.k_norm = _get_tensor(metadata_obj, pfx + ".self_attn.k_norm.weight")
+        layer.base.pre_feedforward_layernorm = _get_tensor(metadata_obj, pfx + ".pre_feedforward_layernorm.weight")
+        layer.base.post_feedforward_layernorm = _get_tensor(metadata_obj, pfx + ".post_feedforward_layernorm.weight")
+        
+        # Nano-specific: AltUp
+        layer.altup.router = _get_tensor(metadata_obj, pfx + ".altup.router.weight")
+        layer.altup.router_norm = _get_tensor(metadata_obj, pfx + ".altup.router_norm.weight")
+        layer.altup.prediction_coefs = _get_tensor(metadata_obj, pfx + ".altup.prediction_coefs")
+        layer.altup.correction_coefs = _get_tensor(metadata_obj, pfx + ".altup.correction_coefs")
+        layer.altup.output_scale = _get_tensor(metadata_obj, pfx + ".altup.output_scale")
+        
+        # Nano-specific: Laurel
+        layer.laurel.down_proj = _get_tensor(metadata_obj, pfx + ".laurel.down_proj.weight")
+        layer.laurel.up_proj = _get_tensor(metadata_obj, pfx + ".laurel.up_proj.weight")
+        layer.laurel.norm = _get_tensor(metadata_obj, pfx + ".laurel.norm.weight")
+        
+        # Nano-specific: Per-layer mapping
+        layer.per_layer_map.gate = _get_tensor(metadata_obj, pfx + ".per_layer_map.gate.weight")
+        layer.per_layer_map.projection = _get_tensor(metadata_obj, pfx + ".per_layer_map.projection.weight")
+        layer.per_layer_map.norm = _get_tensor(metadata_obj, pfx + ".per_layer_map.norm.weight")
+        
+        m.layers.append(layer^)
+        num_layers += 1
+        
+    return m^
+
 fn init_model_mojo(
     metadata_obj: PythonObject
 ) raises -> PythonObject:
@@ -94,18 +182,53 @@ fn init_model_mojo(
     py_dict["engine"] = "Mojo Pure Inference Engine"
     py_dict["metadata"] = metadata_obj
     
-    # Pre-allocate cache arrays and keep them alive in the dict as numpy arrays
-    var model_weights = _build_model(metadata_obj)
-    var num_layers = len(model_weights.layers)
+    var arch = _detect_architecture(metadata_obj)
+    py_dict["arch"] = arch
     
-    if num_layers == 0:
-        raise Error("Invalid model weights: no layers found in metadata")
-
-    # Derive head_dim from q_norm weight shape (1D tensor of size head_dim)
-    var head_dim = model_weights.layers[0].q_norm.shape_0
-    if head_dim == 0:
-        head_dim = 256  # fallback for older cached models without q_norm
-    var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
+    var num_layers: Int = 0
+    var head_dim: Int = 0
+    var num_kv_heads: Int = 0
+    var hidden_size: Int = 0
+    var intermediate_size: Int = 0
+    
+    var per_layer_dim: Int = 0
+    var bottleneck_dim: Int = 0
+    var vocab_size: Int = 0
+    
+    if arch == "nano":
+        var model_weights = _build_nano_model(metadata_obj)
+        num_layers = len(model_weights.layers)
+        if num_layers == 0:
+            raise Error("Invalid Nano model weights: no layers found in metadata")
+        head_dim = model_weights.layers[0].base.q_norm.shape_0
+        if head_dim == 0:
+            head_dim = 256
+        num_kv_heads = model_weights.layers[0].base.k_proj.shape_0 // head_dim
+        hidden_size = model_weights.embed_tokens.shape_1
+        intermediate_size = model_weights.layers[0].base.gate_proj.shape_0
+        vocab_size = model_weights.lm_head.shape_0
+        per_layer_dim = model_weights.per_layer_embed.shape_1 // 30 # It's a 3D tensor flattened to 2D in metadata? 
+        # Wait, _get_tensor returns s0, s1.
+        # model.per_layer_embed.weight in convert.py is (262144, 30, 256) -> flattened to (262144, 7680)?
+        # Let's check TensorInfo. 
+        # model.mojo: m.per_layer_embed = _get_tensor(metadata_obj, "model.per_layer_embed.weight")
+        # In Mojo TensorInfo: var shape_0: Int, var shape_1: Int
+        # If it's a 3D tensor (262144, 30, 256), shape_0=262144, shape_1=7680.
+        per_layer_dim = model_weights.per_layer_embed.shape_1 // 30
+        bottleneck_dim = model_weights.layers[0].laurel.down_proj.shape_0
+    else:
+        var model_weights = _build_model(metadata_obj)
+        num_layers = len(model_weights.layers)
+        if num_layers == 0:
+            raise Error("Invalid standard model weights: no layers found in metadata")
+        head_dim = model_weights.layers[0].q_norm.shape_0
+        if head_dim == 0:
+            head_dim = 256
+        num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
+        hidden_size = model_weights.embed_tokens.shape_1
+        intermediate_size = model_weights.layers[0].gate_proj.shape_0
+        vocab_size = model_weights.lm_head.shape_0
+    
     var max_seq_len = 8192 # default max seq len
     
     var size = num_layers * max_seq_len * num_kv_heads * head_dim
@@ -133,6 +256,14 @@ fn init_model_mojo(
     py_dict["freqs_cos"] = freqs_cos
     py_dict["freqs_sin"] = freqs_sin
     py_dict["max_seq_len"] = max_seq_len
+    py_dict["num_layers"] = num_layers
+    py_dict["num_kv_heads"] = num_kv_heads
+    py_dict["head_dim"] = head_dim
+    py_dict["hidden_size"] = hidden_size
+    py_dict["intermediate_size"] = intermediate_size
+    py_dict["vocab_size"] = vocab_size
+    py_dict["per_layer_dim"] = per_layer_dim
+    py_dict["bottleneck_dim"] = bottleneck_dim
     py_dict["pos"] = 0
     return py_dict
 
@@ -148,6 +279,7 @@ fn step_mojo(
     
     var pos = Int(py=llm["pos"])
     var max_seq_len = Int(py=llm["max_seq_len"])
+    var arch = String(py=llm["arch"])
     
     if pos >= max_seq_len:
         raise Error("Sequence length exceeded")
@@ -155,20 +287,12 @@ fn step_mojo(
     var token_id = Int(py=token_id_obj)
     
     var metadata_obj = llm["metadata"]
-    var model_weights = _build_model(metadata_obj)
-    var num_layers = len(model_weights.layers)
-    
-    if num_layers == 0:
-        raise Error("Invalid model weights: no layers found in metadata")
-    
-    var hidden_size = model_weights.embed_tokens.shape_1
-    var vocab_size = model_weights.lm_head.shape_0
-    var head_dim = model_weights.layers[0].q_norm.shape_0
-    if head_dim == 0:
-        head_dim = 256  # fallback for older cached models without q_norm
-    var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
-    var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
-    var intermediate_size = model_weights.layers[0].gate_proj.shape_0
+    var hidden_size = Int(py=llm["hidden_size"])
+    var vocab_size = Int(py=llm["vocab_size"])
+    var head_dim = Int(py=llm["head_dim"])
+    var num_heads = 0
+    var num_kv_heads = Int(py=llm["num_kv_heads"])
+    var intermediate_size = Int(py=llm["intermediate_size"])
     
     var k_cache = llm["k_cache"]
     var v_cache = llm["v_cache"]
@@ -186,24 +310,54 @@ fn step_mojo(
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
     
-    forward_step(
-        out_logits_ptr,
-        token_id,
-        pos,
-        model_weights,
-        hidden_size,
-        num_heads,
-        num_kv_heads,
-        head_dim,
-        intermediate_size,
-        vocab_size,
-        freqs_cos_ptr,
-        freqs_sin_ptr,
-        kv_cache_k_ptr,
-        kv_cache_v_ptr,
-        max_seq_len,
-        scratch_ptr
-    )
+    if arch == "nano":
+        var model_weights = _build_nano_model(metadata_obj)
+        num_heads = model_weights.layers[0].base.q_proj.shape_0 // head_dim
+        var per_layer_dim = Int(py=llm["per_layer_dim"])
+        var bottleneck_dim = Int(py=llm["bottleneck_dim"])
+        
+        forward_nano_step(
+            out_logits_ptr,
+            token_id,
+            pos,
+            model_weights,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            per_layer_dim,
+            bottleneck_dim,
+            vocab_size,
+            freqs_cos_ptr,
+            freqs_sin_ptr,
+            kv_cache_k_ptr,
+            kv_cache_v_ptr,
+            max_seq_len,
+            scratch_ptr
+        )
+    else:
+        var model_weights = _build_model(metadata_obj)
+        num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
+        
+        forward_step(
+            out_logits_ptr,
+            token_id,
+            pos,
+            model_weights,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            freqs_cos_ptr,
+            freqs_sin_ptr,
+            kv_cache_k_ptr,
+            kv_cache_v_ptr,
+            max_seq_len,
+            scratch_ptr
+        )
     
     _ = scratch[0]
     llm["pos"] = pos + 1
@@ -222,19 +376,13 @@ fn generate_embeddings_mojo(
     var seq_len = Int(py=np_input.shape[1])
     
     var metadata_obj = llm["metadata"]
-    var model_weights = _build_model(metadata_obj)
-    var num_layers = len(model_weights.layers)
-    
-    if num_layers == 0:
-        raise Error("Invalid model weights: no layers found in metadata")
-    
-    var hidden_size = model_weights.embed_tokens.shape_1
-    var head_dim = model_weights.layers[0].q_norm.shape_0
-    if head_dim == 0:
-        head_dim = 256  # fallback for older cached models without q_norm
-    var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
-    var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
-    var intermediate_size = model_weights.layers[0].gate_proj.shape_0
+    var arch = String(py=llm["arch"])
+    var num_layers = Int(py=llm["num_layers"])
+    var hidden_size = Int(py=llm["hidden_size"])
+    var head_dim = Int(py=llm["head_dim"])
+    var num_heads = 0
+    var num_kv_heads = Int(py=llm["num_kv_heads"])
+    var intermediate_size = Int(py=llm["intermediate_size"])
     
     var max_seq_len = seq_len
     
@@ -253,7 +401,7 @@ fn generate_embeddings_mojo(
     # Allocations for intermediate state
     var kv_cache_k = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
     var kv_cache_v = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
-    var scratch = List[Float32](length=hidden_size * 50, fill=0.0) # generous scratch space
+    var scratch = List[Float32](length=hidden_size * 100, fill=0.0) # generous scratch space
     var emb_out = List[Float32](length=batch_size * hidden_size, fill=0.0)
     var input_ids = List[Int32](length=seq_len, fill=0)
 
@@ -275,23 +423,52 @@ fn generate_embeddings_mojo(
             
         var seq_out_ptr = emb_out_ptr + b * hidden_size
         
-        forward_sequence(
-            seq_out_ptr,
-            input_ids_ptr,
-            seq_len,
-            model_weights,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            intermediate_size,
-            freqs_cos_ptr,
-            freqs_sin_ptr,
-            kv_cache_k_ptr,
-            kv_cache_v_ptr,
-            max_seq_len,
-            scratch_ptr
-        )
+        if arch == "nano":
+            var model_weights = _build_nano_model(metadata_obj)
+            num_heads = model_weights.layers[0].base.q_proj.shape_0 // head_dim
+            var per_layer_dim = Int(py=llm["per_layer_dim"])
+            var bottleneck_dim = Int(py=llm["bottleneck_dim"])
+            
+            forward_nano_sequence(
+                seq_out_ptr,
+                input_ids_ptr,
+                seq_len,
+                model_weights,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                per_layer_dim,
+                bottleneck_dim,
+                freqs_cos_ptr,
+                freqs_sin_ptr,
+                kv_cache_k_ptr,
+                kv_cache_v_ptr,
+                max_seq_len,
+                scratch_ptr
+            )
+        else:
+            var model_weights = _build_model(metadata_obj)
+            num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
+            
+            forward_sequence(
+                seq_out_ptr,
+                input_ids_ptr,
+                seq_len,
+                model_weights,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                freqs_cos_ptr,
+                freqs_sin_ptr,
+                kv_cache_k_ptr,
+                kv_cache_v_ptr,
+                max_seq_len,
+                scratch_ptr
+            )
         
     # Return as numpy array
     var result_np = np.zeros(Python.tuple(batch_size, hidden_size), dtype=np.float32)
