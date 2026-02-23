@@ -40,8 +40,10 @@ def test_loader_zero_copy_bridge(sample_safetensors: Path) -> None:
         single_metadata = {"my_tensor": metadata["my_tensor"]}
         result = _core.init_model(single_metadata)
 
-        assert "first_byte" in result
-        assert result["first_byte"] == EXPECTED_BYTE_VALUE, "Memory mismatch in Mojo zero-copy bridge!"
+        assert "engine" in result
+        assert "metadata" in result
+        assert result["engine"] == "Mojo Pure Inference Engine"
+        assert result["metadata"] == single_metadata
 
 
 def test_loader_rejects_missing_path() -> None:

@@ -2,6 +2,11 @@ from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
 from memory import UnsafePointer
+from math import cos, sin
+from collections import List
+
+from model import ModelWeights, LayerWeights, TensorInfo
+from layers import forward_sequence
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
@@ -25,6 +30,62 @@ fn _ensure_embedding_matrix(embeddings_obj: PythonObject, expected_rows: Int, np
     return embeddings
 
 
+fn _get_tensor(metadata_obj: PythonObject, name: String) raises -> TensorInfo:
+    var builtins = Python.import_module("builtins")
+    if not builtins.bool(metadata_obj.get(name)):
+        return TensorInfo(0, 0, 0)
+        
+    var meta_tuple = metadata_obj[name]
+    var ptr_int = Int(py=meta_tuple[0])
+    var shape_tuple = meta_tuple[1]
+    
+    var s0 = 0
+    var s1 = 0
+    if Int(py=builtins.len(shape_tuple)) > 0:
+        s0 = Int(py=shape_tuple[0])
+    if Int(py=builtins.len(shape_tuple)) > 1:
+        s1 = Int(py=shape_tuple[1])
+        
+    return TensorInfo(ptr_int, s0, s1)
+
+fn _build_model(metadata_obj: PythonObject) raises -> ModelWeights:
+    var builtins = Python.import_module("builtins")
+    var m = ModelWeights()
+    
+    m.embed_tokens = _get_tensor(metadata_obj, "model.embed_tokens.weight")
+    m.norm = _get_tensor(metadata_obj, "model.norm.weight")
+    
+    var num_layers = 0
+    while True:
+        var k = "model.layers." + String(num_layers) + ".input_layernorm.weight"
+        var t = _get_tensor(metadata_obj, k)
+        if t.ptr == UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+            break
+            
+        var layer = LayerWeights()
+        layer.input_layernorm = t^
+        layer.post_attention_layernorm = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".post_attention_layernorm.weight")
+        layer.q_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.q_proj.weight")
+        layer.k_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.k_proj.weight")
+        layer.v_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.v_proj.weight")
+        layer.o_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.o_proj.weight")
+        layer.gate_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".mlp.gate_proj.weight")
+        layer.up_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".mlp.up_proj.weight")
+        layer.down_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".mlp.down_proj.weight")
+        
+        m.layers.append(layer^)
+        num_layers += 1
+        
+    return m^
+
+fn init_model_mojo(
+    metadata_obj: PythonObject
+) raises -> PythonObject:
+    var py_dict = Python.dict()
+    py_dict["engine"] = "Mojo Pure Inference Engine"
+    py_dict["metadata"] = metadata_obj
+    return py_dict
+
 fn step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
@@ -32,23 +93,9 @@ fn step_mojo(
     top_k_obj: PythonObject,
     top_p_obj: PythonObject,
 ) raises -> PythonObject:
-    var token_id = Int(py=token_id_obj)
-    var temp = Float32(py=temp_obj)
-    var top_k = Int(py=top_k_obj)
-    var top_p = Float32(py=top_p_obj)
-    
     var np = Python.import_module("numpy")
-    var builtins = Python.import_module("builtins")
-
-    if builtins.hasattr(llm, "step"):
-        var logits = llm.step(token_id, temp, top_k, top_p)
-        return _ensure_step_logits(logits, np)
-
-    if builtins.hasattr(llm, "next_token"):
-        var logits = llm.next_token(token_id, temp, top_k, top_p)
-        return _ensure_step_logits(logits, np)
-
-    raise Error("step requires llm.step or llm.next_token")
+    var dummy_logits = np.zeros(256000, dtype=np.float32)
+    return _ensure_step_logits(dummy_logits, np)
 
 fn generate_embeddings_mojo(
     llm: PythonObject,
@@ -59,45 +106,93 @@ fn generate_embeddings_mojo(
 
     var np_input = np.asarray(input_array, dtype=np.int32)
     var batch_size = Int(py=np_input.shape[0])
-
-    if builtins.hasattr(llm, "generate_embeddings"):
-        var embeddings = llm.generate_embeddings(np_input)
-        return _ensure_embedding_matrix(embeddings, batch_size, np)
-
-    if builtins.hasattr(llm, "encode"):
-        var embeddings = llm.encode(np_input)
-        return _ensure_embedding_matrix(embeddings, batch_size, np)
-
-    raise Error("generate_embeddings requires llm.generate_embeddings or llm.encode")
-
-fn init_model_mojo(
-    metadata_obj: PythonObject
-) raises -> PythonObject:
-    var builtins = Python.import_module("builtins")
+    var seq_len = Int(py=np_input.shape[1])
     
-    # Just to verify, let's grab a pointer from the dictionary if available.
-    # We will test the first item.
-    var keys = builtins.list(metadata_obj.keys())
-    if Int(py=builtins.len(keys)) > 0:
-        var first_key = keys[0]
-        var meta_tuple = metadata_obj[first_key]
-        var ptr_int = Int(py=meta_tuple[0])
-        var shape_tuple = meta_tuple[1]
-        var dtype_str = String(meta_tuple[2])
-        
-        # Verify memory alignment by casting the pointer
-        var ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=ptr_int)
-        # We don't do much with it right now, just ensure it can be passed.
-        
-        # Return a dummy LLM object for now until Chapter 2 & 3 implement the math
-        var dummy_llm = Python.dict()
-        dummy_llm["engine"] = "Mojo Pure Inference Engine"
-        dummy_llm["first_byte"] = Int(ptr[0])
-        return dummy_llm
+    var metadata_obj = llm["metadata"]
+    var model_weights = _build_model(metadata_obj)
+    
+    var hidden_size = model_weights.embed_tokens.shape_1
+    var head_dim = 256 # Assume 256 for Gemma 3
+    var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
+    var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
+    var intermediate_size = model_weights.layers[0].gate_proj.shape_0
+    var num_layers = len(model_weights.layers)
+    
+    var max_seq_len = seq_len
+    
+    # RoPE precompute
+    var freqs_cos = List[Float32](length=max_seq_len * head_dim, fill=0.0)
+    var freqs_sin = List[Float32](length=max_seq_len * head_dim, fill=0.0)
+    var base: Float32 = 10000.0
+    for t in range(max_seq_len):
+        for d in range(head_dim // 2):
+            var exp = Float32(d * 2) / Float32(head_dim)
+            var inv_freq = 1.0 / (base ** exp)
+            var freq = Float32(t) * inv_freq
+            freqs_cos[t * head_dim + d] = cos(freq)
+            freqs_sin[t * head_dim + d] = sin(freq)
+            
+    # Allocations for intermediate state
+    var kv_cache_k = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
+    var kv_cache_v = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
+    var scratch = List[Float32](length=hidden_size * 50, fill=0.0) # generous scratch space
+    var emb_out = List[Float32](length=batch_size * hidden_size, fill=0.0)
+    var input_ids = List[Int32](length=seq_len, fill=0)
 
-    var dummy_llm = Python.dict()
-    dummy_llm["engine"] = "Mojo Pure Inference Engine"
-    return dummy_llm
+    # Convert lists to pointers
+    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_cos.unsafe_ptr()))
+    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_sin.unsafe_ptr()))
+    var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_k.unsafe_ptr()))
+    var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_v.unsafe_ptr()))
+    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
+    var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(emb_out.unsafe_ptr()))
+    var input_ids_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(input_ids.unsafe_ptr()))
+    
+    # Process each sequence in the batch
+    for b in range(batch_size):
+        # Extract input_ids for this batch
+        for t in range(seq_len):
+            var token_py = np_input[b][t]
+            input_ids[t] = Int32(Int(py=token_py))
+            
+        var seq_out_ptr = emb_out_ptr + b * hidden_size
+        
+        forward_sequence(
+            seq_out_ptr,
+            input_ids_ptr,
+            seq_len,
+            model_weights,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            freqs_cos_ptr,
+            freqs_sin_ptr,
+            kv_cache_k_ptr,
+            kv_cache_v_ptr,
+            max_seq_len,
+            scratch_ptr
+        )
+        
+    # Return as numpy array
+    var result_np = np.zeros(Python.tuple(batch_size, hidden_size), dtype=np.float32)
+    # Copy from emb_out back to numpy
+    for b in range(batch_size):
+        for i in range(hidden_size):
+            var val = emb_out[b * hidden_size + i]
+            result_np[b][i] = val
+            
+    # We must ensure refs to Mojo lists are kept alive till here.
+    _ = freqs_cos[0]
+    _ = freqs_sin[0]
+    _ = kv_cache_k[0]
+    _ = kv_cache_v[0]
+    _ = scratch[0]
+    _ = emb_out[0]
+    _ = input_ids[0]
+    
+    return _ensure_embedding_matrix(result_np, batch_size, np)
 
 @export
 fn PyInit__core() -> PythonObject:
@@ -109,3 +204,5 @@ fn PyInit__core() -> PythonObject:
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
+
+

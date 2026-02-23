@@ -24,7 +24,7 @@ class CustomBuildHook(BuildHookInterface):
         print(f"Building Mojo core from {mojo_src} to {so_dest}...")
         so_dest.parent.mkdir(parents=True, exist_ok=True)
         subprocess.check_call(
-            [str(mojo_bin), "build", "--emit", "shared-lib", str(mojo_src), "-o", str(so_dest)], cwd=str(root)
+            [str(mojo_bin), "build", "--emit", "shared-lib", "-I", "src/mo", str(mojo_src), "-o", str(so_dest)], cwd=str(root)
         )
         print(f"Successfully built {so_dest.name}")
 

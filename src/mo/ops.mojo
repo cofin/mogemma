@@ -1,4 +1,4 @@
-from math import sqrt, erf
+from math import sqrt, erf, exp
 from memory import UnsafePointer
 
 @always_inline
@@ -133,4 +133,50 @@ fn rms_norm[
         var w = weight_ptr.load(i)
         var res = val * inv_rms * w
         out_ptr.store(i, res)
+        i += 1
+
+@always_inline
+fn softmax[
+    nelts: Int = 16
+](
+    vec_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int
+):
+    # Find max
+    var max_val: Float32 = -1e9
+    var i = 0
+    while i < size:
+        var val = vec_ptr.load(i)
+        if val > max_val:
+            max_val = val
+        i += 1
+        
+    # Exp and sum
+    var sum_exp: Float32 = 0.0
+    i = 0
+    while i <= size - nelts:
+        var val = vec_ptr.load[width=nelts](i)
+        var e = exp(val - max_val)
+        sum_exp += e.reduce_add()
+        vec_ptr.store(i, e)
+        i += nelts
+        
+    while i < size:
+        var val = vec_ptr.load(i)
+        var e = exp(val - max_val)
+        sum_exp += e
+        vec_ptr.store(i, e)
+        i += 1
+        
+    # Normalize
+    var inv_sum = 1.0 / sum_exp
+    i = 0
+    while i <= size - nelts:
+        var e = vec_ptr.load[width=nelts](i)
+        vec_ptr.store(i, e * inv_sum)
+        i += nelts
+        
+    while i < size:
+        var e = vec_ptr.load(i)
+        vec_ptr.store(i, e * inv_sum)
         i += 1

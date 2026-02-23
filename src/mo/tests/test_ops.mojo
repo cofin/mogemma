@@ -1,5 +1,5 @@
 from collections import List
-from ops import rms_norm, geglu, rope_rotate, vec_mat_mul
+from ops import rms_norm, geglu, rope_rotate, vec_mat_mul, softmax
 from memory import UnsafePointer
 from testing import assert_almost_equal
 
@@ -89,4 +89,19 @@ fn main() raises:
     test_geglu()
     test_rope_rotate()
     test_vec_mat_mul()
+    test_softmax()
     print("Mojo math primitive tests passed!")
+
+fn test_softmax() raises:
+    var x = List[Float32](length=3, fill=0.0)
+    x[0] = 1.0
+    x[1] = 2.0
+    x[2] = 3.0
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    softmax[1](x_ptr, 3)
+    
+    # expected: [0.09003057, 0.24472847, 0.66524096]
+    assert_almost_equal(x[0], 0.09003057, atol=1e-5)
+    assert_almost_equal(x[1], 0.24472847, atol=1e-5)
+    assert_almost_equal(x[2], 0.66524096, atol=1e-5)
+    _ = x[0]
