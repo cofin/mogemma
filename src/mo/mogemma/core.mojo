@@ -185,15 +185,15 @@ fn init_model_mojo(
     var arch = _detect_architecture(metadata_obj)
     py_dict["arch"] = arch
     
-    var num_layers: Int = 0
-    var head_dim: Int = 0
-    var num_kv_heads: Int = 0
-    var hidden_size: Int = 0
-    var intermediate_size: Int = 0
+    var num_layers: Int
+    var head_dim: Int
+    var num_kv_heads: Int
+    var hidden_size: Int
+    var intermediate_size: Int
     
     var per_layer_dim: Int = 0
     var bottleneck_dim: Int = 0
-    var vocab_size: Int = 0
+    var vocab_size: Int
     
     if arch == "nano":
         var model_weights = _build_nano_model(metadata_obj)
@@ -207,13 +207,6 @@ fn init_model_mojo(
         hidden_size = model_weights.embed_tokens.shape_1
         intermediate_size = model_weights.layers[0].base.gate_proj.shape_0
         vocab_size = model_weights.lm_head.shape_0
-        per_layer_dim = model_weights.per_layer_embed.shape_1 // 30 # It's a 3D tensor flattened to 2D in metadata? 
-        # Wait, _get_tensor returns s0, s1.
-        # model.per_layer_embed.weight in convert.py is (262144, 30, 256) -> flattened to (262144, 7680)?
-        # Let's check TensorInfo. 
-        # model.mojo: m.per_layer_embed = _get_tensor(metadata_obj, "model.per_layer_embed.weight")
-        # In Mojo TensorInfo: var shape_0: Int, var shape_1: Int
-        # If it's a 3D tensor (262144, 30, 256), shape_0=262144, shape_1=7680.
         per_layer_dim = model_weights.per_layer_embed.shape_1 // 30
         bottleneck_dim = model_weights.layers[0].laurel.down_proj.shape_0
     else:
@@ -290,7 +283,7 @@ fn step_mojo(
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
-    var num_heads = 0
+    var num_heads: Int
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     
@@ -380,7 +373,7 @@ fn generate_embeddings_mojo(
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
     var head_dim = Int(py=llm["head_dim"])
-    var num_heads = 0
+    var num_heads: Int
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     
