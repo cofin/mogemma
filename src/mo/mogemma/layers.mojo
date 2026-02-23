@@ -1,6 +1,15 @@
 from memory import UnsafePointer
 from math import sqrt
-from mogemma.model import LayerWeights, ModelWeights
+from mogemma.model import (
+    LayerWeights,
+    ModelWeights,
+    AltUpWeights,
+    LaurelWeights,
+    PerLayerMapWeights,
+    NanoLayerWeights,
+    NanoModelWeights,
+    TensorInfo,
+)
 from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu
 
 @always_inline
