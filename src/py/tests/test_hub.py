@@ -1,6 +1,7 @@
 import json
 import struct
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -58,7 +59,8 @@ def test_resolve_model_cached_path_ocdbt(tmp_path: Path) -> None:
 
     hub = HubManager(cache_path=tmp_path)
 
-    resolved = hub.resolve_model(model_id)
+    with patch.object(HubManager, "_ensure_safetensors"):
+        resolved = hub.resolve_model(model_id)
     assert resolved == cached_dir
 
 

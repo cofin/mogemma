@@ -34,11 +34,19 @@ class HubManager:
         return cache_root / model_id.replace("/", "--")
 
     @staticmethod
-    def _has_model_files(path: Path) -> bool:
-        """Return ``True`` when *path* contains safetensors or OCDBT model files."""
-        if (path / "model.safetensors").exists() or (path / "model.safetensors.index.json").exists():
-            return True
+    def _has_safetensors(path: Path) -> bool:
+        """Return ``True`` when *path* contains ready-to-use safetensors files."""
+        return (path / "model.safetensors").exists() or (path / "model.safetensors.index.json").exists()
+
+    @staticmethod
+    def _has_orbax(path: Path) -> bool:
+        """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
         return (path / "ocdbt.process_0").is_dir() and (path / "manifest.ocdbt").exists()
+
+    @classmethod
+    def _has_model_files(cls, path: Path) -> bool:
+        """Return ``True`` when *path* contains safetensors or OCDBT model files."""
+        return cls._has_safetensors(path) or cls._has_orbax(path)
 
     def resolve_model(
         self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **_kwargs: object
@@ -56,6 +64,7 @@ class HubManager:
 
         cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
         if cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path):
+            self._ensure_safetensors(cached_path)
             return cached_path
 
         if download_if_missing:
@@ -131,4 +140,16 @@ class HubManager:
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             list(executor.map(_download_file, paths_to_download))
 
+        self._ensure_safetensors(local_dir)
         return local_dir
+
+    @classmethod
+    def _ensure_safetensors(cls, path: Path) -> None:
+        """Convert an Orbax checkpoint to safetensors if needed."""
+        if cls._has_safetensors(path):
+            return
+        if not cls._has_orbax(path):
+            return
+        from .convert import convert_orbax_to_safetensors  # noqa: PLC0415
+
+        convert_orbax_to_safetensors(path)

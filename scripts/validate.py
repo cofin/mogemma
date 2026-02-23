@@ -2,9 +2,7 @@
 
 This script requires:
 1. The Mojo bridge built (run `make build`).
-2. Modular MAX Engine installed:
-   pip install modular --index https://whl.modular.com/nightly/simple/ --prerelease allow
-3. An active internet connection to download models from Google Cloud Storage on first run.
+2. An active internet connection to download models from Google Cloud Storage on first run.
 """
 
 import argparse
@@ -15,7 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 
 # Default models for validation
-TEXT_MODEL_ID = "gemma3n-e2b-it"
+# Note: Gemma 3 Nano (gemma3n-*) uses a different architecture (AltUp, Laurel)
+# that the Mojo backend does not yet support. Use standard Gemma 3 models.
+TEXT_MODEL_ID = "gemma3-270m-it"
 EMBED_MODEL_ID = "gemma3-270m-it"
 
 from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
