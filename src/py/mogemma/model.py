@@ -11,6 +11,7 @@ import numpy.typing as npt
 
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
+from .loader import SafetensorsLoader
 from .telemetry import tracer
 from .typing import _TokenizerImpl
 
@@ -48,7 +49,7 @@ def _resolve_model_path(raw_model_path: str | Path) -> Path:
     return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
-def _initialize_llm(model_path: str, *, model_type: str) -> object:
+def _initialize_llm(loader: SafetensorsLoader, *, model_type: str) -> object:
     if _core is None:
         if model_type == "embedding":
             msg = (
@@ -63,9 +64,10 @@ def _initialize_llm(model_path: str, *, model_type: str) -> object:
         raise RuntimeError(msg)
 
     try:
-        return _core.init_model(model_path)
+        metadata = loader.get_tensor_metadata()
+        return _core.init_model(metadata)
     except Exception as exc:
-        msg = f"{model_type} model failed to initialize from '{model_path}': {exc}"
+        msg = f"{model_type} model failed to initialize from '{loader.model_path}': {exc}"
         raise RuntimeError(msg) from exc
 
 
@@ -138,9 +140,10 @@ class EmbeddingModel:
 
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
+        self._loader = SafetensorsLoader(self.model_path)
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(str(self.model_path), model_type="embedding")
+        self._llm: object | None = _initialize_llm(self._loader, model_type="embedding")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -148,7 +151,7 @@ class EmbeddingModel:
         if _TokenizerImpl is None:
             msg = (
                 "Text tokenization requires 'tokenizers' dependency. "
-                "Ensure the package is installed or call embed_tokens(...) with pre-tokenized inputs."
+                "Install with: pip install 'mogemma[llm]' or call embed_tokens(...) with pre-tokenized inputs."
             )
             raise ModuleNotFoundError(msg)
         self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
@@ -218,15 +221,16 @@ class SyncGemmaModel:
 
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
+        self._loader = SafetensorsLoader(self.model_path)
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(str(self.model_path), model_type="generation")
+        self._llm: object | None = _initialize_llm(self._loader, model_type="generation")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
         if _TokenizerImpl is None:
-            msg = "Text generation requires 'tokenizers' dependency. Ensure the package is installed."
+            msg = "Text generation requires 'tokenizers' dependency. Install with: pip install 'mogemma[llm]'"
             raise ModuleNotFoundError(msg)
         self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
         return self._tokenizer

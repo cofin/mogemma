@@ -1,3 +1,5 @@
+import json
+import struct
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,6 +11,13 @@ import pytest
 import mogemma.model as model_module
 from mogemma import GenerationConfig
 from mogemma.model import AsyncGemmaModel
+
+
+def _create_dummy_safetensors(model_dir: Path) -> None:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with (model_dir / "model.safetensors").open("wb") as f:
+        h = json.dumps({}).encode("utf-8")
+        f.write(struct.pack("<Q", len(h)) + h)
 
 
 class CoreStub:
@@ -44,7 +53,7 @@ def mock_core(monkeypatch: pytest.MonkeyPatch) -> CoreStub:
 @pytest.mark.asyncio
 async def test_async_generate(tmp_path: Path, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     model_dir = tmp_path / "dummy-model"
-    model_dir.mkdir()
+    _create_dummy_safetensors(model_dir)
 
     config = GenerationConfig(model_path=model_dir, max_new_tokens=5)
     model = AsyncGemmaModel(config)
@@ -57,7 +66,7 @@ async def test_async_generate(tmp_path: Path, mock_tokenizer: MagicMock, mock_co
 @pytest.mark.asyncio
 async def test_async_generate_stream(tmp_path: Path, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     model_dir = tmp_path / "dummy-model"
-    model_dir.mkdir()
+    _create_dummy_safetensors(model_dir)
 
     config = GenerationConfig(model_path=model_dir, max_new_tokens=5)
     model = AsyncGemmaModel(config)
@@ -81,7 +90,7 @@ async def test_async_generate_stream_stops_on_eos(
     mock_tokenizer.token_to_id.return_value = 0
 
     model_dir = tmp_path / "dummy-model"
-    model_dir.mkdir()
+    _create_dummy_safetensors(model_dir)
     config = GenerationConfig(model_path=model_dir, max_new_tokens=5, temperature=0.0)
     model = AsyncGemmaModel(config)
 

@@ -6,7 +6,7 @@ Python/Mojo interface for Google Gemma 3 with [MAX Engine](https://www.modular.c
 
 - **Embeddings** — Generate dense vector embeddings through the Mojo backend.
 - **Text generation** — Synchronous and async streaming text generation with configurable sampling.
-- **HuggingFace Hub** — Automatic model resolution and caching.
+- **Google Cloud Storage** — Automatic model resolution and high-performance concurrent downloading directly from Google's `gemma-data` bucket.
 - **OpenTelemetry** — Built-in tracing instrumentation.
 
 ## Installation
@@ -15,16 +15,24 @@ Python/Mojo interface for Google Gemma 3 with [MAX Engine](https://www.modular.c
 pip install mogemma
 ```
 
-Optional: `pip install 'mogemma[telemetry]'` for tracing.
+Optional: `pip install 'mogemma[llm]'` for generation support (numpy + tokenizers + modular).
+
+**Note**: Text generation requires the **Modular MAX Engine** (nightly build):
+```bash
+pip install modular
+```
 
 ## Quick Start
 
 ### Text Generation
 
+Requires `pip install 'mogemma[llm]'`.
+
 ```python
 from mogemma import GenerationConfig, SyncGemmaModel
 
-config = GenerationConfig(model_path="google/gemma-3-1b", max_new_tokens=64)
+# Defaults to gemma3n-e2b-it
+config = GenerationConfig(max_new_tokens=64)
 model = SyncGemmaModel(config)
 
 # Full generation
@@ -37,12 +45,15 @@ for token in model.generate_stream("The future of AI is"):
 
 ### Async Streaming
 
+Requires `pip install 'mogemma[llm]'`.
+
 ```python
 import asyncio
 from mogemma import GenerationConfig, AsyncGemmaModel
 
 async def main():
-    config = GenerationConfig(model_path="google/gemma-3-1b", max_new_tokens=64)
+    # Defaults to gemma3n-e2b-it
+    config = GenerationConfig(max_new_tokens=64)
     model = AsyncGemmaModel(config)
 
     async for token in model.generate_stream("Once upon a time"):
@@ -57,12 +68,14 @@ if __name__ == "__main__":
 ```python
 from mogemma import EmbeddingConfig, EmbeddingModel
 
-config = EmbeddingConfig(model_path="google/gemma-3-1b")
+# Defaults to gemma3-270m-it
+config = EmbeddingConfig()
 model = EmbeddingModel(config)
 
 embeddings = model.embed(["Hello, world!", "Model outputs are computed by MAX Engine."])
 print(embeddings.shape)  # (2, 768)
 ```
+
 
 ## Development
 

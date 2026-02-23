@@ -4,26 +4,11 @@ This module keeps imports typed consistently and avoids repetitive
 `try`/`except ModuleNotFoundError` blocks in feature modules.
 """
 
-from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
-__all__ = [
-    "HUGGINGFACE_HUB_INSTALLED",
-    "OPENTELEMETRY_INSTALLED",
-    "TOKENIZERS_INSTALLED",
-    "_TokenizerImpl",
-    "snapshot_download",
-    "trace",
-]
+__all__ = ["OPENTELEMETRY_INSTALLED", "TOKENIZERS_INSTALLED", "_TokenizerImpl", "trace"]
 _TokenizerImpl: Any | None
 trace: Any | None
-
-try:
-    from huggingface_hub import snapshot_download as _snapshot_download
-except ModuleNotFoundError:
-    snapshot_download: Callable[..., str] | None = None
-else:
-    snapshot_download = cast("Callable[..., str]", _snapshot_download)
 
 try:
     from tokenizers import Tokenizer as _TokenizerClass  # type: ignore[import-untyped]
@@ -39,6 +24,5 @@ except ModuleNotFoundError:
 else:
     trace = _trace
 
-HUGGINGFACE_HUB_INSTALLED = snapshot_download is not None
 TOKENIZERS_INSTALLED = _TokenizerImpl is not None
 OPENTELEMETRY_INSTALLED = trace is not None

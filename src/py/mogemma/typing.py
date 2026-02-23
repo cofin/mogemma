@@ -2,20 +2,6 @@
 
 """Facade re-exports for runtime dependencies."""
 
-from ._typing import (
-    HUGGINGFACE_HUB_INSTALLED,
-    OPENTELEMETRY_INSTALLED,
-    TOKENIZERS_INSTALLED,
-    _TokenizerImpl,
-    snapshot_download,
-    trace,
-)
+from ._typing import OPENTELEMETRY_INSTALLED, TOKENIZERS_INSTALLED, _TokenizerImpl, trace
 
-__all__ = [
-    "HUGGINGFACE_HUB_INSTALLED",
-    "OPENTELEMETRY_INSTALLED",
-    "TOKENIZERS_INSTALLED",
-    "_TokenizerImpl",
-    "snapshot_download",
-    "trace",
-]
+__all__ = ["OPENTELEMETRY_INSTALLED", "TOKENIZERS_INSTALLED", "_TokenizerImpl", "trace"]

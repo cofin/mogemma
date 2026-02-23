@@ -1,3 +1,5 @@
+import json
+import struct
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,11 +13,18 @@ from mogemma import EmbeddingConfig, EmbeddingModel
 from mogemma.hub import HubManager
 
 
+def _create_dummy_safetensors(model_dir: Path) -> None:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with (model_dir / "model.safetensors").open("wb") as f:
+        h = json.dumps({}).encode("utf-8")
+        f.write(struct.pack("<Q", len(h)) + h)
+
+
 @pytest.fixture
 def dummy_model_path(tmp_path: Path) -> str:
     """Fixture for a dummy model path."""
     model_dir = tmp_path / "bert-base-uncased"
-    model_dir.mkdir()
+    _create_dummy_safetensors(model_dir)
     return str(model_dir)
 
 
@@ -76,6 +85,7 @@ def test_embedding_model_init_uses_hub_resolution(
     """Embedding init should resolve through HubManager for HF-style IDs."""
     downloaded = tmp_path / "google--gemma-3-4b-it"
     downloaded.mkdir()
+    _create_dummy_safetensors(downloaded)
     called: list[tuple[str, bool, bool]] = []
 
     def fake_resolve_model(
@@ -96,7 +106,7 @@ def test_embedding_model_init_uses_hub_resolution(
 def test_embedding_model_init_rejects_unknown_local_path() -> None:
     config = EmbeddingConfig(model_path="bert-base-uncased-missing")
 
-    with pytest.raises(ValueError, match="existing local directory"):
+    with pytest.raises(FileNotFoundError, match="not found in the public gemma-data bucket"):
         EmbeddingModel(config)
 
 

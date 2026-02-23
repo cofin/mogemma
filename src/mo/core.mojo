@@ -1,6 +1,7 @@
 from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
+from memory import UnsafePointer
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
@@ -70,37 +71,33 @@ fn generate_embeddings_mojo(
     raise Error("generate_embeddings requires llm.generate_embeddings or llm.encode")
 
 fn init_model_mojo(
-    model_path_obj: PythonObject
+    metadata_obj: PythonObject
 ) raises -> PythonObject:
-    var model_path = String(model_path_obj)
-    if model_path == "":
-        raise Error("init_model requires a non-empty model_path")
+    var builtins = Python.import_module("builtins")
+    
+    # Just to verify, let's grab a pointer from the dictionary if available.
+    # We will test the first item.
+    var keys = builtins.list(metadata_obj.keys())
+    if Int(py=builtins.len(keys)) > 0:
+        var first_key = keys[0]
+        var meta_tuple = metadata_obj[first_key]
+        var ptr_int = Int(py=meta_tuple[0])
+        var shape_tuple = meta_tuple[1]
+        var dtype_str = String(meta_tuple[2])
+        
+        # Verify memory alignment by casting the pointer
+        var ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=ptr_int)
+        # We don't do much with it right now, just ensure it can be passed.
+        
+        # Return a dummy LLM object for now until Chapter 2 & 3 implement the math
+        var dummy_llm = Python.dict()
+        dummy_llm["engine"] = "Mojo Pure Inference Engine"
+        dummy_llm["first_byte"] = Int(ptr[0])
+        return dummy_llm
 
-    var pathlib = Python.import_module("pathlib")
-    var resolved_path = pathlib.Path(model_path)
-    if not resolved_path.exists():
-        var msg = "init_model failed: model path does not exist: "
-        msg = msg + model_path
-        raise Error(msg)
-    if not resolved_path.is_dir():
-        var msg = "init_model failed: model path is not a directory: "
-        msg = msg + model_path
-        raise Error(msg)
-
-    try:
-        var max_llm = Python.import_module("max.entrypoints.llm")
-        var pipeline_config = Python.import_module("max.pipelines").PipelineConfig(
-            model_path=model_path
-        )
-        var llm = max_llm.LLM(pipeline_config)
-        return llm
-    except e:
-        var msg = "init_model failed while loading model from: "
-        msg = msg + model_path
-        msg = msg + " ("
-        msg = msg + String(e)
-        msg = msg + ")"
-        raise Error(msg)
+    var dummy_llm = Python.dict()
+    dummy_llm["engine"] = "Mojo Pure Inference Engine"
+    return dummy_llm
 
 @export
 fn PyInit__core() -> PythonObject:

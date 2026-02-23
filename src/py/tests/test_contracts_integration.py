@@ -1,3 +1,5 @@
+import json
+import struct
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,6 +10,13 @@ import pytest
 
 import mogemma.model as model_module
 from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+
+
+def _create_dummy_safetensors(model_dir: Path) -> None:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with (model_dir / "model.safetensors").open("wb") as f:
+        h = json.dumps({}).encode("utf-8")
+        f.write(struct.pack("<Q", len(h)) + h)
 
 
 @pytest.fixture
@@ -111,6 +120,7 @@ def mock_embedding_float64_output(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_generation_init_propagates_contract_error(
     tmp_path: Path, mock_generation_tokenizer: MagicMock, mock_core_init_failure: None
 ) -> None:
+    _create_dummy_safetensors(tmp_path)
     config = GenerationConfig(model_path=tmp_path)
 
     with pytest.raises(RuntimeError, match="generation model failed to initialize"):
@@ -120,6 +130,7 @@ def test_generation_init_propagates_contract_error(
 def test_generation_empty_logits_is_deterministic_failure(
     tmp_path: Path, mock_generation_tokenizer: MagicMock, mock_generation_empty_logits: None
 ) -> None:
+    _create_dummy_safetensors(tmp_path)
     config = GenerationConfig(model_path=tmp_path, max_new_tokens=1)
     model = SyncGemmaModel(config)
 
@@ -130,6 +141,7 @@ def test_generation_empty_logits_is_deterministic_failure(
 def test_embedding_init_propagates_contract_error(
     tmp_path: Path, mock_embedding_tokenizer: MagicMock, mock_core_init_failure: None
 ) -> None:
+    _create_dummy_safetensors(tmp_path)
     config = EmbeddingConfig(model_path=tmp_path)
 
     with pytest.raises(RuntimeError, match="embedding model failed to initialize"):
@@ -137,6 +149,7 @@ def test_embedding_init_propagates_contract_error(
 
 
 def test_embed_tokens_rejects_non_matrix_backend_output(tmp_path: Path, mock_embedding_non_matrix_output: None) -> None:
+    _create_dummy_safetensors(tmp_path)
     config = EmbeddingConfig(model_path=tmp_path)
     model = EmbeddingModel(config)
     tokens = np.array([[1, 2, 3]], dtype=np.int32)
@@ -146,6 +159,7 @@ def test_embed_tokens_rejects_non_matrix_backend_output(tmp_path: Path, mock_emb
 
 
 def test_embed_tokens_casts_to_float32(tmp_path: Path, mock_embedding_float64_output: None) -> None:
+    _create_dummy_safetensors(tmp_path)
     config = EmbeddingConfig(model_path=tmp_path)
     model = EmbeddingModel(config)
     tokens = np.array([[1, 2, 3]], dtype=np.int32)
