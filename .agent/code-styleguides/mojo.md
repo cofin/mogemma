@@ -1,4 +1,4 @@
-# Mojo Style Guide
+# Mojo Style Guide (Universal Standards)
 
 Guidelines for high-performance Mojo development, focusing on memory safety, SIMD, and Python interoperability.
 
@@ -8,58 +8,50 @@ Guidelines for high-performance Mojo development, focusing on memory safety, SIM
 - **Strict Typing**: Always provide explicit types for function arguments and return values.
 - **Memory Safety**: Leverage Mojo's ownership system (`owned`, `borrowed`, `inout`). Use `UnsafePointer` only when necessary for FFI or low-level optimizations.
 
-## Project Structure
+## Project Structure (Hybrid Mojo-Python)
 
+The standardized directory structure for hybrid libraries:
 ```text
-my_project/
-├── pyproject.toml     # Managed by uv
+project_root/
+├── pyproject.toml     # Managed by uv (mandatory)
+├── tools/
+│   └── hatch_build.py # Automated Mojo compilation hook
 ├── src/
-│   ├── mo/            # Mojo source code
-│   │   └── my_lib/
+│   ├── mo/            # High-performance Mojo source code
+│   │   └── package_name/
 │   │       ├── __init__.mojo
 │   │       ├── core.mojo
 │   │       └── utils.mojo
-│   └── py/            # Python wrapper
-│       └── my_lib/
+│   └── py/            # Python wrapper & user-facing API
+│       └── package_name/
 │           ├── __init__.py
-│           └── _core.so (compiled)
+│           └── _core.so (Compiled Mojo extension)
 ```
 
 ## Function Definitions
 
 ```mojo
-# Preferred: fn with explicit types and traits
-fn calculate_sum(a: Int, b: Int) -> Int:
-    """Adds two integers."""
-    return a + b
+# Standard: fn with explicit types and docstrings
+fn calculate_metrics(a: Float32, b: Float32) -> Float32:
+    """Computes the metric for the given values.
 
-# Handling errors
-fn risky_op() raises -> String:
-    if True:
-        raise Error("Something went wrong")
-    return "Success"
+    Args:
+        a: First input value.
+        b: Second input value.
+
+    Returns:
+        The computed Float32 result.
+    """
+    return a * b
+
+# Error propagation
+fn load_data(path: String) raises -> String:
+    if not path:
+        raise Error("Path cannot be empty")
+    return "Data loaded"
 ```
 
-## Structs and Traits
-
-Mojo structs are static and performant.
-
-```mojo
-@value
-struct Point(CollectionElement):
-    var x: Float32
-    var y: Float32
-
-    fn __init__(inout self, x: Float32, y: Float32):
-        self.x = x
-        self.y = y
-
-# Trait definition
-trait Shape:
-    fn area(self) -> Float32: ...
-```
-
-## Performance & Vectorization
+## Performance & Vectorization (Learnings)
 
 ### SIMD (Single Instruction, Multiple Data)
 
@@ -72,45 +64,52 @@ from sys.info import simdwidthof
 alias type = DType.float32
 alias width = simdwidthof[type]()
 
-fn fast_add(ptr_a: UnsafePointer[Float32], ptr_b: UnsafePointer[Float32], size: Int):
+fn fast_process(ptr: UnsafePointer[Float32], size: Int):
     @parameter
-    fn vectorize_step[w: Int](i: Int):
-        var a = ptr_a.load[width=w](i)
-        var b = ptr_b.load[width=w](i)
-        ptr_a.store[width=w](i, a + b)
+    fn compute[w: Int](i: Int):
+        var data = ptr.load[width=w](i)
+        ptr.store[width=w](i, data * 2.0)
 
-    vectorize[width, vectorize_step](size)
+    vectorize[width, compute](size)
 ```
 
-### Parallelization
+### Parallelization (GIL Bypassing)
 
-Mojo has no GIL. Use `parallelize` for multi-core scaling.
+Mojo has no GIL. Use `parallelize` for true multi-core scaling from Python.
 
 ```mojo
 from algorithm import parallelize
 
-fn heavy_computation(i: Int):
-    # Do work for index i
+fn heavy_compute(i: Int):
+    # This executes in parallel without GIL overhead
     pass
 
-fn run_parallel(total_tasks: Int):
-    parallelize[heavy_computation](total_tasks)
+fn run_parallel(tasks: Int):
+    parallelize[heavy_compute](tasks)
 ```
 
-## Python Interoperability
+### Zero-Copy Memory Sharing
 
-### Calling Python from Mojo
+Use `UnsafePointer` to share memory with NumPy without copying.
 
 ```mojo
 from python import Python
 
-fn use_numpy() raises:
+fn process_numpy_array(array: PythonObject) raises:
     var np = Python.import_module("numpy")
-    var array = np.array([1, 2, 3])
-    print(array.mean())
+    var np_array = np.asarray(array, dtype=np.float32)
+    
+    # Get direct pointer to data
+    var data_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=np_array.__array_interface__["data"][0])
+    )
+    
+    # Process data_ptr directly...
 ```
 
-### Creating Python Extensions
+## Python Extensions
+
+### Creating the Bridge
 
 Use `@export` and `PythonModuleBuilder` to expose Mojo functions to Python.
 
@@ -118,31 +117,33 @@ Use `@export` and `PythonModuleBuilder` to expose Mojo functions to Python.
 from python.bindings import PythonModuleBuilder
 
 @export
-fn PyInit_my_extension() -> PythonObject:
+fn PyInit__core() -> PythonObject:
     try:
-        var b = PythonModuleBuilder("my_extension")
-        b.def_function[my_mojo_fn]("my_mojo_fn")
+        var b = PythonModuleBuilder("_core")
+        b.def_function[mojo_kernel]("kernel")
         return b.finalize()
     except e:
-        # Handle initialization error
-        pass
+        # Proper error handling for initialization
+        return None
 ```
 
-## Memory Management
+## Build Automation (Learning)
 
-- Use `@value` for simple data containers to get auto-generated lifecycle methods.
-- Use `owned` for passing ownership (transferring memory).
-- Use `borrowed` (default for `fn`) for read-only access.
-- Use `inout` for mutable references.
+The `tools/hatch_build.py` pattern is the standard for automated Mojo compilation during `uv build`.
 
-## Import Organization
+```python
+import subprocess
+from pathlib import Path
+from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-1.  Mojo Standard Library (`from sys import ...`)
-2.  Python Interop (`from python import ...`)
-3.  Local Mojo Modules (`from .utils import ...`)
+class CustomBuildHook(BuildHookInterface):
+    def initialize(self, version: str, build_data: dict) -> None:
+        if self.target_name != "wheel": return
+        # Logic to find mojo and run 'mojo build --dylib'
+```
 
 ## Anti-Patterns
 
-- **Avoid `def` in hot paths**: It introduces overhead similar to Python.
-- **Avoid manual pointer arithmetic** where slices or higher-level abstractions suffice.
-- **Don't ignore `raises`**: Always handle or propagate errors.
+- **Avoid `def` in compute loops**: Use `fn` for static performance.
+- **Avoid manual memory copies**: Use `UnsafePointer` and NumPy's buffer protocol.
+- **Avoid hardcoded paths**: Use `tools/` scripts to locate the Mojo compiler.
