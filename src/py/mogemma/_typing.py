@@ -6,16 +6,23 @@ This module keeps imports typed consistently and avoids repetitive
 
 from typing import Any
 
-__all__ = ["OPENTELEMETRY_INSTALLED", "TOKENIZERS_INSTALLED", "_TokenizerImpl", "trace"]
-_TokenizerImpl: Any | None
+__all__ = [
+    "OPENTELEMETRY_INSTALLED",
+    "SENTENCEPIECE_INSTALLED",
+    "TOKENIZERS_INSTALLED",
+    "_SPProcessorImpl",
+    "_TokenizerImpl",
+    "trace",
+]
+_SPProcessorImpl: Any | None
+_TokenizerImpl: Any | None = None
 trace: Any | None
 
 try:
-    from tokenizers import Tokenizer as _TokenizerClass  # type: ignore[import-untyped]
+    import sentencepiece as _sp  # type: ignore[import-untyped]
+    _SPProcessorImpl = _sp.SentencePieceProcessor
 except ModuleNotFoundError:
-    _TokenizerImpl = None
-else:
-    _TokenizerImpl = _TokenizerClass
+    _SPProcessorImpl = None
 
 try:
     from opentelemetry import trace as _trace
@@ -24,5 +31,6 @@ except ModuleNotFoundError:
 else:
     trace = _trace
 
-TOKENIZERS_INSTALLED = _TokenizerImpl is not None
+SENTENCEPIECE_INSTALLED = _SPProcessorImpl is not None
+TOKENIZERS_INSTALLED = False
 OPENTELEMETRY_INSTALLED = trace is not None

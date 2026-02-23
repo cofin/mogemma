@@ -17,12 +17,13 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
     with (model_dir / "model.safetensors").open("wb") as f:
         h = json.dumps({}).encode("utf-8")
         f.write(struct.pack("<Q", len(h)) + h)
+    (model_dir / "tokenizer.model").touch()
 
 
 @pytest.fixture
 def mock_generation_tokenizer() -> Iterator[MagicMock]:
     """Patch tokenizer for generation-style calls."""
-    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
+    with patch("mogemma.model._Tokenizer") as mock:
         tokenizer = MagicMock()
 
         encoded = MagicMock()
@@ -40,7 +41,7 @@ def mock_generation_tokenizer() -> Iterator[MagicMock]:
 @pytest.fixture
 def mock_embedding_tokenizer() -> Iterator[MagicMock]:
     """Patch tokenizer for text embedding calls."""
-    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
+    with patch("mogemma.model._Tokenizer") as mock:
         tokenizer = MagicMock()
 
         def _encode_batch(texts: list[str], **_: object) -> list[MagicMock]:

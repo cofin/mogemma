@@ -18,6 +18,8 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
     with (model_dir / "model.safetensors").open("wb") as f:
         h = json.dumps({}).encode("utf-8")
         f.write(struct.pack("<Q", len(h)) + h)
+    # Also need a dummy tokenizer.model for _ensure_tokenizer
+    (model_dir / "tokenizer.model").touch()
 
 
 class CoreStub:
@@ -45,7 +47,7 @@ def dummy_model_path(tmp_path: Path) -> str:
 
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
-    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
+    with patch("mogemma.model._Tokenizer") as mock:
         tokenizer = MagicMock()
         encoded_mock = MagicMock()
         encoded_mock.ids = [1, 2, 3]

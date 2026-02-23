@@ -18,6 +18,7 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
     with (model_dir / "model.safetensors").open("wb") as f:
         h = json.dumps({}).encode("utf-8")
         f.write(struct.pack("<Q", len(h)) + h)
+    (model_dir / "tokenizer.model").touch()
 
 
 @pytest.fixture
@@ -30,8 +31,8 @@ def dummy_model_path(tmp_path: Path) -> str:
 
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
-    """Fixture to mock the AutoTokenizer."""
-    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
+    """Fixture to mock the internal tokenizer."""
+    with patch("mogemma.model._Tokenizer") as mock:
         tokenizer = MagicMock()
 
         def _encode_batch(inputs: str | list[str], **_: object) -> list[MagicMock]:
@@ -167,7 +168,7 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
             return np.ones((tokens.shape[0], 768), dtype=np.float32)
 
     monkeypatch.setattr(model_module, "_core", CoreStub())
-    monkeypatch.setattr(model_module, "_TokenizerImpl", None)
+    monkeypatch.setattr(model_module, "SENTENCEPIECE_INSTALLED", False)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
@@ -202,7 +203,7 @@ def test_embed_text_requires_tokenizer_when_tokenizers_missing(
     dummy_model_path: str, monkeypatch: pytest.MonkeyPatch, mock_core: object
 ) -> None:
     """Ensure text embedding reports clear requirement when tokenizers is absent."""
-    monkeypatch.setattr(model_module, "_TokenizerImpl", None)
+    monkeypatch.setattr(model_module, "SENTENCEPIECE_INSTALLED", False)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)

@@ -13,7 +13,7 @@ from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
 from .loader import ModelLoader, auto_loader
 from .telemetry import tracer
-from .typing import _TokenizerImpl
+from .typing import SENTENCEPIECE_INSTALLED, _SPProcessorImpl
 
 try:
     from . import _core
@@ -26,18 +26,41 @@ class _EncodedToken(Protocol):
     ids: Sequence[int]
 
 
-class _Tokenizer(Protocol):
-    def enable_truncation(self, *, max_length: int, **_: object) -> None: ...
+class _Tokenizer:
+    """Wrapper for sentencepiece to match internal tokenizer needs."""
 
-    def enable_padding(self, **_: object) -> None: ...
+    def __init__(self, model_path: str) -> None:
+        self.sp = _SPProcessorImpl(model_file=model_path)
+        self._max_length: int | None = None
 
-    def encode_batch(self, text: Sequence[str]) -> Sequence[_EncodedToken]: ...
+    def enable_truncation(self, *, max_length: int, **_: object) -> None:
+        self._max_length = max_length
 
-    def encode(self, text: str) -> _EncodedToken: ...
+    def enable_padding(self, **_: object) -> None:
+        pass
 
-    def decode(self, ids: Sequence[int]) -> str: ...
+    def encode_batch(self, text: Sequence[str]) -> Sequence[_EncodedToken]:
+        return [self.encode(t) for t in text]
 
-    def token_to_id(self, token: str) -> int | None: ...
+    def encode(self, text: str) -> _EncodedToken:
+        ids = self.sp.EncodeAsIds(text)
+        if self._max_length is not None:
+            ids = ids[: self._max_length]
+
+        class _Result:
+            def __init__(self, ids: list[int]):
+                self.ids = ids
+
+        return cast("_EncodedToken", _Result(ids))
+
+    def decode(self, ids: Sequence[int]) -> str:
+        return str(self.sp.DecodeIds(list(ids)))
+
+    def token_to_id(self, token: str) -> int | None:
+        token_id = self.sp.piece_to_id(token)
+        if token_id == self.sp.unk_id() and token not in ("<unk>", " "):
+            return None
+        return int(token_id)
 
 
 _EXPECTED_MATRIX_DIMS = 2
@@ -148,14 +171,19 @@ class EmbeddingModel:
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
-        if _TokenizerImpl is None:
+        if not SENTENCEPIECE_INSTALLED:
             msg = (
-                "Text tokenization requires 'tokenizers' dependency. "
+                "Text tokenization requires 'sentencepiece' dependency. "
                 "Install with: pip install 'mogemma[llm]' or call embed_tokens(...) with pre-tokenized inputs."
             )
             raise ModuleNotFoundError(msg)
-        self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
-        return self._tokenizer
+
+        sp_path = self.model_path / "tokenizer.model"
+        if sp_path.exists():
+            self._tokenizer = _Tokenizer(str(sp_path))
+            return self._tokenizer
+
+        raise FileNotFoundError(f"No tokenizer.model found in {self.model_path}")
 
     def _embed_token_array(self, tokens: npt.NDArray[np.int32], input_count: int) -> npt.NDArray[np.float32]:
         if _core is None or self._llm is None:
@@ -229,11 +257,16 @@ class SyncGemmaModel:
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
-        if _TokenizerImpl is None:
-            msg = "Text generation requires 'tokenizers' dependency. Install with: pip install 'mogemma[llm]'"
+        if not SENTENCEPIECE_INSTALLED:
+            msg = "Text generation requires 'sentencepiece' dependency. Install with: pip install 'mogemma[llm]'"
             raise ModuleNotFoundError(msg)
-        self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
-        return self._tokenizer
+
+        sp_path = self.model_path / "tokenizer.model"
+        if sp_path.exists():
+            self._tokenizer = _Tokenizer(str(sp_path))
+            return self._tokenizer
+
+        raise FileNotFoundError(f"No tokenizer.model found in {self.model_path}")
 
     def generate(self, prompt: str) -> str:
         """Generate text from the given prompt."""
