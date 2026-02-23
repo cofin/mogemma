@@ -38,6 +38,67 @@ def _to_f32(arr: npt.NDArray[np.generic]) -> npt.NDArray[np.float32]:
     return arr.astype(np.float32)
 
 
+def _detect_model_family(orbax_keys: list[str]) -> str:
+    """Detect if the checkpoint is standard Gemma 3 or Gemma 3 Nano."""
+    for key in orbax_keys:
+        if "altup" in key or "per_layer_mapping" in key:
+            return "gemma3_nano"
+    return "gemma3"
+
+
+def _convert_norms(
+    orbax: dict[str, npt.NDArray[np.generic]], out: dict[str, npt.NDArray[np.float32]], prefix: str, hf: str
+) -> None:
+    out[f"{hf}.input_layernorm.weight"] = _to_f32(orbax[f"{prefix}/pre_attention_norm.scale"])
+    out[f"{hf}.post_attention_layernorm.weight"] = _to_f32(orbax[f"{prefix}/post_attention_norm.scale"])
+    out[f"{hf}.pre_feedforward_layernorm.weight"] = _to_f32(orbax[f"{prefix}/pre_ffw_norm.scale"])
+    out[f"{hf}.post_feedforward_layernorm.weight"] = _to_f32(orbax[f"{prefix}/post_ffw_norm.scale"])
+
+
+def _convert_attention_layer(  # noqa: PLR0913
+    orbax: dict[str, npt.NDArray[np.generic]],
+    out: dict[str, npt.NDArray[np.float32]],
+    prefix: str,
+    hf: str,
+    q_norm_key: str,
+    k_norm_key: str,
+) -> None:
+    # QK Norms
+    out[f"{hf}.self_attn.q_norm.weight"] = _to_f32(orbax[f"{prefix}/attn/{q_norm_key}.scale"])
+    out[f"{hf}.self_attn.k_norm.weight"] = _to_f32(orbax[f"{prefix}/attn/{k_norm_key}.scale"])
+
+    # Q projection: (num_heads, hidden, head_dim) → (num_heads*head_dim, hidden)
+    q_ein = orbax[f"{prefix}/attn/q_einsum.w"]
+    out[f"{hf}.self_attn.q_proj.weight"] = _to_f32(q_ein.transpose(0, 2, 1).reshape(-1, q_ein.shape[1]))
+
+    # KV projection: (2, num_kv_heads, hidden, head_dim) → separate k/v
+    kv_ein = orbax[f"{prefix}/attn/kv_einsum.w"]
+    for idx, name in enumerate(("k_proj", "v_proj")):
+        single = kv_ein[idx]  # (num_kv_heads, hidden, head_dim)
+        out[f"{hf}.self_attn.{name}.weight"] = _to_f32(single.transpose(0, 2, 1).reshape(-1, single.shape[1]))
+
+    # O projection: (num_heads, head_dim, hidden) → (hidden, num_heads*head_dim)
+    o_ein = orbax[f"{prefix}/attn/attn_vec_einsum.w"]
+    out[f"{hf}.self_attn.o_proj.weight"] = _to_f32(o_ein.reshape(-1, o_ein.shape[2]).T)
+
+
+def _convert_mlp_layer(  # noqa: PLR0913
+    orbax: dict[str, npt.NDArray[np.generic]],
+    out: dict[str, npt.NDArray[np.float32]],
+    prefix: str,
+    hf: str,
+    gating_key: str,
+    linear_key: str,
+) -> None:
+    # Gate / Up: (2, intermediate, hidden) → split
+    gating = orbax[f"{prefix}/mlp/{gating_key}"]
+    out[f"{hf}.mlp.gate_proj.weight"] = _to_f32(gating[0])
+    out[f"{hf}.mlp.up_proj.weight"] = _to_f32(gating[1])
+
+    # Down: (intermediate, hidden) → (hidden, intermediate)
+    out[f"{hf}.mlp.down_proj.weight"] = _to_f32(orbax[f"{prefix}/mlp/{linear_key}"].T)
+
+
 def _convert_gemma3(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.NDArray[np.float32]]:
     """Convert a standard Gemma 3 Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.float32]] = {}
@@ -59,37 +120,70 @@ def _convert_gemma3(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.
         prefix = f"transformer/layer_{n}"
         hf = f"model.layers.{n}"
 
-        # Norms (4 in Orbax → 4 in HF safetensors; Mojo loads the 2 it needs)
-        out[f"{hf}.input_layernorm.weight"] = _to_f32(orbax[f"{prefix}/pre_attention_norm.scale"])
-        out[f"{hf}.post_attention_layernorm.weight"] = _to_f32(orbax[f"{prefix}/post_attention_norm.scale"])
-        out[f"{hf}.pre_feedforward_layernorm.weight"] = _to_f32(orbax[f"{prefix}/pre_ffw_norm.scale"])
-        out[f"{hf}.post_feedforward_layernorm.weight"] = _to_f32(orbax[f"{prefix}/post_ffw_norm.scale"])
+        _convert_norms(orbax, out, prefix, hf)
+        _convert_attention_layer(orbax, out, prefix, hf, "_query_norm", "_key_norm")
+        _convert_mlp_layer(orbax, out, prefix, hf, "gating_einsum.w", "linear.w")
 
-        # QK Norms
-        out[f"{hf}.self_attn.q_norm.weight"] = _to_f32(orbax[f"{prefix}/attn/_query_norm.scale"])
-        out[f"{hf}.self_attn.k_norm.weight"] = _to_f32(orbax[f"{prefix}/attn/_key_norm.scale"])
+    return out
 
-        # Q projection: (num_heads, hidden, head_dim) → (num_heads*head_dim, hidden)
-        q_ein = orbax[f"{prefix}/attn/q_einsum.w"]
-        out[f"{hf}.self_attn.q_proj.weight"] = _to_f32(q_ein.transpose(0, 2, 1).reshape(-1, q_ein.shape[1]))
 
-        # KV projection: (2, num_kv_heads, hidden, head_dim) → separate k/v
-        kv_ein = orbax[f"{prefix}/attn/kv_einsum.w"]
-        for idx, name in enumerate(("k_proj", "v_proj")):
-            single = kv_ein[idx]  # (num_kv_heads, hidden, head_dim)
-            out[f"{hf}.self_attn.{name}.weight"] = _to_f32(single.transpose(0, 2, 1).reshape(-1, single.shape[1]))
+def _convert_gemma3_nano(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.NDArray[np.float32]]:
+    """Convert a Gemma 3 Nano Orbax checkpoint to HuggingFace layout."""
+    out: dict[str, npt.NDArray[np.float32]] = {}
 
-        # O projection: (num_heads, head_dim, hidden) → (hidden, num_heads*head_dim)
-        o_ein = orbax[f"{prefix}/attn/attn_vec_einsum.w"]
-        out[f"{hf}.self_attn.o_proj.weight"] = _to_f32(o_ein.reshape(-1, o_ein.shape[2]).T)
+    # --- Global tensors ---
+    embed = _to_f32(orbax["transformer/embedder.input_embedding"])
+    out["model.embed_tokens.weight"] = embed
+    out["lm_head.weight"] = embed  # tied weights
+    out["model.norm.weight"] = _to_f32(orbax["transformer/final_norm.scale"])
 
-        # Gate / Up: (2, intermediate, hidden) → split
-        gating = orbax[f"{prefix}/mlp/gating_einsum.w"]
-        out[f"{hf}.mlp.gate_proj.weight"] = _to_f32(gating[0])
-        out[f"{hf}.mlp.up_proj.weight"] = _to_f32(gating[1])
+    out["model.per_layer_embed.weight"] = _to_f32(orbax["transformer/embedder.per_layer_input_embedding"])
+    out["model.per_layer_embed.projection.weight"] = _to_f32(orbax["transformer/embedder.per_layer_input_projection.w"])
+    out["model.per_layer_embed.norm.weight"] = _to_f32(orbax["transformer/embedder.per_layer_projection_norm.scale"])
 
-        # Down: (intermediate, hidden) → (hidden, intermediate)
-        out[f"{hf}.mlp.down_proj.weight"] = _to_f32(orbax[f"{prefix}/mlp/linear.w"].T)
+    # AltUp projections (0, 1, 2)
+    for i in range(3):
+        if f"transformer/altup_projection.{i}" in orbax:
+            out[f"model.altup.projection.{i}.weight"] = _to_f32(orbax[f"transformer/altup_projection.{i}"])
+            out[f"model.altup.unembed.{i}.weight"] = _to_f32(orbax[f"transformer/altup_unembed_projection.{i}"])
+
+    # --- Per-layer tensors ---
+    layer_indices: set[int] = set()
+    for name in orbax:
+        m = _LAYER_RE.match(name)
+        if m:
+            layer_indices.add(int(m.group(1)))
+
+    for n in sorted(layer_indices):
+        prefix = f"transformer/layer_{n}"
+        hf = f"model.layers.{n}"
+
+        _convert_norms(orbax, out, prefix, hf)
+        # Note: Nano uses query_norm, key_norm (no leading underscore)
+        _convert_attention_layer(orbax, out, prefix, hf, "query_norm", "key_norm")
+        # Note: Nano uses gating_einsum, linear (no .w)
+        _convert_mlp_layer(orbax, out, prefix, hf, "gating_einsum", "linear")
+
+        # Nano-specific: AltUp
+        out[f"{hf}.altup.router.weight"] = _to_f32(orbax[f"{prefix}/altup.modality_router.w"])
+        out[f"{hf}.altup.router_norm.weight"] = _to_f32(orbax[f"{prefix}/altup.router_norm_layer.scale"])
+        out[f"{hf}.altup.prediction_coefs"] = _to_f32(orbax[f"{prefix}/altup.prediction_coefs"])
+        out[f"{hf}.altup.correction_coefs"] = _to_f32(orbax[f"{prefix}/altup.correction_coefs"])
+        out[f"{hf}.altup.output_scale"] = _to_f32(orbax[f"{prefix}/altup.correct_output_scale"])
+
+        # Nano-specific: Per-layer mapping
+        out[f"{hf}.per_layer_map.gate.weight"] = _to_f32(orbax[f"{prefix}/per_layer_mapping.per_layer_input_gate.w"])
+        out[f"{hf}.per_layer_map.projection.weight"] = _to_f32(
+            orbax[f"{prefix}/per_layer_mapping.per_layer_projection.w"]
+        )
+        out[f"{hf}.per_layer_map.norm.weight"] = _to_f32(
+            orbax[f"{prefix}/per_layer_mapping.post_per_layer_input_norm.scale"]
+        )
+
+        # Nano-specific: Laurel
+        out[f"{hf}.laurel.down_proj.weight"] = _to_f32(orbax[f"{prefix}/laurel.linear_left.w"])
+        out[f"{hf}.laurel.up_proj.weight"] = _to_f32(orbax[f"{prefix}/laurel.linear_right.w"])
+        out[f"{hf}.laurel.norm.weight"] = _to_f32(orbax[f"{prefix}/post_laurel_norm.scale"])
 
     return out
 
@@ -112,7 +206,14 @@ def convert_orbax_to_safetensors(model_path: Path) -> Path:
 
     loader = OrbaxLoader(model_path)
     try:
-        hf_tensors = _convert_gemma3(loader._arrays)  # noqa: SLF001
+        keys = list(loader._arrays.keys())  # noqa: SLF001
+        family = _detect_model_family(keys)
+        logger.info("Detected model family: %s", family)
+
+        if family == "gemma3_nano":
+            hf_tensors = _convert_gemma3_nano(loader._arrays)  # noqa: SLF001
+        else:
+            hf_tensors = _convert_gemma3(loader._arrays)  # noqa: SLF001
     finally:
         loader.close()
 
