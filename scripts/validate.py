@@ -13,18 +13,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 
 # Default models for validation
-# Note: Gemma 3 Nano (gemma3n-*) uses a different architecture (AltUp, Laurel)
-# that the Mojo backend does not yet support. Use standard Gemma 3 models.
 TEXT_MODEL_ID = "gemma3-270m-it"
 EMBED_MODEL_ID = "gemma3-270m-it"
+NANO_MODEL_ID = "gemma3n-e2b-it"
 
 from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
 
 
-def validate_llm_generation():
-    print(f"\n[LLM] Validating Generation ({TEXT_MODEL_ID})...")
+def validate_llm_generation(model_id: str):
+    print(f"\n[LLM] Validating Generation ({model_id})...")
     # This will trigger an automatic download from GCS if not in cache
-    config = GenerationConfig(model_path=TEXT_MODEL_ID, max_new_tokens=32, temperature=0.7)
+    config = GenerationConfig(model_path=model_id, max_new_tokens=32, temperature=0.7)
 
     try:
         model = SyncGemmaModel(config)
@@ -48,9 +47,9 @@ def validate_llm_generation():
         sys.exit(1)
 
 
-def validate_embeddings():
-    print(f"\n[Embed] Validating Embeddings ({EMBED_MODEL_ID})...")
-    config = EmbeddingConfig(model_path=EMBED_MODEL_ID)
+def validate_embeddings(model_id: str):
+    print(f"\n[Embed] Validating Embeddings ({model_id})...")
+    config = EmbeddingConfig(model_path=model_id)
 
     try:
         model = EmbeddingModel(config)
@@ -66,6 +65,7 @@ def validate_embeddings():
 def main():
     parser = argparse.ArgumentParser(description="Mogemma End-to-End Validator")
     parser.add_argument("--mode", choices=["llm", "embed", "both"], default="both", help="Validation mode")
+    parser.add_argument("--model", type=str, help="Model ID or path to use for validation")
     args = parser.parse_args()
 
     print("--- Starting Mogemma Validation ---")
@@ -78,11 +78,13 @@ def main():
         print("Run `make build` to compile the bridge before validating.")
         sys.exit(1)
 
+    model_id = args.model or TEXT_MODEL_ID
+
     if args.mode in ["llm", "both"]:
-        validate_llm_generation()
+        validate_llm_generation(model_id)
 
     if args.mode in ["embed", "both"]:
-        validate_embeddings()
+        validate_embeddings(args.model or EMBED_MODEL_ID)
 
     print("\n--- Validation Complete! ---")
 
