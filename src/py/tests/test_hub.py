@@ -40,14 +40,40 @@ def test_resolve_model_cached_path(tmp_path: Path) -> None:
     """Verify cached model directories are returned as filesystem paths."""
     model_id = "gemma-3-4b-it"
     cached_dir = tmp_path / "gemma-3-4b-it"
-    cached_dir.mkdir()
-    # add a dummy file so it's not empty
-    (cached_dir / "dummy").touch()
+    _create_dummy_safetensors(cached_dir)
 
     hub = HubManager(cache_path=tmp_path)
 
     resolved = hub.resolve_model(model_id)
     assert resolved == cached_dir
+
+
+def test_resolve_model_cached_path_ocdbt(tmp_path: Path) -> None:
+    """Verify cached OCDBT checkpoint directories are recognized."""
+    model_id = "gemma3n-e2b-it"
+    cached_dir = tmp_path / "gemma3n-e2b-it"
+    cached_dir.mkdir()
+    (cached_dir / "manifest.ocdbt").touch()
+    (cached_dir / "ocdbt.process_0").mkdir()
+
+    hub = HubManager(cache_path=tmp_path)
+
+    resolved = hub.resolve_model(model_id)
+    assert resolved == cached_dir
+
+
+def test_resolve_model_ignores_stale_cache(tmp_path: Path) -> None:
+    """Cache dir with no recognized model files should not be treated as valid."""
+    model_id = "gemma-3-4b-it"
+    cached_dir = tmp_path / "gemma-3-4b-it"
+    cached_dir.mkdir()
+    (cached_dir / "tokenizer.model").touch()  # no safetensors or OCDBT
+
+    hub = HubManager(cache_path=tmp_path)
+
+    resolved = hub.resolve_model(model_id, strict=False)
+    # Should fall through (not return cached_dir)
+    assert resolved != cached_dir
 
 
 def test_resolve_model_strict_rejects_missing_local_path(tmp_path: Path) -> None:

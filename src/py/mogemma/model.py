@@ -11,7 +11,7 @@ import numpy.typing as npt
 
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
-from .loader import SafetensorsLoader
+from .loader import ModelLoader, auto_loader
 from .telemetry import tracer
 from .typing import _TokenizerImpl
 
@@ -49,7 +49,7 @@ def _resolve_model_path(raw_model_path: str | Path) -> Path:
     return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
-def _initialize_llm(loader: SafetensorsLoader, *, model_type: str) -> object:
+def _initialize_llm(loader: ModelLoader, *, model_type: str) -> object:
     if _core is None:
         if model_type == "embedding":
             msg = (
@@ -140,7 +140,7 @@ class EmbeddingModel:
 
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
-        self._loader = SafetensorsLoader(self.model_path)
+        self._loader = auto_loader(self.model_path)
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(self._loader, model_type="embedding")
@@ -221,7 +221,7 @@ class SyncGemmaModel:
 
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
-        self._loader = SafetensorsLoader(self.model_path)
+        self._loader = auto_loader(self.model_path)
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(self._loader, model_type="generation")

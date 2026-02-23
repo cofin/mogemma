@@ -33,6 +33,13 @@ class HubManager:
     def _cache_dir_for_model_id(cache_root: Path, model_id: str) -> Path:
         return cache_root / model_id.replace("/", "--")
 
+    @staticmethod
+    def _has_model_files(path: Path) -> bool:
+        """Return ``True`` when *path* contains safetensors or OCDBT model files."""
+        if (path / "model.safetensors").exists() or (path / "model.safetensors.index.json").exists():
+            return True
+        return (path / "ocdbt.process_0").is_dir() and (path / "manifest.ocdbt").exists()
+
     def resolve_model(
         self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **_kwargs: object
     ) -> Path:
@@ -48,7 +55,7 @@ class HubManager:
             return local_path
 
         cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
-        if cached_path.exists() and cached_path.is_dir() and any(cached_path.iterdir()):
+        if cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path):
             return cached_path
 
         if download_if_missing:

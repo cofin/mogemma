@@ -1,14 +1,18 @@
-"""Weight loading utilities for Safetensors."""
+"""Weight loading utilities for Safetensors and Orbax/OCDBT checkpoints."""
+
+from __future__ import annotations
 
 import json
 import mmap
 import struct
 from pathlib import Path
-from types import TracebackType
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 class SafetensorsLoader:
@@ -112,6 +116,15 @@ class SafetensorsLoader:
         """Context manager exit."""
         self.close()
 
+    @staticmethod
+    def can_load(model_path: Path) -> bool:
+        """Return ``True`` when *model_path* contains safetensors files."""
+        if model_path.is_file() and model_path.suffix == ".safetensors":
+            return True
+        if not model_path.is_dir():
+            return False
+        return (model_path / "model.safetensors").exists() or (model_path / "model.safetensors.index.json").exists()
+
     def close(self) -> None:
         """Close memory maps and files."""
         for m in self.mmaps.values():
@@ -122,3 +135,36 @@ class SafetensorsLoader:
         self.file_objs.clear()
         self.tensor_file_map.clear()
         self.tensor_metadata.clear()
+
+
+class ModelLoader(Protocol):
+    """Structural protocol for weight loaders (SafetensorsLoader, OrbaxLoader)."""
+
+    model_path: Path
+
+    def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
+        """Return ``{name: (data_ptr, shape, dtype_str)}`` for Mojo FFI."""
+        ...
+
+    def close(self) -> None:
+        """Release underlying resources."""
+        ...
+
+
+def auto_loader(model_path: str | Path) -> ModelLoader:
+    """Detect the checkpoint format at *model_path* and return the appropriate loader."""
+    from .orbax_loader import OrbaxLoader  # noqa: PLC0415
+
+    path = Path(model_path)
+
+    if SafetensorsLoader.can_load(path):
+        return SafetensorsLoader(path)
+
+    if OrbaxLoader.can_load(path):
+        return OrbaxLoader(path)
+
+    msg = (
+        f"No supported model format found in {path}. "
+        "Expected safetensors files (model.safetensors) or an Orbax/OCDBT checkpoint (ocdbt.process_0/)."
+    )
+    raise FileNotFoundError(msg)

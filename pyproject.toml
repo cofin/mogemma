@@ -14,6 +14,7 @@ dependencies = [
     "obstore>=0.2.08",
     "numpy>=1.26.0",
     "safetensors>=0.4.5",
+    "tensorstore>=0.1.78",
 ]
 description = "Python/Mojo interface for Google Gemma 3 using MAX Engine"
 license = { file = "LICENSE" }

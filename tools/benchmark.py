@@ -63,9 +63,27 @@ class _FakeCore:
         return np.tile(np.arange(768, dtype=np.float32), (tokens.shape[0], 1))
 
 
+class _FakeLoader:
+    """Loader stub that provides empty metadata without requiring real weight files."""
+
+    def __init__(self, model_path: str | Path) -> None:
+        self.model_path = Path(model_path)
+
+    def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
+        return {}
+
+    def close(self) -> None:
+        pass
+
+
+def _fake_auto_loader(model_path: str | Path) -> _FakeLoader:
+    return _FakeLoader(model_path)
+
+
 def _install_stubs() -> None:
     model_module._core = _FakeCore()
     model_module._TokenizerImpl = _FakeTokenizer
+    model_module.auto_loader = _fake_auto_loader  # type: ignore[attr-defined]
 
 
 def _environment_payload() -> dict[str, str]:
