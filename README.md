@@ -31,7 +31,7 @@ Requires `pip install 'mogemma[llm]'`.
 ```python
 from mogemma import GenerationConfig, SyncGemmaModel
 
-# Defaults to gemma3n-e2b-it
+# Defaults to gemma3-270m-it
 config = GenerationConfig(max_new_tokens=64)
 model = SyncGemmaModel(config)
 
@@ -52,7 +52,7 @@ import asyncio
 from mogemma import GenerationConfig, AsyncGemmaModel
 
 async def main():
-    # Defaults to gemma3n-e2b-it
+    # Defaults to gemma3-270m-it
     config = GenerationConfig(max_new_tokens=64)
     model = AsyncGemmaModel(config)
 

@@ -18,15 +18,15 @@ fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> Pyt
     return logits
 
 
-fn _ensure_embedding_matrix(embeddings_obj: PythonObject, expected_rows: Int, np: PythonObject) raises -> PythonObject:
+fn _ensure_embedding_matrix(embeddings_obj: PythonObject, expected_rows: Int, expected_cols: Int, np: PythonObject) raises -> PythonObject:
     var embeddings = np.asarray(embeddings_obj, dtype=np.float32)
     var builtins = Python.import_module("builtins")
     if Int(py=builtins.len(embeddings.shape)) != 2:
         raise Error("generate_embeddings output must be a 2D float32 matrix")
     if Int(py=embeddings.shape[0]) != expected_rows:
         raise Error("generate_embeddings output row count does not match inputs")
-    if Int(py=embeddings.shape[1]) != 768:
-        raise Error("generate_embeddings output must have 768 columns")
+    if Int(py=embeddings.shape[1]) != expected_cols:
+        raise Error("generate_embeddings output columns do not match hidden_size")
     return embeddings
 
 
@@ -64,15 +64,20 @@ fn _build_model(metadata_obj: PythonObject) raises -> ModelWeights:
             break
             
         var layer = LayerWeights()
+        var pfx = "model.layers." + String(num_layers)
         layer.input_layernorm = t^
-        layer.post_attention_layernorm = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".post_attention_layernorm.weight")
-        layer.q_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.q_proj.weight")
-        layer.k_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.k_proj.weight")
-        layer.v_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.v_proj.weight")
-        layer.o_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".self_attn.o_proj.weight")
-        layer.gate_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".mlp.gate_proj.weight")
-        layer.up_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".mlp.up_proj.weight")
-        layer.down_proj = _get_tensor(metadata_obj, "model.layers." + String(num_layers) + ".mlp.down_proj.weight")
+        layer.post_attention_layernorm = _get_tensor(metadata_obj, pfx + ".post_attention_layernorm.weight")
+        layer.q_proj = _get_tensor(metadata_obj, pfx + ".self_attn.q_proj.weight")
+        layer.k_proj = _get_tensor(metadata_obj, pfx + ".self_attn.k_proj.weight")
+        layer.v_proj = _get_tensor(metadata_obj, pfx + ".self_attn.v_proj.weight")
+        layer.o_proj = _get_tensor(metadata_obj, pfx + ".self_attn.o_proj.weight")
+        layer.gate_proj = _get_tensor(metadata_obj, pfx + ".mlp.gate_proj.weight")
+        layer.up_proj = _get_tensor(metadata_obj, pfx + ".mlp.up_proj.weight")
+        layer.down_proj = _get_tensor(metadata_obj, pfx + ".mlp.down_proj.weight")
+        layer.q_norm = _get_tensor(metadata_obj, pfx + ".self_attn.q_norm.weight")
+        layer.k_norm = _get_tensor(metadata_obj, pfx + ".self_attn.k_norm.weight")
+        layer.pre_feedforward_layernorm = _get_tensor(metadata_obj, pfx + ".pre_feedforward_layernorm.weight")
+        layer.post_feedforward_layernorm = _get_tensor(metadata_obj, pfx + ".post_feedforward_layernorm.weight")
         
         m.layers.append(layer^)
         num_layers += 1
@@ -95,8 +100,11 @@ fn init_model_mojo(
     
     if num_layers == 0:
         raise Error("Invalid model weights: no layers found in metadata")
-        
-    var head_dim = 256
+
+    # Derive head_dim from q_norm weight shape (1D tensor of size head_dim)
+    var head_dim = model_weights.layers[0].q_norm.shape_0
+    if head_dim == 0:
+        head_dim = 256  # fallback for older cached models without q_norm
     var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
     var max_seq_len = 8192 # default max seq len
     
@@ -155,7 +163,9 @@ fn step_mojo(
     
     var hidden_size = model_weights.embed_tokens.shape_1
     var vocab_size = model_weights.lm_head.shape_0
-    var head_dim = 256 # Assume 256 for Gemma 3
+    var head_dim = model_weights.layers[0].q_norm.shape_0
+    if head_dim == 0:
+        head_dim = 256  # fallback for older cached models without q_norm
     var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
     var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
     var intermediate_size = model_weights.layers[0].gate_proj.shape_0
@@ -219,7 +229,9 @@ fn generate_embeddings_mojo(
         raise Error("Invalid model weights: no layers found in metadata")
     
     var hidden_size = model_weights.embed_tokens.shape_1
-    var head_dim = 256 # Assume 256 for Gemma 3
+    var head_dim = model_weights.layers[0].q_norm.shape_0
+    if head_dim == 0:
+        head_dim = 256  # fallback for older cached models without q_norm
     var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
     var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
     var intermediate_size = model_weights.layers[0].gate_proj.shape_0
@@ -298,7 +310,7 @@ fn generate_embeddings_mojo(
     _ = emb_out[0]
     _ = input_ids[0]
     
-    return _ensure_embedding_matrix(result_np, batch_size, np)
+    return _ensure_embedding_matrix(result_np, batch_size, hidden_size, np)
 
 @export
 fn PyInit__core() -> PythonObject:

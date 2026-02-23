@@ -30,7 +30,15 @@ fn forward_attention(
     vec_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, hidden_size, q_size)
     vec_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, hidden_size, kv_size)
     vec_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, hidden_size, kv_size)
-    
+
+    # 1b. Apply per-head QK norms (if weights are present)
+    if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        for h in range(num_heads):
+            rms_norm(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+    if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        for h in range(num_kv_heads):
+            rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+
     # 2. Apply RoPE to Q and K
     for h in range(num_heads):
         rope_rotate(q_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)

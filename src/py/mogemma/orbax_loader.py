@@ -45,29 +45,17 @@ class OrbaxLoader:
 
     def _enumerate_tensors(self) -> list[str]:
         """List every tensor path stored in the OCDBT key-value store."""
-        kvs = ts.KvStore.open(
-            {
-                "driver": "ocdbt",
-                "base": f"file://{self._ocdbt_dir(self.model_path)}",
-            },
-        ).result()
+        kvs = ts.KvStore.open({"driver": "ocdbt", "base": f"file://{self._ocdbt_dir(self.model_path)}"}).result()
         listing: list[bytes] = kvs.list().result()
-        return sorted(
-            {key.decode().rsplit("/", 1)[0] for key in listing if key.decode().endswith("/.zarray")},
-        )
+        return sorted({key.decode().rsplit("/", 1)[0] for key in listing if key.decode().endswith("/.zarray")})
 
     def _read_tensor(self, tensor_path: str) -> npt.NDArray[np.generic]:
         """Read a single tensor from the OCDBT store into a contiguous numpy array."""
-        store = ts.open(
-            {
-                "driver": "zarr",
-                "kvstore": {
-                    "driver": "ocdbt",
-                    "base": f"file://{self._ocdbt_dir(self.model_path)}",
-                },
-                "path": tensor_path,
-            },
-        ).result()
+        store = ts.open({
+            "driver": "zarr",
+            "kvstore": {"driver": "ocdbt", "base": f"file://{self._ocdbt_dir(self.model_path)}"},
+            "path": tensor_path,
+        }).result()
         return np.ascontiguousarray(store.read().result())
 
     def _load_checkpoint(self) -> None:
@@ -103,10 +91,7 @@ class OrbaxLoader:
         return self
 
     def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None:
         """Context manager exit."""
         self.close()

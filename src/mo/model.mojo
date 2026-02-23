@@ -25,6 +25,10 @@ struct LayerWeights(Copyable, Movable):
     var down_proj: TensorInfo
     var input_layernorm: TensorInfo
     var post_attention_layernorm: TensorInfo
+    var q_norm: TensorInfo
+    var k_norm: TensorInfo
+    var pre_feedforward_layernorm: TensorInfo
+    var post_feedforward_layernorm: TensorInfo
 
     fn __init__(out self):
         self.q_proj = TensorInfo(0, 0, 0)
@@ -36,6 +40,10 @@ struct LayerWeights(Copyable, Movable):
         self.down_proj = TensorInfo(0, 0, 0)
         self.input_layernorm = TensorInfo(0, 0, 0)
         self.post_attention_layernorm = TensorInfo(0, 0, 0)
+        self.q_norm = TensorInfo(0, 0, 0)
+        self.k_norm = TensorInfo(0, 0, 0)
+        self.pre_feedforward_layernorm = TensorInfo(0, 0, 0)
+        self.post_feedforward_layernorm = TensorInfo(0, 0, 0)
 
 @fieldwise_init
 struct ModelWeights(Movable):

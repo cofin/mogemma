@@ -71,23 +71,17 @@ def _convert_gemma3(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.
 
         # Q projection: (num_heads, hidden, head_dim) → (num_heads*head_dim, hidden)
         q_ein = orbax[f"{prefix}/attn/q_einsum.w"]
-        out[f"{hf}.self_attn.q_proj.weight"] = _to_f32(
-            q_ein.transpose(0, 2, 1).reshape(-1, q_ein.shape[1]),
-        )
+        out[f"{hf}.self_attn.q_proj.weight"] = _to_f32(q_ein.transpose(0, 2, 1).reshape(-1, q_ein.shape[1]))
 
         # KV projection: (2, num_kv_heads, hidden, head_dim) → separate k/v
         kv_ein = orbax[f"{prefix}/attn/kv_einsum.w"]
         for idx, name in enumerate(("k_proj", "v_proj")):
             single = kv_ein[idx]  # (num_kv_heads, hidden, head_dim)
-            out[f"{hf}.self_attn.{name}.weight"] = _to_f32(
-                single.transpose(0, 2, 1).reshape(-1, single.shape[1]),
-            )
+            out[f"{hf}.self_attn.{name}.weight"] = _to_f32(single.transpose(0, 2, 1).reshape(-1, single.shape[1]))
 
         # O projection: (num_heads, head_dim, hidden) → (hidden, num_heads*head_dim)
         o_ein = orbax[f"{prefix}/attn/attn_vec_einsum.w"]
-        out[f"{hf}.self_attn.o_proj.weight"] = _to_f32(
-            o_ein.reshape(-1, o_ein.shape[2]).T,
-        )
+        out[f"{hf}.self_attn.o_proj.weight"] = _to_f32(o_ein.reshape(-1, o_ein.shape[2]).T)
 
         # Gate / Up: (2, intermediate, hidden) → split
         gating = orbax[f"{prefix}/mlp/gating_einsum.w"]
@@ -125,9 +119,7 @@ def convert_orbax_to_safetensors(model_path: Path) -> Path:
     out_path = model_path / "model.safetensors"
 
     # safetensors.numpy.save_file expects contiguous arrays
-    contiguous: dict[str, npt.NDArray[np.float32]] = {
-        k: np.ascontiguousarray(v) for k, v in hf_tensors.items()
-    }
+    contiguous: dict[str, npt.NDArray[np.float32]] = {k: np.ascontiguousarray(v) for k, v in hf_tensors.items()}
     save_file(contiguous, str(out_path))
 
     logger.info("Wrote %d tensors to %s", len(contiguous), out_path)

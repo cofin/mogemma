@@ -48,7 +48,7 @@ class EmbeddingConfig:
 class GenerationConfig:
     """Configuration for Gemma 3 Text generation."""
 
-    model_path: Path | str = "gemma3n-e2b-it"
+    model_path: Path | str = "gemma3-270m-it"
     """Path to the local Gemma 3 model weights or Google model ID."""
 
     device: str = "cpu"
