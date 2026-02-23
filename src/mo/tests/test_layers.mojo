@@ -3,8 +3,8 @@ from memory import UnsafePointer
 from math import sqrt
 from collections import List
 
-from model import LayerWeights, TensorInfo
-from layers import forward_attention, forward_mlp, forward_layer
+from mogemma.model import LayerWeights, TensorInfo
+from mogemma.layers import forward_attention, forward_mlp, forward_layer
 
 fn alloc_zeros(size: Int) -> List[Float32]:
     return List[Float32](length=size, fill=0.0)

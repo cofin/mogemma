@@ -1,4 +1,4 @@
-from model import ModelWeights, LayerWeights
+from mogemma.model import ModelWeights, LayerWeights
 
 fn main():
     var m = ModelWeights()

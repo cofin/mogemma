@@ -1,5 +1,5 @@
 from collections import List
-from ops import rms_norm, geglu, rope_rotate, vec_mat_mul, softmax
+from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, softmax
 from memory import UnsafePointer
 from testing import assert_almost_equal
 

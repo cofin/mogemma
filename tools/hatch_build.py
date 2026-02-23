@@ -17,14 +17,15 @@ class CustomBuildHook(BuildHookInterface):
             return
 
         root = Path(self.root)
-        mojo_src = root / "src" / "mo" / "core.mojo"
+        mojo_src = root / "src" / "mo" / "mogemma" / "core.mojo"
         so_dest = root / "src" / "py" / "mogemma" / "_core.so"
 
         mojo_bin = self._find_mojo(root)
         print(f"Building Mojo core from {mojo_src} to {so_dest}...")
         so_dest.parent.mkdir(parents=True, exist_ok=True)
         subprocess.check_call(
-            [str(mojo_bin), "build", "--emit", "shared-lib", "-I", "src/mo", str(mojo_src), "-o", str(so_dest)], cwd=str(root)
+            [str(mojo_bin), "build", "--emit", "shared-lib", "-I", "src/mo", str(mojo_src), "-o", str(so_dest)],
+            cwd=str(root),
         )
         print(f"Successfully built {so_dest.name}")
 

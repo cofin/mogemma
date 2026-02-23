@@ -5,8 +5,8 @@ from memory import UnsafePointer
 from math import cos, sin
 from collections import List
 
-from model import ModelWeights, LayerWeights, TensorInfo, KVCache
-from layers import forward_sequence, forward_step
+from mogemma.model import ModelWeights, LayerWeights, TensorInfo, KVCache
+from mogemma.layers import forward_sequence, forward_step
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
@@ -322,5 +322,4 @@ fn PyInit__core() -> PythonObject:
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
-
 

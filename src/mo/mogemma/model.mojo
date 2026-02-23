@@ -94,3 +94,86 @@ struct KVCache(Movable):
         self.v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.v_cache.unsafe_ptr()))
 
 
+
+@fieldwise_init
+struct AltUpWeights(Copyable, Movable):
+    var router: TensorInfo
+    var router_norm: TensorInfo
+    var prediction_coefs: TensorInfo
+    var correction_coefs: TensorInfo
+    var output_scale: TensorInfo
+
+    fn __init__(out self):
+        self.router = TensorInfo(0, 0, 0)
+        self.router_norm = TensorInfo(0, 0, 0)
+        self.prediction_coefs = TensorInfo(0, 0, 0)
+        self.correction_coefs = TensorInfo(0, 0, 0)
+        self.output_scale = TensorInfo(0, 0, 0)
+
+@fieldwise_init
+struct LaurelWeights(Copyable, Movable):
+    var down_proj: TensorInfo
+    var up_proj: TensorInfo
+    var norm: TensorInfo
+
+    fn __init__(out self):
+        self.down_proj = TensorInfo(0, 0, 0)
+        self.up_proj = TensorInfo(0, 0, 0)
+        self.norm = TensorInfo(0, 0, 0)
+
+@fieldwise_init
+struct PerLayerMapWeights(Copyable, Movable):
+    var gate: TensorInfo
+    var projection: TensorInfo
+    var norm: TensorInfo
+
+    fn __init__(out self):
+        self.gate = TensorInfo(0, 0, 0)
+        self.projection = TensorInfo(0, 0, 0)
+        self.norm = TensorInfo(0, 0, 0)
+
+@fieldwise_init
+struct NanoLayerWeights(Movable, Copyable):
+    var base: LayerWeights
+    var altup: AltUpWeights
+    var laurel: LaurelWeights
+    var per_layer_map: PerLayerMapWeights
+
+    fn __init__(out self):
+        self.base = LayerWeights()
+        self.altup = AltUpWeights()
+        self.laurel = LaurelWeights()
+        self.per_layer_map = PerLayerMapWeights()
+
+@fieldwise_init
+struct NanoModelWeights(Movable):
+    var embed_tokens: TensorInfo
+    var norm: TensorInfo
+    var lm_head: TensorInfo
+    var per_layer_embed: TensorInfo
+    var per_layer_projection: TensorInfo
+    var per_layer_norm: TensorInfo
+    var altup_projections: List[TensorInfo]
+    var altup_unembeds: List[TensorInfo]
+    var layers: List[NanoLayerWeights]
+
+    fn __init__(out self):
+        self.embed_tokens = TensorInfo(0, 0, 0)
+        self.norm = TensorInfo(0, 0, 0)
+        self.lm_head = TensorInfo(0, 0, 0)
+        self.per_layer_embed = TensorInfo(0, 0, 0)
+        self.per_layer_projection = TensorInfo(0, 0, 0)
+        self.per_layer_norm = TensorInfo(0, 0, 0)
+        self.altup_projections = List[TensorInfo]()
+        self.altup_unembeds = List[TensorInfo]()
+        self.layers = List[NanoLayerWeights]()
+        
+    @always_inline
+    fn get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
+        var hidden_size = self.embed_tokens.shape_1
+        var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
+        
+        # Simple copy loop
+        for i in range(hidden_size):
+            out_ptr.store(i, src_ptr.load(i))
+
