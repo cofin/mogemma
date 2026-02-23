@@ -147,8 +147,8 @@ class EmbeddingModel:
             return self._tokenizer
         if _TokenizerImpl is None:
             msg = (
-                "Text tokenization requires optional dependency 'tokenizers'. "
-                "Install with: pip install 'mogemma[text]' or call embed_tokens(...) with pre-tokenized inputs."
+                "Text tokenization requires 'tokenizers' dependency. "
+                "Ensure the package is installed or call embed_tokens(...) with pre-tokenized inputs."
             )
             raise ModuleNotFoundError(msg)
         self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
@@ -226,7 +226,7 @@ class SyncGemmaModel:
         if self._tokenizer is not None:
             return self._tokenizer
         if _TokenizerImpl is None:
-            msg = "Text generation requires optional dependency 'tokenizers'. Install with: pip install 'mogemma[text]'"
+            msg = "Text generation requires 'tokenizers' dependency. Ensure the package is installed."
             raise ModuleNotFoundError(msg)
         self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
         return self._tokenizer

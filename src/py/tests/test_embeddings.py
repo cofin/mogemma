@@ -188,10 +188,10 @@ def test_embed_tokens_rejects_empty_row(
         model.embed_tokens(np.empty((0, 1), dtype=np.int32))
 
 
-def test_embed_text_requires_tokenizer_when_transformers_missing(
+def test_embed_text_requires_tokenizer_when_tokenizers_missing(
     dummy_model_path: str, monkeypatch: pytest.MonkeyPatch, mock_core: object
 ) -> None:
-    """Ensure text embedding reports clear requirement when transformers is absent."""
+    """Ensure text embedding reports clear requirement when tokenizers is absent."""
     monkeypatch.setattr(model_module, "_TokenizerImpl", None)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))

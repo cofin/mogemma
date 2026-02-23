@@ -1,6 +1,6 @@
 # ruff: noqa: A005
 
-"""Facade re-exports for optional runtime dependencies."""
+"""Facade re-exports for runtime dependencies."""
 
 from ._typing import (
     HUGGINGFACE_HUB_INSTALLED,

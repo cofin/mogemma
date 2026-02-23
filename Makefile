@@ -58,7 +58,7 @@ smoke-test: ## Run the Mojo bridge smoke test
 .PHONY: test
 test: ## Run all tests
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pytest src/py/tests
+	@uv run pytest src/py/tests src/mo/tests
 
 .PHONY: lint
 lint: ## Lint and format code (Python, Mojo)

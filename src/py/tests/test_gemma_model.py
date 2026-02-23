@@ -42,6 +42,7 @@ def mock_tokenizer() -> Iterator[MagicMock]:
         encoded_mock.ids = [1, 2, 3]
         tokenizer.encode.return_value = encoded_mock
         tokenizer.decode.return_value = "decoded text"
+        tokenizer.token_to_id.return_value = 999
         mock.return_value = tokenizer
         yield tokenizer
 

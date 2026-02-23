@@ -1,6 +1,6 @@
-"""Optional dependency facades used by runtime imports.
+"""Dependency facades used by runtime imports.
 
-This module keeps optional imports typed consistently and avoids repetitive
+This module keeps imports typed consistently and avoids repetitive
 `try`/`except ModuleNotFoundError` blocks in feature modules.
 """
 

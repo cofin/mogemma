@@ -494,31 +494,18 @@ wheels = [
 
 [[package]]
 name = "mogemma"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "huggingface-hub" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "tokenizers" },
 ]
 
 [package.optional-dependencies]
-all = [
-    { name = "huggingface-hub" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "opentelemetry-api" },
-    { name = "tokenizers" },
-]
-embed = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
 telemetry = [
     { name = "opentelemetry-api" },
-]
-text = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "tokenizers" },
 ]
 
 [package.dev-dependencies]
@@ -560,16 +547,11 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.20.0" },
-    { name = "huggingface-hub", marker = "extra == 'all'", specifier = ">=0.20.0" },
-    { name = "numpy", marker = "extra == 'all'", specifier = ">=1.26.0" },
-    { name = "numpy", marker = "extra == 'embed'", specifier = ">=1.26.0" },
-    { name = "numpy", marker = "extra == 'text'", specifier = ">=1.26.0" },
-    { name = "opentelemetry-api", marker = "extra == 'all'", specifier = ">=1.39.1" },
+    { name = "numpy", specifier = ">=1.26.0" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.39.1" },
-    { name = "tokenizers", marker = "extra == 'all'", specifier = ">=0.15.0" },
-    { name = "tokenizers", marker = "extra == 'text'", specifier = ">=0.15.0" },
+    { name = "tokenizers", specifier = ">=0.15.0" },
 ]
-provides-extras = ["embed", "text", "telemetry", "all"]
+provides-extras = ["telemetry"]
 
 [package.metadata.requires-dev]
 build = [
