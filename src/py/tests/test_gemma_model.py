@@ -159,7 +159,9 @@ def test_gemma_generate_stream_uses_backend_logits(
         def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
             del llm
             self.step_calls.append((token_id, temp, top_k, top_p))
-            if len(self.step_calls) == 1:
+            # prefill: 1, 2. generation: 3
+            generation_call_count = 3
+            if len(self.step_calls) == generation_call_count:
                 return np.array([0.0, 0.0, 5.0], dtype=np.float32)
             return np.array([4.0, 0.0, 0.0], dtype=np.float32)
 
@@ -173,7 +175,7 @@ def test_gemma_generate_stream_uses_backend_logits(
 
     output = model.generate("Hello")
     assert output == "<2><0>"
-    assert core_stub.step_calls == [(3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
+    assert core_stub.step_calls == [(1, 0.0, 50, 1.0), (2, 0.0, 50, 1.0), (3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
 
 
 def test_gemma_generate_stream_stops_on_eos(
@@ -188,9 +190,11 @@ def test_gemma_generate_stream_stops_on_eos(
 
         def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
             del llm, token_id, temp, top_k, top_p
-            if not self.step_calls:
-                self.step_calls.append(1)
-                return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+            self.step_calls.append(1)
+            # len=3 is the first generation call (token 3)
+            generation_call_count = 3
+            if len(self.step_calls) == generation_call_count:
+                return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # index 0 is eos
             return np.array([0.0, 0.0, 0.0], dtype=np.float32)
 
     core_stub = EOSStub()
@@ -202,7 +206,7 @@ def test_gemma_generate_stream_stops_on_eos(
     response = model.generate("Hello")
 
     assert response == ""
-    assert core_stub.step_calls == [1]
+    assert core_stub.step_calls == [1, 1, 1]
 
 
 def test_gemma_generate_stream_raises_for_non_string_decode(

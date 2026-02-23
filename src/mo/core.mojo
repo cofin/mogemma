@@ -5,8 +5,8 @@ from memory import UnsafePointer
 from math import cos, sin
 from collections import List
 
-from model import ModelWeights, LayerWeights, TensorInfo
-from layers import forward_sequence
+from model import ModelWeights, LayerWeights, TensorInfo, KVCache
+from layers import forward_sequence, forward_step
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
@@ -54,6 +54,7 @@ fn _build_model(metadata_obj: PythonObject) raises -> ModelWeights:
     
     m.embed_tokens = _get_tensor(metadata_obj, "model.embed_tokens.weight")
     m.norm = _get_tensor(metadata_obj, "model.norm.weight")
+    m.lm_head = _get_tensor(metadata_obj, "lm_head.weight")
     
     var num_layers = 0
     while True:
@@ -81,9 +82,50 @@ fn _build_model(metadata_obj: PythonObject) raises -> ModelWeights:
 fn init_model_mojo(
     metadata_obj: PythonObject
 ) raises -> PythonObject:
+    var builtins = Python.import_module("builtins")
+    var np = Python.import_module("numpy")
+    
     var py_dict = Python.dict()
     py_dict["engine"] = "Mojo Pure Inference Engine"
     py_dict["metadata"] = metadata_obj
+    
+    # Pre-allocate cache arrays and keep them alive in the dict as numpy arrays
+    var model_weights = _build_model(metadata_obj)
+    var num_layers = len(model_weights.layers)
+    
+    if num_layers == 0:
+        raise Error("Invalid model weights: no layers found in metadata")
+        
+    var head_dim = 256
+    var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
+    var max_seq_len = 8192 # default max seq len
+    
+    var size = num_layers * max_seq_len * num_kv_heads * head_dim
+    var k_cache = np.zeros(size, dtype=np.float32)
+    var v_cache = np.zeros(size, dtype=np.float32)
+    
+    var freqs_cos = np.zeros(max_seq_len * head_dim, dtype=np.float32)
+    var freqs_sin = np.zeros(max_seq_len * head_dim, dtype=np.float32)
+    
+    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
+    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
+    
+    # RoPE precompute
+    var base: Float32 = 10000.0
+    for t in range(max_seq_len):
+        for d in range(head_dim // 2):
+            var exp = Float32(d * 2) / Float32(head_dim)
+            var inv_freq = 1.0 / (base ** exp)
+            var freq = Float32(t) * inv_freq
+            freqs_cos_ptr.store(t * head_dim + d, cos(freq))
+            freqs_sin_ptr.store(t * head_dim + d, sin(freq))
+            
+    py_dict["k_cache"] = k_cache
+    py_dict["v_cache"] = v_cache
+    py_dict["freqs_cos"] = freqs_cos
+    py_dict["freqs_sin"] = freqs_sin
+    py_dict["max_seq_len"] = max_seq_len
+    py_dict["pos"] = 0
     return py_dict
 
 fn step_mojo(
@@ -94,8 +136,69 @@ fn step_mojo(
     top_p_obj: PythonObject,
 ) raises -> PythonObject:
     var np = Python.import_module("numpy")
-    var dummy_logits = np.zeros(256000, dtype=np.float32)
-    return _ensure_step_logits(dummy_logits, np)
+    var builtins = Python.import_module("builtins")
+    
+    var pos = Int(py=llm["pos"])
+    var max_seq_len = Int(py=llm["max_seq_len"])
+    
+    if pos >= max_seq_len:
+        raise Error("Sequence length exceeded")
+        
+    var token_id = Int(py=token_id_obj)
+    
+    var metadata_obj = llm["metadata"]
+    var model_weights = _build_model(metadata_obj)
+    var num_layers = len(model_weights.layers)
+    
+    if num_layers == 0:
+        raise Error("Invalid model weights: no layers found in metadata")
+    
+    var hidden_size = model_weights.embed_tokens.shape_1
+    var vocab_size = model_weights.lm_head.shape_0
+    var head_dim = 256 # Assume 256 for Gemma 3
+    var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
+    var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
+    var intermediate_size = model_weights.layers[0].gate_proj.shape_0
+    
+    var k_cache = llm["k_cache"]
+    var v_cache = llm["v_cache"]
+    var freqs_cos = llm["freqs_cos"]
+    var freqs_sin = llm["freqs_sin"]
+    
+    var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache.__array_interface__["data"][0]))
+    var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache.__array_interface__["data"][0]))
+    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
+    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
+    
+    var scratch = List[Float32](length=hidden_size * 50, fill=0.0) # generous scratch space
+    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
+    
+    var out_logits = np.zeros(vocab_size, dtype=np.float32)
+    var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
+    
+    forward_step(
+        out_logits_ptr,
+        token_id,
+        pos,
+        model_weights,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        intermediate_size,
+        vocab_size,
+        freqs_cos_ptr,
+        freqs_sin_ptr,
+        kv_cache_k_ptr,
+        kv_cache_v_ptr,
+        max_seq_len,
+        scratch_ptr
+    )
+    
+    _ = scratch[0]
+    llm["pos"] = pos + 1
+    
+    return _ensure_step_logits(out_logits, np)
 
 fn generate_embeddings_mojo(
     llm: PythonObject,
@@ -110,13 +213,16 @@ fn generate_embeddings_mojo(
     
     var metadata_obj = llm["metadata"]
     var model_weights = _build_model(metadata_obj)
+    var num_layers = len(model_weights.layers)
+    
+    if num_layers == 0:
+        raise Error("Invalid model weights: no layers found in metadata")
     
     var hidden_size = model_weights.embed_tokens.shape_1
     var head_dim = 256 # Assume 256 for Gemma 3
     var num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
     var num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
     var intermediate_size = model_weights.layers[0].gate_proj.shape_0
-    var num_layers = len(model_weights.layers)
     
     var max_seq_len = seq_len
     

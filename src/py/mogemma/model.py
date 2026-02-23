@@ -256,6 +256,12 @@ class SyncGemmaModel:
             )
             raise RuntimeError(msg)
 
+        if isinstance(self._llm, dict):
+            self._llm["pos"] = 0
+
+        for t in tokens[:-1]:
+            _core.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
+
         if tokens:
             current_token = int(tokens[-1])
         else:

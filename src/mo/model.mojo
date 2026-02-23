@@ -41,11 +41,13 @@ struct LayerWeights(Copyable, Movable):
 struct ModelWeights(Movable):
     var embed_tokens: TensorInfo
     var norm: TensorInfo
+    var lm_head: TensorInfo
     var layers: List[LayerWeights]
     
     fn __init__(out self):
         self.embed_tokens = TensorInfo(0, 0, 0)
         self.norm = TensorInfo(0, 0, 0)
+        self.lm_head = TensorInfo(0, 0, 0)
         self.layers = List[LayerWeights]()
 
     @always_inline
@@ -56,4 +58,31 @@ struct ModelWeights(Movable):
         # Simple copy loop
         for i in range(hidden_size):
             out_ptr.store(i, src_ptr.load(i))
+
+
+struct KVCache(Movable):
+    var max_seq_len: Int
+    var num_layers: Int
+    var num_kv_heads: Int
+    var head_dim: Int
+    
+    var k_cache: List[Float32]
+    var v_cache: List[Float32]
+    
+    var k_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var v_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    
+    fn __init__(out self, max_seq_len: Int, num_layers: Int, num_kv_heads: Int, head_dim: Int):
+        self.max_seq_len = max_seq_len
+        self.num_layers = num_layers
+        self.num_kv_heads = num_kv_heads
+        self.head_dim = head_dim
+        
+        var size = num_layers * max_seq_len * num_kv_heads * head_dim
+        self.k_cache = List[Float32](length=size, fill=0.0)
+        self.v_cache = List[Float32](length=size, fill=0.0)
+        
+        self.k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.k_cache.unsafe_ptr()))
+        self.v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.v_cache.unsafe_ptr()))
+
 

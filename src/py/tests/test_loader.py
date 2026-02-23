@@ -35,15 +35,29 @@ def test_loader_zero_copy_bridge(sample_safetensors: Path) -> None:
         assert dtype == "U8"
 
         # Test the Mojo bridge
-        # Our current init_model_mojo grabs the first key, but dictionary order
-        # in Mojo might differ, so we'll pass a dict with just one key
-        single_metadata = {"my_tensor": metadata["my_tensor"]}
-        result = _core.init_model(single_metadata)
+        # Create a valid minimal metadata dict to avoid Mojo init aborting
+        t1_meta = metadata["my_tensor"]
+        valid_metadata = {
+            "model.embed_tokens.weight": t1_meta,
+            "model.norm.weight": t1_meta,
+            "lm_head.weight": t1_meta,
+            "model.layers.0.input_layernorm.weight": t1_meta,
+            "model.layers.0.post_attention_layernorm.weight": t1_meta,
+            "model.layers.0.self_attn.q_proj.weight": t1_meta,
+            "model.layers.0.self_attn.k_proj.weight": (t1_meta[0], (512, 1024), t1_meta[2]),
+            "model.layers.0.self_attn.v_proj.weight": t1_meta,
+            "model.layers.0.self_attn.o_proj.weight": t1_meta,
+            "model.layers.0.mlp.gate_proj.weight": t1_meta,
+            "model.layers.0.mlp.up_proj.weight": t1_meta,
+            "model.layers.0.mlp.down_proj.weight": t1_meta,
+        }
+
+        result = _core.init_model(valid_metadata)
 
         assert "engine" in result
         assert "metadata" in result
         assert result["engine"] == "Mojo Pure Inference Engine"
-        assert result["metadata"] == single_metadata
+        assert result["metadata"] == valid_metadata
 
 
 def test_loader_rejects_missing_path() -> None:

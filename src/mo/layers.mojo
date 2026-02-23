@@ -171,6 +171,74 @@ fn forward_layer(
 
 
 @always_inline
+fn forward_step(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin], # [vocab_size]
+    token_id: Int,
+    pos: Int,
+    model: ModelWeights,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    vocab_size: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin], # [max_seq_len, head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin], # [max_seq_len, head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_layers, max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_layers, max_seq_len, num_kv_heads, head_dim]
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin] # temp memory
+):
+    var num_layers = len(model.layers)
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + hidden_size
+    var layer_scratch = scratch_ptr + hidden_size * 2
+    
+    var emb_scale = sqrt(Float32(hidden_size))
+    # Initial embedding
+    model.get_embedding(token_id, current_state)
+    for i in range(hidden_size):
+        current_state.store(i, current_state.load(i) * emb_scale)
+    
+    # Pass through layers
+    for l in range(num_layers):
+        var layer_kv_k_ptr = kv_cache_k_ptr + l * max_seq_len * num_kv_heads * head_dim
+        var layer_kv_v_ptr = kv_cache_v_ptr + l * max_seq_len * num_kv_heads * head_dim
+        
+        var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
+        var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
+        
+        forward_layer(
+            next_state,
+            current_state,
+            model.layers[l],
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            token_freqs_cos_ptr,
+            token_freqs_sin_ptr,
+            layer_kv_k_ptr,
+            layer_kv_v_ptr,
+            max_seq_len,
+            layer_scratch
+        )
+        
+        # Swap states
+        for i in range(hidden_size):
+            current_state.store(i, next_state.load(i))
+            
+    # Final Norm for this token
+    var norm_out = next_state # re-use next_state for norm out
+    rms_norm(norm_out, current_state, model.norm.ptr, hidden_size, 1e-6)
+    
+    # Final LM Head projection
+    vec_mat_mul(out_logits_ptr, norm_out, model.lm_head.ptr, hidden_size, vocab_size)
+
+
+@always_inline
 fn forward_sequence(
     out_emb_ptr: UnsafePointer[Float32, MutExternalOrigin], # [hidden_size]
     input_ids_ptr: UnsafePointer[Int32, MutExternalOrigin], # [seq_len]
