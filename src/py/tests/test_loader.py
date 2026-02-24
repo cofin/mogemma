@@ -55,9 +55,9 @@ def test_loader_zero_copy_bridge(sample_safetensors: Path) -> None:
         result = _core.init_model(valid_metadata)
 
         assert "engine" in result
-        assert "metadata" in result
+        assert "runtime" in result
         assert result["engine"] == "Mojo Pure Inference Engine"
-        assert result["metadata"] == valid_metadata
+        assert result["arch"] == "standard"
 
 
 def test_loader_rejects_missing_path() -> None:

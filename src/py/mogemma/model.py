@@ -64,7 +64,7 @@ class _Tokenizer:
 
 
 _EXPECTED_MATRIX_DIMS = 2
-_EOS_TOKEN_ID_ALIASES = ("</s>", "<eos>", "<|eos|>")
+_EOS_TOKEN_ID_ALIASES = ("<end_of_turn>", "</s>", "<eos>", "<|eos|>")
 _INSTRUCTION_START = "<start_of_turn>"
 _INSTRUCTION_END = "<end_of_turn>"
 

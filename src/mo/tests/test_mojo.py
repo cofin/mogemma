@@ -9,6 +9,7 @@ MO_TESTS_DIR = Path(__file__).parent
     "test_model.mojo",
     "test_ops.mojo",
     "test_nano_layers.mojo",
+    "test_altup_contract.mojo",
 ])
 def test_mojo_unit_tests(test_file):
     test_path = MO_TESTS_DIR / test_file

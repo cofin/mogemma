@@ -16,10 +16,11 @@ fn test_rms_norm() raises:
     
     rms_norm[2](out_ptr, x_ptr, w_ptr, 4)
     
-    assert_almost_equal(out[0], 2.0, atol=1e-5)
-    assert_almost_equal(out[1], 2.0, atol=1e-5)
-    assert_almost_equal(out[2], 2.0, atol=1e-5)
-    assert_almost_equal(out[3], 2.0, atol=1e-5)
+    # Runtime uses Gemma-style scale of (1 + weight)
+    assert_almost_equal(out[0], 3.0, atol=1e-5)
+    assert_almost_equal(out[1], 3.0, atol=1e-5)
+    assert_almost_equal(out[2], 3.0, atol=1e-5)
+    assert_almost_equal(out[3], 3.0, atol=1e-5)
     _ = x[0]
     _ = w[0]
 

@@ -246,8 +246,8 @@ def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
     prefix = f"model.layers.{first_layer}"
 
     per_layer_embed = tensors["model.per_layer_embed.weight"]
-    if per_layer_embed.ndim not in {2, 3}:
-        msg = f"Expected model.per_layer_embed.weight rank 2 or 3, got rank {per_layer_embed.ndim}"
+    if per_layer_embed.ndim != 3:
+        msg = f"Expected model.per_layer_embed.weight rank 3, got rank {per_layer_embed.ndim}"
         raise ValueError(msg)
 
     plm_gate = tensors[f"{prefix}.per_layer_map.gate.weight"]
@@ -270,23 +270,13 @@ def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
         )
         raise ValueError(msg)
 
-    if per_layer_embed.ndim == 3:
-        _, embed_layers, embed_dim = per_layer_embed.shape
-        if embed_dim != per_layer_dim:
-            msg = (
-                "Per-layer embedding dim mismatch: expected last dim to match per_layer_dim "
-                f"{per_layer_dim}, got {embed_dim}"
-            )
-            raise ValueError(msg)
-    else:
-        embed_layers_dim = int(per_layer_embed.shape[1])
-        if embed_layers_dim % per_layer_dim != 0:
-            msg = (
-                "Flattened per-layer embeddings must be divisible by per_layer_dim: "
-                f"{embed_layers_dim} % {per_layer_dim} != 0"
-            )
-            raise ValueError(msg)
-        embed_layers = embed_layers_dim // per_layer_dim
+    _, embed_layers, embed_dim = per_layer_embed.shape
+    if embed_dim != per_layer_dim:
+        msg = (
+            "Per-layer embedding dim mismatch: expected last dim to match per_layer_dim "
+            f"{per_layer_dim}, got {embed_dim}"
+        )
+        raise ValueError(msg)
 
     if embed_layers <= max(layer_indices):
         msg = (

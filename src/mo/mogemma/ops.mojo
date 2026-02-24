@@ -124,14 +124,14 @@ fn rms_norm[
     while i <= size - nelts:
         var val = x_ptr.load[width=nelts](i)
         var w = weight_ptr.load[width=nelts](i)
-        var res = val * inv_rms * w
+        var res = val * inv_rms * (1.0 + w)
         out_ptr.store(i, res)
         i += nelts
         
     while i < size:
         var val = x_ptr.load(i)
         var w = weight_ptr.load(i)
-        var res = val * inv_rms * w
+        var res = val * inv_rms * (1.0 + w)
         out_ptr.store(i, res)
         i += 1
 
