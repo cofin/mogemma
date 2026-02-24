@@ -364,9 +364,18 @@ fn generate_embeddings_mojo(
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
 
-    var np_input = np.asarray(input_array, dtype=np.int32)
-    var batch_size = Int(py=np_input.shape[0])
-    var seq_len = Int(py=np_input.shape[1])
+    var batch_size = Int(py=builtins.len(input_array))
+    if batch_size == 0:
+        raise Error("inputs must contain at least one row")
+
+    var max_seq_len = 0
+    for b in range(batch_size):
+        var sl = Int(py=builtins.len(input_array[b]))
+        if sl > max_seq_len:
+            max_seq_len = sl
+            
+    if max_seq_len == 0:
+        raise Error("inputs must contain at least one token")
     
     var metadata_obj = llm["metadata"]
     var arch = String(py=llm["arch"])
@@ -376,8 +385,6 @@ fn generate_embeddings_mojo(
     var num_heads: Int
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
-    
-    var max_seq_len = seq_len
     
     # RoPE precompute
     var freqs_cos = List[Float32](length=max_seq_len * head_dim, fill=0.0)
@@ -396,7 +403,7 @@ fn generate_embeddings_mojo(
     var kv_cache_v = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
     var scratch = List[Float32](length=hidden_size * 100, fill=0.0) # generous scratch space
     var emb_out = List[Float32](length=batch_size * hidden_size, fill=0.0)
-    var input_ids = List[Int32](length=seq_len, fill=0)
+    var input_ids = List[Int32](length=max_seq_len, fill=0)
 
     # Convert lists to pointers
     var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_cos.unsafe_ptr()))
@@ -409,9 +416,12 @@ fn generate_embeddings_mojo(
     
     # Process each sequence in the batch
     for b in range(batch_size):
+        var seq_list = input_array[b]
+        var seq_len = Int(py=builtins.len(seq_list))
+        
         # Extract input_ids for this batch
         for t in range(seq_len):
-            var token_py = np_input[b][t]
+            var token_py = seq_list[t]
             input_ids[t] = Int32(Int(py=token_py))
             
         var seq_out_ptr = emb_out_ptr + b * hidden_size

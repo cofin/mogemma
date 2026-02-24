@@ -51,15 +51,13 @@ def mock_tokenizer() -> Iterator[MagicMock]:
 
 @pytest.fixture
 def mock_core(monkeypatch: pytest.MonkeyPatch) -> object:
-    """Fixture to mock Mojo core embedding calls."""
-
     class CoreStub:
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
             del llm
-            return np.ones((tokens.shape[0], 768), dtype=np.float32)
+            return np.ones((len(tokens), 768), dtype=np.float32)
 
     core_stub = CoreStub()
     monkeypatch.setattr(model_module, "_core", core_stub)
@@ -163,9 +161,9 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
             del llm
-            return np.ones((tokens.shape[0], 768), dtype=np.float32)
+            return np.ones((len(tokens), 768), dtype=np.float32)
 
     monkeypatch.setattr(model_module, "_core", CoreStub())
     monkeypatch.setattr(model_module, "SENTENCEPIECE_INSTALLED", False)

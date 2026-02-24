@@ -111,9 +111,9 @@ def mock_embedding_float64_output(monkeypatch: pytest.MonkeyPatch) -> None:
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float64]:
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float64]:
             del llm
-            return np.ones((tokens.shape[0], 768), dtype=np.float64)
+            return np.ones((len(tokens), 768), dtype=np.float64)
 
     monkeypatch.setattr(model_module, "_core", CoreFloat64())
 
