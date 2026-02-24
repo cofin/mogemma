@@ -65,6 +65,8 @@ class _Tokenizer:
 
 _EXPECTED_MATRIX_DIMS = 2
 _EOS_TOKEN_ID_ALIASES = ("</s>", "<eos>", "<|eos|>")
+_INSTRUCTION_START = "<start_of_turn>"
+_INSTRUCTION_END = "<end_of_turn>"
 
 
 def _resolve_model_path(raw_model_path: str | Path) -> Path:
@@ -151,6 +153,20 @@ def _normalize_eos_token_id(tokenizer: _Tokenizer) -> int:
         if eos_token_id is not None:
             return int(eos_token_id)
     return 0
+
+
+def _is_instruction_tuned_model(model_path: Path, config_model_path: str | Path) -> bool:
+    """Return True when the configured model looks like an instruction-tuned Gemma variant."""
+    configured = str(config_model_path).lower()
+    resolved = model_path.name.lower()
+    return configured.endswith("-it") or resolved.endswith("-it")
+
+
+def _format_instruction_prompt(prompt: str) -> str:
+    """Wrap plain user prompts in Gemma instruction-turn format."""
+    if _INSTRUCTION_START in prompt or _INSTRUCTION_END in prompt:
+        return prompt
+    return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
 
 
 class EmbeddingModel:
@@ -255,6 +271,7 @@ class SyncGemmaModel:
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
+        self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
 
         # Initialize Mojo core
         self._llm: object | None = _initialize_llm(self._loader, model_type="generation")
@@ -280,12 +297,15 @@ class SyncGemmaModel:
     def generate_stream(self, prompt: str) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
+        prompt_to_encode = _format_instruction_prompt(prompt) if self._instruction_tuned else prompt
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
             tokenizer.enable_padding()
-            encoded = tokenizer.encode(prompt)
+            encoded = tokenizer.encode(prompt_to_encode)
             tokens = encoded.ids
+            if not tokens or tokens[0] != 2:
+                tokens = [2] + list(tokens)
 
         if _core is None or self._llm is None:
             msg = (

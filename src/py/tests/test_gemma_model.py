@@ -161,8 +161,8 @@ def test_gemma_generate_stream_uses_backend_logits(
         def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
             del llm
             self.step_calls.append((token_id, temp, top_k, top_p))
-            # prefill: 1, 2. generation: 3
-            generation_call_count = 3
+            # prefill includes explicit BOS insertion; generation starts on call 4.
+            generation_call_count = 4
             if len(self.step_calls) == generation_call_count:
                 return np.array([0.0, 0.0, 5.0], dtype=np.float32)
             return np.array([4.0, 0.0, 0.0], dtype=np.float32)
@@ -177,7 +177,13 @@ def test_gemma_generate_stream_uses_backend_logits(
 
     output = model.generate("Hello")
     assert output == "<2><0>"
-    assert core_stub.step_calls == [(1, 0.0, 50, 1.0), (2, 0.0, 50, 1.0), (3, 0.0, 50, 1.0), (2, 0.0, 50, 1.0)]
+    assert core_stub.step_calls == [
+        (2, 0.0, 50, 1.0),
+        (1, 0.0, 50, 1.0),
+        (2, 0.0, 50, 1.0),
+        (3, 0.0, 50, 1.0),
+        (2, 0.0, 50, 1.0),
+    ]
 
 
 def test_gemma_generate_stream_stops_on_eos(
@@ -193,8 +199,8 @@ def test_gemma_generate_stream_stops_on_eos(
         def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
             del llm, token_id, temp, top_k, top_p
             self.step_calls.append(1)
-            # len=3 is the first generation call (token 3)
-            generation_call_count = 3
+            # len=4 is the first generation call after BOS + prompt prefill.
+            generation_call_count = 4
             if len(self.step_calls) == generation_call_count:
                 return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # index 0 is eos
             return np.array([0.0, 0.0, 0.0], dtype=np.float32)
@@ -208,7 +214,7 @@ def test_gemma_generate_stream_stops_on_eos(
     response = model.generate("Hello")
 
     assert response == ""
-    assert core_stub.step_calls == [1, 1, 1]
+    assert core_stub.step_calls == [1, 1, 1, 1]
 
 
 def test_gemma_generate_stream_raises_for_non_string_decode(
@@ -261,3 +267,55 @@ def test_gemma_init_raises_on_core_init_failure(
 
     with pytest.raises(RuntimeError, match="generation model failed to initialize"):
         SyncGemmaModel(config)
+
+
+def test_gemma_generate_applies_instruction_template_for_it_models(
+    tmp_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Instruction-tuned models should format raw prompts as user->model turns."""
+
+    class CoreStub:
+        def init_model(self, _: str) -> object:
+            return {}
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    model_dir = tmp_path / "gemma3-270m-it"
+    _create_dummy_safetensors(model_dir)
+    monkeypatch.setattr(model_module, "_core", CoreStub())
+    mock_tokenizer.decode.return_value = ""  # stop immediately
+
+    model = SyncGemmaModel(GenerationConfig(model_path=model_dir, max_new_tokens=1))
+    model.generate("What is the capital of France?")
+
+    encoded_prompt = mock_tokenizer.encode.call_args.args[0]
+    assert encoded_prompt.startswith("<start_of_turn>user\n")
+    assert encoded_prompt.endswith("<start_of_turn>model\n")
+
+
+def test_gemma_generate_keeps_existing_instruction_template(
+    tmp_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Already templated prompts should not be wrapped a second time."""
+
+    class CoreStub:
+        def init_model(self, _: str) -> object:
+            return {}
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    model_dir = tmp_path / "gemma3-270m-it"
+    _create_dummy_safetensors(model_dir)
+    monkeypatch.setattr(model_module, "_core", CoreStub())
+    mock_tokenizer.decode.return_value = ""
+
+    prompt = "<start_of_turn>user\nhi\n<end_of_turn>\n<start_of_turn>model\n"
+    model = SyncGemmaModel(GenerationConfig(model_path=model_dir, max_new_tokens=1))
+    model.generate(prompt)
+
+    encoded_prompt = mock_tokenizer.encode.call_args.args[0]
+    assert encoded_prompt == prompt

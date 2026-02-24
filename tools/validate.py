@@ -19,20 +19,48 @@ NANO_MODEL_ID = "gemma3n-e2b-it"
 
 from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
 
+_INSTRUCTION_START = "<start_of_turn>"
+_INSTRUCTION_END = "<end_of_turn>"
+_STANDARD_FACTUAL_MODEL = "gemma3-270m-it"
+
+
+def _format_instruction_prompt(prompt: str) -> str:
+    """Wrap plain prompts in Gemma instruction-turn format."""
+    if _INSTRUCTION_START in prompt or _INSTRUCTION_END in prompt:
+        return prompt
+    return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
+
+
+def _assert_semantic_quality(model_id: str, response: str) -> None:
+    """Run deterministic semantic gates for known baseline models."""
+    normalized = model_id.removeprefix("google/")
+    if normalized != _STANDARD_FACTUAL_MODEL:
+        return
+    if "paris" not in response.lower():
+        msg = (
+            f"Semantic validation failed for {model_id}: expected response to mention 'Paris'. "
+            f"Received: {response!r}"
+        )
+        raise ValueError(msg)
+
 
 def validate_llm_generation(model_id: str):
     print(f"\n[LLM] Validating Generation ({model_id})...")
     # This will trigger an automatic download from GCS if not in cache
-    config = GenerationConfig(model_path=model_id, max_new_tokens=32, temperature=0.7)
+    config = GenerationConfig(model_path=model_id, max_new_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
 
     try:
         model = SyncGemmaModel(config)
         prompt = "What is the capital of France?"
+        prompt_to_send = _format_instruction_prompt(prompt)
         print(f"Prompt: '{prompt}'")
-        print("Response: ", end="", flush=True)
-        for token in model.generate_stream(prompt):
-            print(token, end="", flush=True)
+        response = model.generate(prompt_to_send)
+        print(f"Response: {response}")
+        _assert_semantic_quality(model_id, response)
         print("\nSUCCESS: Text generation works end-to-end.")
+    except ValueError as e:
+        print(f"\nFAILED: Semantic validation error: {e}")
+        sys.exit(1)
     except RuntimeError as e:
         if "Mojo core is unavailable" in str(e):
             print("\nERROR: Mojo bridge not built. Run `make build` first.")
@@ -78,13 +106,16 @@ def main():
         print("Run `make build` to compile the bridge before validating.")
         sys.exit(1)
 
-    model_id = args.model or TEXT_MODEL_ID
+    models_to_test_llm = [args.model] if args.model else [TEXT_MODEL_ID, NANO_MODEL_ID]
+    models_to_test_embed = [args.model] if args.model else [EMBED_MODEL_ID, NANO_MODEL_ID, "gemma3-text-embedding-4m"]
 
     if args.mode in ["llm", "both"]:
-        validate_llm_generation(model_id)
+        for m_id in models_to_test_llm:
+            validate_llm_generation(m_id)
 
     if args.mode in ["embed", "both"]:
-        validate_embeddings(args.model or EMBED_MODEL_ID)
+        for m_id in models_to_test_embed:
+            validate_embeddings(m_id)
 
     print("\n--- Validation Complete! ---")
 
