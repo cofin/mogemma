@@ -30,6 +30,9 @@ class _Tokenizer:
     """Wrapper for sentencepiece to match internal tokenizer needs."""
 
     def __init__(self, model_path: str) -> None:
+        if _SPProcessorImpl is None:
+            msg = "sentencepiece runtime is unavailable"
+            raise ModuleNotFoundError(msg)
         self.sp = _SPProcessorImpl(model_file=model_path)
         self._max_length: int | None = None
 
@@ -48,7 +51,7 @@ class _Tokenizer:
             ids = ids[: self._max_length]
 
         class _Result:
-            def __init__(self, ids: list[int]):
+            def __init__(self, ids: list[int]) -> None:
                 self.ids = ids
 
         return cast("_EncodedToken", _Result(ids))
@@ -64,6 +67,7 @@ class _Tokenizer:
 
 
 _EXPECTED_MATRIX_DIMS = 2
+_BOS_TOKEN_ID = 2
 _EOS_TOKEN_ID_ALIASES = ("<end_of_turn>", "</s>", "<eos>", "<|eos|>")
 _INSTRUCTION_START = "<start_of_turn>"
 _INSTRUCTION_END = "<end_of_turn>"
@@ -199,7 +203,8 @@ class EmbeddingModel:
             self._tokenizer = _Tokenizer(str(sp_path))
             return self._tokenizer
 
-        raise FileNotFoundError(f"No tokenizer.model found in {self.model_path}")
+        msg = f"No tokenizer.model found in {self.model_path}"
+        raise FileNotFoundError(msg)
 
     def _embed_token_array(self, tokens: Sequence[Sequence[int]], input_count: int) -> npt.NDArray[np.float32]:
         if _core is None or self._llm is None:
@@ -288,7 +293,8 @@ class SyncGemmaModel:
             self._tokenizer = _Tokenizer(str(sp_path))
             return self._tokenizer
 
-        raise FileNotFoundError(f"No tokenizer.model found in {self.model_path}")
+        msg = f"No tokenizer.model found in {self.model_path}"
+        raise FileNotFoundError(msg)
 
     def generate(self, prompt: str) -> str:
         """Generate text from the given prompt."""
@@ -304,8 +310,8 @@ class SyncGemmaModel:
             tokenizer.enable_padding()
             encoded = tokenizer.encode(prompt_to_encode)
             tokens = encoded.ids
-            if not tokens or tokens[0] != 2:
-                tokens = [2] + list(tokens)
+            if not tokens or tokens[0] != _BOS_TOKEN_ID:
+                tokens = [_BOS_TOKEN_ID, *list(tokens)]
 
         if _core is None or self._llm is None:
             msg = (

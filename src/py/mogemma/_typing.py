@@ -20,6 +20,7 @@ trace: Any | None
 
 try:
     import sentencepiece as _sp  # type: ignore[import-untyped]
+
     _SPProcessorImpl = _sp.SentencePieceProcessor
 except ModuleNotFoundError:
     _SPProcessorImpl = None

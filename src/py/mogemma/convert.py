@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -29,6 +30,27 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _LAYER_RE = re.compile(r"transformer/layer_(\d+)/(.+)")
+_MIN_LAYER_PARTS = 4
+_LAYER_INDEX_PART = 2
+_RANK_2D = 2
+_RANK_3D = 3
+_ALTUP_PROJECTION_COUNT = 3
+
+
+class _OrbaxLookup(Mapping[str, npt.NDArray[np.generic]]):
+    """Read-only mapping adapter that resolves Orbax keys lazily."""
+
+    def __init__(self, getter: Callable[[str], npt.NDArray[np.generic]]) -> None:
+        self._getter = getter
+
+    def __getitem__(self, key: str) -> npt.NDArray[np.generic]:
+        return self._getter(key)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(())
+
+    def __len__(self) -> int:
+        return 0
 
 
 def _to_f32(arr: npt.NDArray[np.generic]) -> npt.NDArray[np.float32]:
@@ -47,7 +69,7 @@ def _detect_model_family(orbax_keys: list[str]) -> str:
 
 
 def _convert_norms(
-    orbax: dict[str, npt.NDArray[np.generic]], out: dict[str, npt.NDArray[np.float32]], prefix: str, hf: str
+    orbax: Mapping[str, npt.NDArray[np.generic]], out: dict[str, npt.NDArray[np.float32]], prefix: str, hf: str
 ) -> None:
     out[f"{hf}.input_layernorm.weight"] = _to_f32(orbax[f"{prefix}/pre_attention_norm.scale"])
     out[f"{hf}.post_attention_layernorm.weight"] = _to_f32(orbax[f"{prefix}/post_attention_norm.scale"])
@@ -56,7 +78,7 @@ def _convert_norms(
 
 
 def _convert_attention_layer(  # noqa: PLR0913
-    orbax: dict[str, npt.NDArray[np.generic]],
+    orbax: Mapping[str, npt.NDArray[np.generic]],
     out: dict[str, npt.NDArray[np.float32]],
     prefix: str,
     hf: str,
@@ -83,7 +105,7 @@ def _convert_attention_layer(  # noqa: PLR0913
 
 
 def _convert_mlp_layer(  # noqa: PLR0913
-    orbax: dict[str, npt.NDArray[np.generic]],
+    orbax: Mapping[str, npt.NDArray[np.generic]],
     out: dict[str, npt.NDArray[np.float32]],
     prefix: str,
     hf: str,
@@ -127,7 +149,9 @@ def _convert_gemma3(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.
     return out
 
 
-def _convert_gemma3_nano(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.NDArray[np.float32]]:
+def _convert_gemma3_nano(  # noqa: C901, PLR0915
+    orbax: dict[str, npt.NDArray[np.generic]],
+) -> dict[str, npt.NDArray[np.float32]]:
     """Convert a Gemma 3 Nano Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.float32]] = {}
 
@@ -150,14 +174,18 @@ def _convert_gemma3_nano(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str,
     out["model.norm.weight"] = _to_f32(get_orbax("transformer/final_norm.scale"))
 
     out["model.per_layer_embed.weight"] = _to_f32(get_orbax("transformer/embedder.per_layer_input_embedding"))
-    out["model.per_layer_embed.projection.weight"] = _to_f32(get_orbax("transformer/embedder.per_layer_input_projection.w"))
-    out["model.per_layer_embed.norm.weight"] = _to_f32(get_orbax("transformer/embedder.per_layer_projection_norm.scale"))
+    out["model.per_layer_embed.projection.weight"] = _to_f32(
+        get_orbax("transformer/embedder.per_layer_input_projection.w")
+    )
+    out["model.per_layer_embed.norm.weight"] = _to_f32(
+        get_orbax("transformer/embedder.per_layer_projection_norm.scale")
+    )
 
     # AltUp projections (0, 1, 2)
-    for i in range(3):
+    for i in range(_ALTUP_PROJECTION_COUNT):
         key_proj = f"altup_projection_{i}.altup_projection_{i}"
         key_unembed = f"altup_unembed_projection_{i}.altup_unembed_projection_{i}"
-        
+
         if key_proj in orbax:
             out[f"model.altup.projection.{i}.weight"] = _to_f32(orbax[key_proj].T)
             out[f"model.altup.unembed.{i}.weight"] = _to_f32(orbax[key_unembed].T)
@@ -181,15 +209,10 @@ def _convert_gemma3_nano(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str,
         prefix = f"transformer/layer_{n}"
         if f"layer_{n}/pre_attention_norm.scale" in orbax:
             prefix = f"layer_{n}"
-            
+
         hf = f"model.layers.{n}"
 
-        # We pass a dict wrapper that uses get_orbax so _convert_* functions still work if prefix was transformer/
-        class OrbaxWrapper(dict):
-            def __getitem__(self, key: str) -> npt.NDArray[np.generic]:
-                return get_orbax(key)
-        
-        wrapper = OrbaxWrapper()
+        wrapper = _OrbaxLookup(get_orbax)
         _convert_norms(wrapper, out, prefix, hf)
         _convert_attention_layer(wrapper, out, prefix, hf, "query_norm", "key_norm")
         _convert_mlp_layer(wrapper, out, prefix, hf, "gating_einsum", "linear")
@@ -202,7 +225,9 @@ def _convert_gemma3_nano(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str,
         out[f"{hf}.altup.output_scale"] = _to_f32(get_orbax(f"{prefix}/altup.correct_output_scale"))
 
         # Nano-specific: Per-layer mapping
-        out[f"{hf}.per_layer_map.gate.weight"] = _to_f32(get_orbax(f"{prefix}/per_layer_mapping.per_layer_input_gate.w").T)
+        out[f"{hf}.per_layer_map.gate.weight"] = _to_f32(
+            get_orbax(f"{prefix}/per_layer_mapping.per_layer_input_gate.w").T
+        )
         out[f"{hf}.per_layer_map.projection.weight"] = _to_f32(
             get_orbax(f"{prefix}/per_layer_mapping.per_layer_projection.w").T
         )
@@ -225,16 +250,18 @@ def _nano_layer_indices(tensors: dict[str, npt.NDArray[np.float32]]) -> list[int
         if not name.startswith("model.layers."):
             continue
         parts = name.split(".")
-        if len(parts) < 4:
+        if len(parts) < _MIN_LAYER_PARTS:
             continue
         try:
-            layer_indices.add(int(parts[2]))
+            layer_indices.add(int(parts[_LAYER_INDEX_PART]))
         except ValueError:
             continue
     return sorted(layer_indices)
 
 
-def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
+def _validate_nano_layout(  # noqa: C901
+    tensors: dict[str, npt.NDArray[np.float32]],
+) -> None:
     """Validate tensor-layout assumptions consumed by the Mojo nano path."""
     layer_indices = _nano_layer_indices(tensors)
     if not layer_indices:
@@ -246,28 +273,22 @@ def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
     prefix = f"model.layers.{first_layer}"
 
     per_layer_embed = tensors["model.per_layer_embed.weight"]
-    if per_layer_embed.ndim != 3:
+    if per_layer_embed.ndim != _RANK_3D:
         msg = f"Expected model.per_layer_embed.weight rank 3, got rank {per_layer_embed.ndim}"
         raise ValueError(msg)
 
     plm_gate = tensors[f"{prefix}.per_layer_map.gate.weight"]
     plm_proj = tensors[f"{prefix}.per_layer_map.projection.weight"]
-    if plm_gate.ndim != 2 or plm_proj.ndim != 2:
+    if plm_gate.ndim != _RANK_2D or plm_proj.ndim != _RANK_2D:
         msg = "Per-layer mapping tensors must be 2D"
         raise ValueError(msg)
 
     per_layer_dim = int(plm_gate.shape[0])
     if plm_gate.shape[1] != hidden_size:
-        msg = (
-            f"Per-layer gate hidden_size mismatch: expected second dim {hidden_size}, "
-            f"got {plm_gate.shape[1]}"
-        )
+        msg = f"Per-layer gate hidden_size mismatch: expected second dim {hidden_size}, got {plm_gate.shape[1]}"
         raise ValueError(msg)
     if plm_proj.shape != (hidden_size, per_layer_dim):
-        msg = (
-            "Per-layer projection shape mismatch: expected "
-            f"({hidden_size}, {per_layer_dim}), got {plm_proj.shape}"
-        )
+        msg = f"Per-layer projection shape mismatch: expected ({hidden_size}, {per_layer_dim}), got {plm_proj.shape}"
         raise ValueError(msg)
 
     _, embed_layers, embed_dim = per_layer_embed.shape
@@ -290,7 +311,7 @@ def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
     correction = tensors[f"{prefix}.altup.correction_coefs"]
     output_scale = tensors[f"{prefix}.altup.output_scale"]
 
-    if router.ndim != 2 or router.shape[1] != hidden_size:
+    if router.ndim != _RANK_2D or router.shape[1] != hidden_size:
         msg = f"AltUp router must be 2D with hidden dim {hidden_size}, got {router.shape}"
         raise ValueError(msg)
     altup_inputs = int(router.shape[0])
@@ -308,8 +329,7 @@ def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
         raise ValueError(msg)
     if correction.shape != (altup_inputs, altup_inputs):
         msg = (
-            "AltUp correction_coefs shape mismatch: expected "
-            f"({altup_inputs}, {altup_inputs}), got {correction.shape}"
+            f"AltUp correction_coefs shape mismatch: expected ({altup_inputs}, {altup_inputs}), got {correction.shape}"
         )
         raise ValueError(msg)
     if output_scale.shape != (hidden_size,):

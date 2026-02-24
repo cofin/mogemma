@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
-import tensorstore as ts
+import tensorstore as ts  # type: ignore[import-untyped]
 from typing_extensions import Self
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+_TS = cast("Any", ts)
 
 
 class OrbaxLoader:
@@ -45,13 +47,13 @@ class OrbaxLoader:
 
     def _enumerate_tensors(self) -> list[str]:
         """List every tensor path stored in the OCDBT key-value store."""
-        kvs = ts.KvStore.open({"driver": "ocdbt", "base": f"file://{self._ocdbt_dir(self.model_path)}"}).result()
+        kvs = _TS.KvStore.open({"driver": "ocdbt", "base": f"file://{self._ocdbt_dir(self.model_path)}"}).result()
         listing: list[bytes] = kvs.list().result()
         return sorted({key.decode().rsplit("/", 1)[0] for key in listing if key.decode().endswith("/.zarray")})
 
     def _read_tensor(self, tensor_path: str) -> npt.NDArray[np.generic]:
         """Read a single tensor from the OCDBT store into a contiguous numpy array."""
-        store = ts.open({
+        store = _TS.open({
             "driver": "zarr",
             "kvstore": {"driver": "ocdbt", "base": f"file://{self._ocdbt_dir(self.model_path)}"},
             "path": tensor_path,

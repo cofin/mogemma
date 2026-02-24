@@ -1,13 +1,17 @@
+from pathlib import Path
+
+import numpy as np
 import pytest
-from mogemma.convert import _detect_model_family
+
+from mogemma.convert import _convert_gemma3, _convert_gemma3_nano, _detect_model_family
 
 
-def test_detect_model_family_standard():
+def test_detect_model_family_standard() -> None:
     keys = ["transformer/embedder.input_embedding", "transformer/layer_0/attn/q_einsum.w"]
     assert _detect_model_family(keys) == "gemma3"
 
 
-def test_detect_model_family_nano():
+def test_detect_model_family_nano() -> None:
     keys = ["transformer/embedder.input_embedding", "transformer/layer_0/altup.modality_router.w"]
     assert _detect_model_family(keys) == "gemma3_nano"
 
@@ -15,11 +19,7 @@ def test_detect_model_family_nano():
     assert _detect_model_family(keys2) == "gemma3_nano"
 
 
-import numpy as np
-from mogemma.convert import _convert_gemma3_nano
-
-
-def test_convert_gemma3_nano_tensors():
+def test_convert_gemma3_nano_tensors() -> None:
     """Verify that Nano-specific tensors are correctly mapped to safetensors structure."""
     orbax = {
         # Global
@@ -87,7 +87,7 @@ def test_convert_gemma3_nano_tensors():
     assert hf[f"{l0}.self_attn.v_proj.weight"].shape == (2 * 256, 2048)
 
 
-def test_convert_gemma3_nano_rejects_invalid_per_layer_layout():
+def test_convert_gemma3_nano_rejects_invalid_per_layer_layout() -> None:
     orbax = {
         "transformer/embedder.input_embedding": np.zeros((20, 2048), dtype=np.float32),
         "transformer/final_norm.scale": np.zeros((2048,), dtype=np.float32),
@@ -123,12 +123,7 @@ def test_convert_gemma3_nano_rejects_invalid_per_layer_layout():
         _convert_gemma3_nano(orbax)
 
 
-from pathlib import Path
-from mogemma.convert import _convert_gemma3, convert_orbax_to_safetensors
-import pytest
-
-
-def test_convert_gemma3_tensors():
+def test_convert_gemma3_tensors() -> None:
     """Verify that standard tensors are correctly mapped to safetensors structure."""
     orbax = {
         # Global
@@ -174,7 +169,7 @@ def test_convert_gemma3_tensors():
 @pytest.mark.skipif(
     not (Path.home() / ".cache" / "mogemma" / "gemma3n-e2b-it").exists(), reason="Nano checkpoint not found"
 )
-def test_integration_convert_gemma3_nano():
+def test_integration_convert_gemma3_nano() -> None:
     """Integration test that attempts to run the real conversion process on cached Nano checkpoint."""
     path = Path.home() / ".cache" / "mogemma" / "gemma3n-e2b-it"
     # Ensure it looks like an orbax repo before converting

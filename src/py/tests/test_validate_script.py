@@ -1,11 +1,12 @@
-import pytest
 import importlib.util
 from pathlib import Path
 
+import pytest
 
 _VALIDATE_PATH = Path(__file__).resolve().parents[3] / "tools" / "validate.py"
 _SPEC = importlib.util.spec_from_file_location("validate_module", _VALIDATE_PATH)
-assert _SPEC is not None and _SPEC.loader is not None
+assert _SPEC is not None
+assert _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
