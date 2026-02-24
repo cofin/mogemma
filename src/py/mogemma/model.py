@@ -185,7 +185,7 @@ class EmbeddingModel:
 
         raise FileNotFoundError(f"No tokenizer.model found in {self.model_path}")
 
-    def _embed_token_array(self, tokens: npt.NDArray[np.int32], input_count: int) -> npt.NDArray[np.float32]:
+    def _embed_token_array(self, tokens: Sequence[Sequence[int]], input_count: int) -> npt.NDArray[np.float32]:
         if _core is None or self._llm is None:
             msg = (
                 "Mojo core is unavailable for embeddings. "
@@ -219,19 +219,24 @@ class EmbeddingModel:
         tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
         tokenizer.enable_padding()
         encoded = tokenizer.encode_batch(text)
-        tokens = np.asarray([e.ids for e in encoded], dtype=np.int32)
+        tokens = [e.ids for e in encoded]
         return self._embed_token_array(tokens, len(text))
 
-    def embed_tokens(self, tokens: npt.ArrayLike) -> npt.NDArray[np.float32]:
+    def embed_tokens(self, tokens: Sequence[Sequence[int]] | npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
         """Generate embeddings directly from pre-tokenized IDs using Mojo inference."""
-        token_array = np.asarray(tokens, dtype=np.int32)
-        if token_array.ndim != _EXPECTED_MATRIX_DIMS:
-            msg = f"tokens must be a 2D array of token IDs, got shape {token_array.shape}"
-            raise ValueError(msg)
-        if token_array.shape[0] == 0:
+        token_list = []
+        if isinstance(tokens, np.ndarray):
+            if tokens.ndim != _EXPECTED_MATRIX_DIMS:
+                msg = f"tokens must be a 2D array of token IDs, got shape {tokens.shape}"
+                raise ValueError(msg)
+            token_list = tokens.tolist()
+        else:
+            token_list = list(tokens)
+
+        if len(token_list) == 0:
             msg = "tokens must contain at least one row"
             raise ValueError(msg)
-        return self._embed_token_array(token_array, int(token_array.shape[0]))
+        return self._embed_token_array(token_list, len(token_list))
 
     @property
     def tokenizer(self) -> _Tokenizer:
