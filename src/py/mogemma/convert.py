@@ -131,61 +131,200 @@ def _convert_gemma3_nano(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str,
     """Convert a Gemma 3 Nano Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.float32]] = {}
 
+    def get_orbax(key: str) -> npt.NDArray[np.generic]:
+        if key in orbax:
+            return orbax[key]
+        no_prefix = key.replace("transformer/", "")
+        if no_prefix in orbax:
+            return orbax[no_prefix]
+        dot_sep = no_prefix.replace("/", ".")
+        if dot_sep in orbax:
+            return orbax[dot_sep]
+        msg = f"Key not found in Orbax checkpoint: {key}"
+        raise KeyError(msg)
+
     # --- Global tensors ---
-    embed = _to_f32(orbax["transformer/embedder.input_embedding"])
+    embed = _to_f32(get_orbax("transformer/embedder.input_embedding"))
     out["model.embed_tokens.weight"] = embed
     out["lm_head.weight"] = embed  # tied weights
-    out["model.norm.weight"] = _to_f32(orbax["transformer/final_norm.scale"])
+    out["model.norm.weight"] = _to_f32(get_orbax("transformer/final_norm.scale"))
 
-    out["model.per_layer_embed.weight"] = _to_f32(orbax["transformer/embedder.per_layer_input_embedding"])
-    out["model.per_layer_embed.projection.weight"] = _to_f32(orbax["transformer/embedder.per_layer_input_projection.w"])
-    out["model.per_layer_embed.norm.weight"] = _to_f32(orbax["transformer/embedder.per_layer_projection_norm.scale"])
+    out["model.per_layer_embed.weight"] = _to_f32(get_orbax("transformer/embedder.per_layer_input_embedding"))
+    out["model.per_layer_embed.projection.weight"] = _to_f32(get_orbax("transformer/embedder.per_layer_input_projection.w"))
+    out["model.per_layer_embed.norm.weight"] = _to_f32(get_orbax("transformer/embedder.per_layer_projection_norm.scale"))
 
     # AltUp projections (0, 1, 2)
     for i in range(3):
-        if f"transformer/altup_projection.{i}" in orbax:
-            out[f"model.altup.projection.{i}.weight"] = _to_f32(orbax[f"transformer/altup_projection.{i}"])
-            out[f"model.altup.unembed.{i}.weight"] = _to_f32(orbax[f"transformer/altup_unembed_projection.{i}"])
+        key_proj = f"altup_projection_{i}.altup_projection_{i}"
+        key_unembed = f"altup_unembed_projection_{i}.altup_unembed_projection_{i}"
+        
+        if key_proj in orbax:
+            out[f"model.altup.projection.{i}.weight"] = _to_f32(orbax[key_proj].T)
+            out[f"model.altup.unembed.{i}.weight"] = _to_f32(orbax[key_unembed].T)
+        elif f"transformer/altup_projection.{i}" in orbax:
+            out[f"model.altup.projection.{i}.weight"] = _to_f32(orbax[f"transformer/altup_projection.{i}"].T)
+            out[f"model.altup.unembed.{i}.weight"] = _to_f32(orbax[f"transformer/altup_unembed_projection.{i}"].T)
 
     # --- Per-layer tensors ---
     layer_indices: set[int] = set()
+    layer_re_fallback = re.compile(r"layer_(\d+)[\./](.+)")
     for name in orbax:
         m = _LAYER_RE.match(name)
         if m:
             layer_indices.add(int(m.group(1)))
+        else:
+            m2 = layer_re_fallback.match(name)
+            if m2:
+                layer_indices.add(int(m2.group(1)))
 
     for n in sorted(layer_indices):
         prefix = f"transformer/layer_{n}"
+        if f"layer_{n}/pre_attention_norm.scale" in orbax:
+            prefix = f"layer_{n}"
+            
         hf = f"model.layers.{n}"
 
-        _convert_norms(orbax, out, prefix, hf)
-        # Note: Nano uses query_norm, key_norm (no leading underscore)
-        _convert_attention_layer(orbax, out, prefix, hf, "query_norm", "key_norm")
-        # Note: Nano uses gating_einsum, linear (no .w)
-        _convert_mlp_layer(orbax, out, prefix, hf, "gating_einsum", "linear")
+        # We pass a dict wrapper that uses get_orbax so _convert_* functions still work if prefix was transformer/
+        class OrbaxWrapper(dict):
+            def __getitem__(self, key: str) -> npt.NDArray[np.generic]:
+                return get_orbax(key)
+        
+        wrapper = OrbaxWrapper()
+        _convert_norms(wrapper, out, prefix, hf)
+        _convert_attention_layer(wrapper, out, prefix, hf, "query_norm", "key_norm")
+        _convert_mlp_layer(wrapper, out, prefix, hf, "gating_einsum", "linear")
 
         # Nano-specific: AltUp
-        out[f"{hf}.altup.router.weight"] = _to_f32(orbax[f"{prefix}/altup.modality_router.w"])
-        out[f"{hf}.altup.router_norm.weight"] = _to_f32(orbax[f"{prefix}/altup.router_norm_layer.scale"])
-        out[f"{hf}.altup.prediction_coefs"] = _to_f32(orbax[f"{prefix}/altup.prediction_coefs"])
-        out[f"{hf}.altup.correction_coefs"] = _to_f32(orbax[f"{prefix}/altup.correction_coefs"])
-        out[f"{hf}.altup.output_scale"] = _to_f32(orbax[f"{prefix}/altup.correct_output_scale"])
+        out[f"{hf}.altup.router.weight"] = _to_f32(get_orbax(f"{prefix}/altup.modality_router.w").T)
+        out[f"{hf}.altup.router_norm.weight"] = _to_f32(get_orbax(f"{prefix}/altup.router_norm_layer.scale"))
+        out[f"{hf}.altup.prediction_coefs"] = _to_f32(get_orbax(f"{prefix}/altup.prediction_coefs"))
+        out[f"{hf}.altup.correction_coefs"] = _to_f32(get_orbax(f"{prefix}/altup.correction_coefs"))
+        out[f"{hf}.altup.output_scale"] = _to_f32(get_orbax(f"{prefix}/altup.correct_output_scale"))
 
         # Nano-specific: Per-layer mapping
-        out[f"{hf}.per_layer_map.gate.weight"] = _to_f32(orbax[f"{prefix}/per_layer_mapping.per_layer_input_gate.w"])
+        out[f"{hf}.per_layer_map.gate.weight"] = _to_f32(get_orbax(f"{prefix}/per_layer_mapping.per_layer_input_gate.w").T)
         out[f"{hf}.per_layer_map.projection.weight"] = _to_f32(
-            orbax[f"{prefix}/per_layer_mapping.per_layer_projection.w"]
+            get_orbax(f"{prefix}/per_layer_mapping.per_layer_projection.w").T
         )
         out[f"{hf}.per_layer_map.norm.weight"] = _to_f32(
-            orbax[f"{prefix}/per_layer_mapping.post_per_layer_input_norm.scale"]
+            get_orbax(f"{prefix}/per_layer_mapping.post_per_layer_input_norm.scale")
         )
 
         # Nano-specific: Laurel
-        out[f"{hf}.laurel.down_proj.weight"] = _to_f32(orbax[f"{prefix}/laurel.linear_left.w"])
-        out[f"{hf}.laurel.up_proj.weight"] = _to_f32(orbax[f"{prefix}/laurel.linear_right.w"])
-        out[f"{hf}.laurel.norm.weight"] = _to_f32(orbax[f"{prefix}/post_laurel_norm.scale"])
+        out[f"{hf}.laurel.down_proj.weight"] = _to_f32(get_orbax(f"{prefix}/laurel.linear_left.w").T)
+        out[f"{hf}.laurel.up_proj.weight"] = _to_f32(get_orbax(f"{prefix}/laurel.linear_right.w").T)
+        out[f"{hf}.laurel.norm.weight"] = _to_f32(get_orbax(f"{prefix}/post_laurel_norm.scale"))
 
+    _validate_nano_layout(out)
     return out
+
+
+def _nano_layer_indices(tensors: dict[str, npt.NDArray[np.float32]]) -> list[int]:
+    layer_indices: set[int] = set()
+    for name in tensors:
+        if not name.startswith("model.layers."):
+            continue
+        parts = name.split(".")
+        if len(parts) < 4:
+            continue
+        try:
+            layer_indices.add(int(parts[2]))
+        except ValueError:
+            continue
+    return sorted(layer_indices)
+
+
+def _validate_nano_layout(tensors: dict[str, npt.NDArray[np.float32]]) -> None:
+    """Validate tensor-layout assumptions consumed by the Mojo nano path."""
+    layer_indices = _nano_layer_indices(tensors)
+    if not layer_indices:
+        msg = "Converted Nano checkpoint contains no decoder layers"
+        raise ValueError(msg)
+
+    hidden_size = int(tensors["model.embed_tokens.weight"].shape[1])
+    first_layer = layer_indices[0]
+    prefix = f"model.layers.{first_layer}"
+
+    per_layer_embed = tensors["model.per_layer_embed.weight"]
+    if per_layer_embed.ndim not in {2, 3}:
+        msg = f"Expected model.per_layer_embed.weight rank 2 or 3, got rank {per_layer_embed.ndim}"
+        raise ValueError(msg)
+
+    plm_gate = tensors[f"{prefix}.per_layer_map.gate.weight"]
+    plm_proj = tensors[f"{prefix}.per_layer_map.projection.weight"]
+    if plm_gate.ndim != 2 or plm_proj.ndim != 2:
+        msg = "Per-layer mapping tensors must be 2D"
+        raise ValueError(msg)
+
+    per_layer_dim = int(plm_gate.shape[0])
+    if plm_gate.shape[1] != hidden_size:
+        msg = (
+            f"Per-layer gate hidden_size mismatch: expected second dim {hidden_size}, "
+            f"got {plm_gate.shape[1]}"
+        )
+        raise ValueError(msg)
+    if plm_proj.shape != (hidden_size, per_layer_dim):
+        msg = (
+            "Per-layer projection shape mismatch: expected "
+            f"({hidden_size}, {per_layer_dim}), got {plm_proj.shape}"
+        )
+        raise ValueError(msg)
+
+    if per_layer_embed.ndim == 3:
+        _, embed_layers, embed_dim = per_layer_embed.shape
+        if embed_dim != per_layer_dim:
+            msg = (
+                "Per-layer embedding dim mismatch: expected last dim to match per_layer_dim "
+                f"{per_layer_dim}, got {embed_dim}"
+            )
+            raise ValueError(msg)
+    else:
+        embed_layers_dim = int(per_layer_embed.shape[1])
+        if embed_layers_dim % per_layer_dim != 0:
+            msg = (
+                "Flattened per-layer embeddings must be divisible by per_layer_dim: "
+                f"{embed_layers_dim} % {per_layer_dim} != 0"
+            )
+            raise ValueError(msg)
+        embed_layers = embed_layers_dim // per_layer_dim
+
+    if embed_layers <= max(layer_indices):
+        msg = (
+            "Per-layer embedding layer axis is smaller than required decoder depth: "
+            f"embed_layers={embed_layers}, max_layer_index={max(layer_indices)}"
+        )
+        raise ValueError(msg)
+
+    router = tensors[f"{prefix}.altup.router.weight"]
+    prediction = tensors[f"{prefix}.altup.prediction_coefs"]
+    correction = tensors[f"{prefix}.altup.correction_coefs"]
+    output_scale = tensors[f"{prefix}.altup.output_scale"]
+
+    if router.ndim != 2 or router.shape[1] != hidden_size:
+        msg = f"AltUp router must be 2D with hidden dim {hidden_size}, got {router.shape}"
+        raise ValueError(msg)
+    altup_inputs = int(router.shape[0])
+
+    valid_prediction_shape = prediction.shape in {
+        (altup_inputs, altup_inputs, altup_inputs),
+        (altup_inputs, altup_inputs * altup_inputs),
+    }
+    if not valid_prediction_shape:
+        msg = (
+            "AltUp prediction_coefs shape mismatch: expected "
+            f"({altup_inputs}, {altup_inputs}, {altup_inputs}) or "
+            f"({altup_inputs}, {altup_inputs * altup_inputs}), got {prediction.shape}"
+        )
+        raise ValueError(msg)
+    if correction.shape != (altup_inputs, altup_inputs):
+        msg = (
+            "AltUp correction_coefs shape mismatch: expected "
+            f"({altup_inputs}, {altup_inputs}), got {correction.shape}"
+        )
+        raise ValueError(msg)
+    if output_scale.shape != (hidden_size,):
+        msg = f"AltUp output_scale shape mismatch: expected ({hidden_size},), got {output_scale.shape}"
+        raise ValueError(msg)
 
 
 # ---------------------------------------------------------------------------

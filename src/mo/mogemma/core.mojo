@@ -26,7 +26,7 @@ from mogemma.layers import (
 fn _detect_architecture(metadata_obj: PythonObject) raises -> String:
     var builtins = Python.import_module("builtins")
     # Gemma 3 Nano has AltUp router weights
-    if builtins.bool(metadata_obj.get("model.layers.0.altup.router.weight")):
+    if builtins.bool(metadata_obj.__contains__("model.layers.0.altup.router.weight")):
         return "nano"
     return "standard"
 
@@ -207,7 +207,9 @@ fn init_model_mojo(
         hidden_size = model_weights.embed_tokens.shape_1
         intermediate_size = model_weights.layers[0].base.gate_proj.shape_0
         vocab_size = model_weights.lm_head.shape_0
-        per_layer_dim = model_weights.per_layer_embed.shape_1 // 30
+        per_layer_dim = model_weights.layers[0].per_layer_map.gate.shape_0
+        if per_layer_dim <= 0:
+            raise Error("Invalid Nano model weights: per_layer_map gate dim must be > 0")
         bottleneck_dim = model_weights.layers[0].laurel.down_proj.shape_0
     else:
         var model_weights = _build_model(metadata_obj)
@@ -502,4 +504,3 @@ fn PyInit__core() -> PythonObject:
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
-

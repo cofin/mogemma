@@ -27,7 +27,7 @@ def test_convert_gemma3_nano_tensors():
         "transformer/final_norm.scale": np.zeros((2048,), dtype=np.float32),
         "transformer/embedder.per_layer_input_embedding": np.zeros((262144, 30, 256), dtype=np.float32),
         "transformer/embedder.per_layer_input_projection.w": np.zeros((2048, 30, 256), dtype=np.float32),
-        "transformer/embedder.per_layer_projection_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/embedder.per_layer_projection_norm.scale": np.zeros((256,), dtype=np.float32),
         # AltUp Projections
         "transformer/altup_projection.0": np.zeros((2048, 2048), dtype=np.float32),
         "transformer/altup_unembed_projection.0": np.zeros((2048, 2048), dtype=np.float32),
@@ -44,13 +44,13 @@ def test_convert_gemma3_nano_tensors():
         "transformer/layer_0/mlp/gating_einsum": np.zeros((2, 8192, 2048), dtype=np.float32),
         "transformer/layer_0/mlp/linear": np.zeros((2048, 8192), dtype=np.float32),
         # Layer 0 Nano Specific
-        "transformer/layer_0/altup.modality_router.w": np.zeros((4, 2048), dtype=np.float32),
+        "transformer/layer_0/altup.modality_router.w": np.zeros((2048, 4), dtype=np.float32),
         "transformer/layer_0/altup.router_norm_layer.scale": np.zeros((2048,), dtype=np.float32),
-        "transformer/layer_0/altup.prediction_coefs": np.zeros((4, 2048), dtype=np.float32),
-        "transformer/layer_0/altup.correction_coefs": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/altup.prediction_coefs": np.zeros((4, 4, 4), dtype=np.float32),
+        "transformer/layer_0/altup.correction_coefs": np.zeros((4, 4), dtype=np.float32),
         "transformer/layer_0/altup.correct_output_scale": np.zeros((2048,), dtype=np.float32),
-        "transformer/layer_0/per_layer_mapping.per_layer_input_gate.w": np.zeros((2048, 2048), dtype=np.float32),
-        "transformer/layer_0/per_layer_mapping.per_layer_projection.w": np.zeros((2048, 2048), dtype=np.float32),
+        "transformer/layer_0/per_layer_mapping.per_layer_input_gate.w": np.zeros((2048, 256), dtype=np.float32),
+        "transformer/layer_0/per_layer_mapping.per_layer_projection.w": np.zeros((256, 2048), dtype=np.float32),
         "transformer/layer_0/per_layer_mapping.post_per_layer_input_norm.scale": np.zeros((2048,), dtype=np.float32),
         "transformer/layer_0/laurel.linear_left.w": np.zeros((64, 2048), dtype=np.float32),
         "transformer/layer_0/laurel.linear_right.w": np.zeros((2048, 64), dtype=np.float32),
@@ -61,13 +61,18 @@ def test_convert_gemma3_nano_tensors():
 
     assert "model.per_layer_embed.weight" in hf
     assert hf["model.per_layer_embed.weight"].shape == (262144, 30, 256)
+    assert hf["model.per_layer_embed.norm.weight"].shape == (256,)
 
     assert "model.altup.projection.0.weight" in hf
     assert "model.altup.unembed.0.weight" in hf
 
     l0 = "model.layers.0"
     assert f"{l0}.altup.router.weight" in hf
+    assert hf[f"{l0}.altup.prediction_coefs"].shape == (4, 4, 4)
+    assert hf[f"{l0}.altup.correction_coefs"].shape == (4, 4)
     assert f"{l0}.per_layer_map.gate.weight" in hf
+    assert hf[f"{l0}.per_layer_map.gate.weight"].shape == (256, 2048)
+    assert hf[f"{l0}.per_layer_map.projection.weight"].shape == (2048, 256)
     assert f"{l0}.laurel.down_proj.weight" in hf
     assert f"{l0}.laurel.up_proj.weight" in hf
 
@@ -80,6 +85,42 @@ def test_convert_gemma3_nano_tensors():
 
     assert f"{l0}.self_attn.v_proj.weight" in hf
     assert hf[f"{l0}.self_attn.v_proj.weight"].shape == (2 * 256, 2048)
+
+
+def test_convert_gemma3_nano_rejects_invalid_per_layer_layout():
+    orbax = {
+        "transformer/embedder.input_embedding": np.zeros((20, 2048), dtype=np.float32),
+        "transformer/final_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/embedder.per_layer_input_embedding": np.zeros((262144, 30, 256), dtype=np.float32),
+        "transformer/embedder.per_layer_input_projection.w": np.zeros((2048, 30, 256), dtype=np.float32),
+        "transformer/embedder.per_layer_projection_norm.scale": np.zeros((256,), dtype=np.float32),
+        "transformer/layer_0/pre_attention_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/post_attention_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/pre_ffw_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/post_ffw_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/attn/query_norm.scale": np.zeros((256,), dtype=np.float32),
+        "transformer/layer_0/attn/key_norm.scale": np.zeros((256,), dtype=np.float32),
+        "transformer/layer_0/attn/q_einsum.w": np.zeros((8, 2048, 256), dtype=np.float32),
+        "transformer/layer_0/attn/kv_einsum.w": np.zeros((2, 2, 2048, 256), dtype=np.float32),
+        "transformer/layer_0/attn/attn_vec_einsum.w": np.zeros((8, 256, 2048), dtype=np.float32),
+        "transformer/layer_0/mlp/gating_einsum": np.zeros((2, 8192, 2048), dtype=np.float32),
+        "transformer/layer_0/mlp/linear": np.zeros((2048, 8192), dtype=np.float32),
+        "transformer/layer_0/altup.modality_router.w": np.zeros((2048, 4), dtype=np.float32),
+        "transformer/layer_0/altup.router_norm_layer.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/altup.prediction_coefs": np.zeros((4, 4, 4), dtype=np.float32),
+        "transformer/layer_0/altup.correction_coefs": np.zeros((4, 4), dtype=np.float32),
+        "transformer/layer_0/altup.correct_output_scale": np.zeros((2048,), dtype=np.float32),
+        # Invalid: per-layer gate dim does not match per-layer embedding dim (255 != 256)
+        "transformer/layer_0/per_layer_mapping.per_layer_input_gate.w": np.zeros((2048, 255), dtype=np.float32),
+        "transformer/layer_0/per_layer_mapping.per_layer_projection.w": np.zeros((255, 2048), dtype=np.float32),
+        "transformer/layer_0/per_layer_mapping.post_per_layer_input_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/laurel.linear_left.w": np.zeros((64, 2048), dtype=np.float32),
+        "transformer/layer_0/laurel.linear_right.w": np.zeros((2048, 64), dtype=np.float32),
+        "transformer/layer_0/post_laurel_norm.scale": np.zeros((2048,), dtype=np.float32),
+    }
+
+    with pytest.raises(ValueError, match="Per-layer embedding dim mismatch"):
+        _convert_gemma3_nano(orbax)
 
 
 from pathlib import Path
