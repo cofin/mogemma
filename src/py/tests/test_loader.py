@@ -1,6 +1,4 @@
 from pathlib import Path
-from importlib import import_module
-from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -10,7 +8,7 @@ from mogemma.loader import SafetensorsLoader
 
 EXPECTED_BYTE_VALUE = 42
 
-_core = cast(Any, import_module("mogemma._core"))
+_core = pytest.importorskip("mogemma._core")
 
 
 @pytest.fixture

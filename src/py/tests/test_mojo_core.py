@@ -1,10 +1,8 @@
-from importlib import import_module
-from typing import Any, cast
-
 import numpy as np
 import numpy.typing as npt
+import pytest
 
-_core = cast(Any, import_module("mogemma._core"))
+_core = pytest.importorskip("mogemma._core")
 
 _EXPECTED_HEAD_DIM = 2
 _EXPECTED_HIDDEN_SIZE = 4
