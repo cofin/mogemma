@@ -32,7 +32,7 @@ Requires `pip install 'mogemma[llm]'`.
 from mogemma import GenerationConfig, SyncGemmaModel
 
 # Defaults to gemma3-270m-it
-config = GenerationConfig(max_new_tokens=64)
+config = GenerationConfig(max_tokens=64)
 model = SyncGemmaModel(config)
 
 # Full generation
@@ -53,7 +53,7 @@ from mogemma import GenerationConfig, AsyncGemmaModel
 
 async def main():
     # Defaults to gemma3-270m-it
-    config = GenerationConfig(max_new_tokens=64)
+    config = GenerationConfig(max_tokens=64)
     model = AsyncGemmaModel(config)
 
     async for token in model.generate_stream("Once upon a time"):
