@@ -82,7 +82,7 @@ def test_resolve_model_strict_rejects_missing_local_path(tmp_path: Path) -> None
     """Strict mode with download_if_missing=True will try to download and fail if missing in GCS."""
     hub = HubManager(cache_path=tmp_path)
 
-    with pytest.raises(FileNotFoundError, match="not found in the public gemma-data bucket"):
+    with pytest.raises(HubManager.ModelNotFoundError, match="not found in the public gemma-data bucket"):
         hub.resolve_model("bert-base-uncased-missing", download_if_missing=True, strict=True)
 
 
@@ -92,3 +92,11 @@ def test_clean_model_id() -> None:
     assert hub._clean_model_id("gemma-3-1b-it") == "gemma3-1b-it"
     assert hub._clean_model_id("google/gemma-3-1b-it") == "gemma3-1b-it"
     assert hub._clean_model_id("gemma3-1b-it") == "gemma3-1b-it"
+
+
+def test_resolve_model_explicit_invalid_embedding_id(tmp_path: Path) -> None:
+    """Ensure specific missing embedding models raise ModelNotFoundError with actionable message."""
+    hub = HubManager(cache_path=tmp_path)
+
+    with pytest.raises(HubManager.ModelNotFoundError, match="not found in the public gemma-data bucket"):
+        hub.resolve_model("gemma3-text-embedding-4m", download_if_missing=True, strict=True)

@@ -106,7 +106,7 @@ def test_gemma_model_init(dummy_model_path: str, mock_tokenizer: MagicMock, mock
 def test_gemma_model_init_rejects_unknown_model_path(mock_tokenizer: MagicMock) -> None:
     config = GenerationConfig(model_path="bert-base-uncased-missing")
 
-    with pytest.raises(FileNotFoundError, match="not found in the public gemma-data bucket"):
+    with pytest.raises(HubManager.ModelNotFoundError, match="not found in the public gemma-data bucket"):
         SyncGemmaModel(config)
 
 
