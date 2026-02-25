@@ -49,8 +49,8 @@ test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"
 
 [tool.cibuildwheel.linux]
 before-all = "pip install uv"
-manylinux-x86_64-image = "manylinux_2_34"
-manylinux-aarch64-image = "manylinux_2_34"
+manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
+manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 repair-wheel-command = ""
 
 [tool.cibuildwheel.macos]
