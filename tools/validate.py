@@ -47,7 +47,7 @@ def _assert_semantic_quality(model_id: str, response: str) -> None:
 def validate_llm_generation(model_id: str):
     print(f"\n[LLM] Validating Generation ({model_id})...")
     # This will trigger an automatic download from GCS if not in cache
-    config = GenerationConfig(model_path=model_id, max_new_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
+    config = GenerationConfig(model_path=model_id, max_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
 
     try:
         model = SyncGemmaModel(config)
