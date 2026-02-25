@@ -37,18 +37,23 @@ telemetry = [
 
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-mojo"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
 
-[tool.hatch.build.hooks.custom]
-path = "tools/hatch_build.py"
+[[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]
+name = "core"
+input = "src/mo/mogemma/core.mojo"
+emit = "python-extension"
+module = "mogemma._core"
+include-dirs = ["src/mo"]
 
 [tool.uv]
 package = true
 prerelease = "allow"
+
 
 [tool.pytest.ini_options]
 testpaths = ["src/py/tests", "src/mo/tests"]
@@ -133,6 +138,7 @@ test = [
     "pytest>=9.0.2",
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.3.0",
+    "tomli>=2.0.0",
 ]
 
 [tool.bumpversion]

@@ -43,10 +43,10 @@ py-install: ## Install Python deps
 	@uv sync --all-extras --dev
 
 .PHONY: build
-build: ## Build Mojo shared library
+build: ## Build Mojo python extension using hatch-mojo
 	@echo "${INFO} Building Mojo core..."
 	@mkdir -p src/py/mogemma
-	@uv run mojo build --emit shared-lib src/mo/mogemma/core.mojo -o src/py/mogemma/_core.so
+	@uv build --wheel
 
 .PHONY: smoke-test
 smoke-test: ## Run the Mojo bridge smoke test

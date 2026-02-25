@@ -506,6 +506,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "sentencepiece" },
+    { name = "tomli" },
 ]
 lint = [
     { name = "mypy" },
@@ -521,6 +522,7 @@ test = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "sentencepiece" },
+    { name = "tomli" },
 ]
 
 [package.metadata]
@@ -552,6 +554,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=4.0.0" },
     { name = "ruff", specifier = ">=0.14.14" },
     { name = "sentencepiece", specifier = ">=0.2.0" },
+    { name = "tomli", specifier = ">=2.0.0" },
 ]
 lint = [
     { name = "mypy", specifier = ">=1.13.0" },
@@ -566,6 +569,7 @@ test = [
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=4.0.0" },
     { name = "sentencepiece", specifier = ">=0.2.0" },
+    { name = "tomli", specifier = ">=2.0.0" },
 ]
 
 [[package]]
