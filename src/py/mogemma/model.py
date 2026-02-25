@@ -176,8 +176,17 @@ def _format_instruction_prompt(prompt: str) -> str:
 class EmbeddingModel:
     """Python interface for the Gemma 3 embedding engine."""
 
-    def __init__(self, config: EmbeddingConfig, tokenizer: _Tokenizer | None = None) -> None:
-        """Initialize the embedding model."""
+    def __init__(self, config: EmbeddingConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
+        """Initialize the embedding model.
+
+        Args:
+            config: Model ID string, ``EmbeddingConfig``, or ``None`` for defaults.
+            tokenizer: Optional pre-built tokenizer instance.
+        """
+        if config is None:
+            config = EmbeddingConfig()
+        elif isinstance(config, str):
+            config = EmbeddingConfig(model_path=config)
         self.config = config
         self._tokenizer = tokenizer
 
@@ -268,8 +277,17 @@ class EmbeddingModel:
 class SyncGemmaModel:
     """Python interface for the Gemma 3 text generation engine."""
 
-    def __init__(self, config: GenerationConfig, tokenizer: _Tokenizer | None = None) -> None:
-        """Initialize the text model."""
+    def __init__(self, config: GenerationConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
+        """Initialize the text model.
+
+        Args:
+            config: Model ID string, ``GenerationConfig``, or ``None`` for defaults.
+            tokenizer: Optional pre-built tokenizer instance.
+        """
+        if config is None:
+            config = GenerationConfig()
+        elif isinstance(config, str):
+            config = GenerationConfig(model_path=config)
         self.config = config
         self._tokenizer = tokenizer
 
@@ -361,8 +379,12 @@ class SyncGemmaModel:
 class AsyncGemmaModel:
     """Asynchronous wrapper for SyncGemmaModel."""
 
-    def __init__(self, config: GenerationConfig) -> None:
-        """Initialize the async model."""
+    def __init__(self, config: GenerationConfig | str | None = None) -> None:
+        """Initialize the async model.
+
+        Args:
+            config: Model ID string, ``GenerationConfig``, or ``None`` for defaults.
+        """
         self._model = SyncGemmaModel(config)
 
     async def generate(self, prompt: str) -> str:

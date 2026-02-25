@@ -65,6 +65,18 @@ def mock_core(monkeypatch: pytest.MonkeyPatch) -> CoreStub:
     return stub
 
 
+def test_sync_model_default_config(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
+    """SyncGemmaModel() with no args should use default GenerationConfig."""
+    model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path)))
+    assert model.config.model_path == Path(dummy_model_path)
+
+
+def test_sync_model_string_config(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
+    """SyncGemmaModel(str) should create a config with that model path."""
+    model = SyncGemmaModel(dummy_model_path)
+    assert str(model.config.model_path) == dummy_model_path
+
+
 def test_generation_config_validation() -> None:
     with pytest.raises(ValueError, match="temperature"):
         GenerationConfig(model_path="dummy", temperature=-1.0)
@@ -209,7 +221,7 @@ def test_gemma_generate_stream_stops_on_eos(
     monkeypatch.setattr(model_module, "_core", core_stub)
     mock_tokenizer.token_to_id.return_value = 0
 
-    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=5, temperature=1.0)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=5, temperature=0.0)
     model = SyncGemmaModel(config)
     response = model.generate("Hello")
 

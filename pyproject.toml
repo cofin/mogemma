@@ -16,7 +16,7 @@ dependencies = [
     "safetensors>=0.4.5",
     "tensorstore>=0.1.78",
 ]
-description = "Python/Mojo interface for Google Gemma 3 using MAX Engine"
+description = "Python/Mojo interface for Google Gemma 3"
 license = { file = "LICENSE" }
 name = "mogemma"
 readme = "README.md"
