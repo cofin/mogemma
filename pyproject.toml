@@ -42,7 +42,7 @@ build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
-build-frontend = "build[uv]"
+build-frontend = "build"
 skip = ["*-musllinux_*", "pp*"]
 test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"]
