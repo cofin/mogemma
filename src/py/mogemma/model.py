@@ -333,7 +333,7 @@ class SyncGemmaModel:
             current_token = int(eos_token_id)
 
         eos_token_id = _normalize_eos_token_id(tokenizer)
-        for _ in range(self.config.max_new_tokens):
+        for _ in range(self.config.max_tokens):
             logits = _core.step(self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p)
 
             next_token = _sample_next_token(
