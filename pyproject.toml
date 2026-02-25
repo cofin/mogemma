@@ -41,11 +41,17 @@ requires = ["hatchling", "hatch-mojo", "mojo>=0.26.1"]
 build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
-build-frontend = "build"
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+build-frontend = "build[uv]"
+skip = ["*-musllinux_*", "pp*"]
 test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"]
-manylinux-x86_64-image = "ubuntu:22.04"
-manylinux-aarch64-image = "ubuntu:22.04"
+
+[tool.cibuildwheel.linux]
+repair-wheel-command = ""
+
+[tool.cibuildwheel.macos]
+repair-wheel-command = ""
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
