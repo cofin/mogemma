@@ -1,36 +1,29 @@
-"""Optional dependency facades used by runtime imports.
+"""Dependency facades used by runtime imports.
 
-This module keeps optional imports typed consistently and avoids repetitive
+This module keeps imports typed consistently and avoids repetitive
 `try`/`except ModuleNotFoundError` blocks in feature modules.
 """
 
-from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 __all__ = [
-    "HUGGINGFACE_HUB_INSTALLED",
     "OPENTELEMETRY_INSTALLED",
+    "SENTENCEPIECE_INSTALLED",
     "TOKENIZERS_INSTALLED",
+    "_SPProcessorImpl",
     "_TokenizerImpl",
-    "snapshot_download",
     "trace",
 ]
-_TokenizerImpl: Any | None
+_SPProcessorImpl: Any | None
+_TokenizerImpl: Any | None = None
 trace: Any | None
 
 try:
-    from huggingface_hub import snapshot_download as _snapshot_download
-except ModuleNotFoundError:
-    snapshot_download: Callable[..., str] | None = None
-else:
-    snapshot_download = cast("Callable[..., str]", _snapshot_download)
+    import sentencepiece as _sp  # type: ignore[import-untyped]
 
-try:
-    from tokenizers import Tokenizer as _TokenizerClass  # type: ignore[import-untyped]
+    _SPProcessorImpl = _sp.SentencePieceProcessor
 except ModuleNotFoundError:
-    _TokenizerImpl = None
-else:
-    _TokenizerImpl = _TokenizerClass
+    _SPProcessorImpl = None
 
 try:
     from opentelemetry import trace as _trace
@@ -39,6 +32,6 @@ except ModuleNotFoundError:
 else:
     trace = _trace
 
-HUGGINGFACE_HUB_INSTALLED = snapshot_download is not None
-TOKENIZERS_INSTALLED = _TokenizerImpl is not None
+SENTENCEPIECE_INSTALLED = _SPProcessorImpl is not None
+TOKENIZERS_INSTALLED = False
 OPENTELEMETRY_INSTALLED = trace is not None

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import re
+import concurrent.futures
+import logging
 from pathlib import Path
 
-from .typing import HUGGINGFACE_HUB_INSTALLED, snapshot_download
+import obstore as obs
 
-_HF_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*)/[A-Za-z0-9](?:[A-Za-z0-9._-]*)$")
+logger = logging.getLogger(__name__)
 
 
 class HubManager:
-    """Manages downloading and caching Gemma 3 models from Hugging Face Hub."""
+    """Manages downloading and caching Gemma 3 models directly from Google Cloud Storage."""
 
     def __init__(self, cache_path: str | Path | None = None) -> None:
         """Initialize the HubManager."""
@@ -23,62 +24,34 @@ class HubManager:
         self.cache_path.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def _is_hf_model_id(model_id: str) -> bool:
-        """Check if a model id looks like a Hugging Face repo id."""
-        path = Path(model_id)
-        if path.is_absolute():
-            return False
-        if path.name.startswith("."):
-            return False
-        if path.exists():
-            return False
-        if any(part in {".", ".."} for part in path.parts):
-            return False
-        return _HF_MODEL_ID_RE.match(model_id) is not None
+    def _clean_model_id(model_id: str) -> str:
+        """Normalize model id to match GCS bucket structures."""
+        clean_id = model_id.removeprefix("google/")
+        return clean_id.replace("gemma-", "gemma") if clean_id.startswith("gemma-") else clean_id
 
     @staticmethod
     def _cache_dir_for_model_id(cache_root: Path, model_id: str) -> Path:
         return cache_root / model_id.replace("/", "--")
 
     @staticmethod
-    def _download_error(model_id: str, exc: Exception) -> Exception:
-        """Format a user-facing exception for failed downloads."""
-        detail = str(exc)
-        lowered = detail.lower()
-        exc_name = type(exc).__name__.lower()
+    def _has_safetensors(path: Path) -> bool:
+        """Return ``True`` when *path* contains ready-to-use safetensors files."""
+        return (path / "model.safetensors").exists() or (path / "model.safetensors.index.json").exists()
 
-        if "offline" in lowered or "offlinemode" in lowered or isinstance(exc, OSError):
-            msg = (
-                f"Cannot download '{model_id}' in offline mode or restricted network environments. "
-                "Set HF_HUB_OFFLINE=0 and ensure network connectivity before retrying."
-            )
-            return ConnectionError(msg)
+    @staticmethod
+    def _has_orbax(path: Path) -> bool:
+        """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
+        return (path / "ocdbt.process_0").is_dir() and (path / "manifest.ocdbt").exists()
 
-        auth_indicators = ["401", "403", "forbidden", "unauthorized", "gated", "authentication", "token", "oauth"]
-        if any(indicator in lowered for indicator in auth_indicators) or "gatedrepoerror" in exc_name:
-            msg = (
-                f"Cannot download '{model_id}' because access is restricted. "
-                "Set HF_TOKEN (or run `huggingface-cli login`) and ensure model access is granted."
-            )
-            return PermissionError(msg)
-
-        if "not found" in lowered or "404" in lowered or "does not exist" in lowered:
-            return FileNotFoundError(f"Model '{model_id}' was not found on Hugging Face Hub: {detail}")
-
-        return RuntimeError(f"Failed to download '{model_id}' from Hugging Face Hub: {detail}")
+    @classmethod
+    def _has_model_files(cls, path: Path) -> bool:
+        """Return ``True`` when *path* contains safetensors or OCDBT model files."""
+        return cls._has_safetensors(path) or cls._has_orbax(path)
 
     def resolve_model(
-        self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **download_kwargs: object
+        self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **_kwargs: object
     ) -> Path:
-        """Resolve a model ID to a local path.
-
-        If model_id is a local path that exists, return that path.
-        If model_id exists in this cache, return the cached path.
-        If model_id is an HF id and download_if_missing is False, return the original id.
-        If download_if_missing is True, download missing HF ids before returning.
-        If strict=True, reject unresolved local paths with a clear contract error.
-        """
-        # 1. Check if model_id is a direct local path
+        """Resolve a model ID to a local path."""
         local_path = Path(model_id)
         if local_path.exists() and local_path.is_dir():
             return local_path
@@ -89,41 +62,94 @@ class HubManager:
                 raise ValueError(msg)
             return local_path
 
-        # 2. Check in our cache
         cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
-        if cached_path.exists() and cached_path.is_dir():
+        if cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path):
+            self._ensure_safetensors(cached_path)
             return cached_path
 
-        # 3. Fallback to HF Hub model id handling.
-        if self._is_hf_model_id(model_id) and download_if_missing:
-            return self.download(model_id, **download_kwargs)
+        if download_if_missing:
+            return self.download(model_id)
 
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid Hugging Face model id (namespace/model)."
+                "Use an existing local directory or a valid Google model id (e.g., gemma-3-1b-it)."
             )
             raise ValueError(msg)
 
         return Path(model_id)
 
-    def download(self, model_id: str, **kwargs: object) -> Path:
-        """Download a model from the Hugging Face Hub."""
-        if not HUGGINGFACE_HUB_INSTALLED or snapshot_download is None:
-            msg = (
-                "Hugging Face Hub dependency is required at install time. "
-                "The base package now includes 'huggingface-hub'; reinstall if import fails."
-            )
-            raise ModuleNotFoundError(msg)
+    class GCSDownloadError(ConnectionError):
+        """Raised when a GCS download fails."""
 
-        if "local_dir" in kwargs:
-            msg = "'local_dir' is managed by Mogemma cache settings and cannot be overridden."
-            raise ValueError(msg)
+    class ModelNotFoundError(FileNotFoundError):
+        """Raised when a model is not found in the public bucket."""
 
-        local_dir = self._cache_dir_for_model_id(self.cache_path, model_id)
+    def _get_tokenizer_path(self, clean_id: str) -> str | None:
+        """Determine the tokenizer path based on model family."""
+        if "gemma3n" in clean_id:
+            return "tokenizers/tokenizer_gemma3n.model"
+        if "gemma3" in clean_id:
+            return "tokenizers/tokenizer_gemma3.model"
+        if "gemma2" in clean_id:
+            return "tokenizers/tokenizer_gemma2.model"
+        return None
 
+    def _list_remote_files(self, store: obs.store.GCSStore, prefix: str, clean_id: str) -> list[str]:
+        """List all files under the given prefix in GCS."""
+        paths = []
         try:
-            path = snapshot_download(repo_id=model_id, local_dir=local_dir, **kwargs)
-            return Path(path)
+            for page in obs.list(store, prefix):
+                items = page if isinstance(page, list) else [page]
+                for item in items:
+                    path = item["path"]  # pyright: ignore[reportCallIssue,reportArgumentType]
+                    if not path.endswith("_$folder$"):
+                        paths.append(path)
         except Exception as exc:
-            raise self._download_error(model_id, exc) from exc
+            msg = f"Failed to list model {clean_id} from GCS: {exc}"
+            raise self.GCSDownloadError(msg) from exc
+        return paths
+
+    def download(self, model_id: str) -> Path:
+        """Download a model directly from Google Cloud Storage using obstore."""
+        clean_id = self._clean_model_id(model_id)
+        local_dir = self._cache_dir_for_model_id(self.cache_path, model_id)
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        store = obs.store.GCSStore("gemma-data", config={"skip_signature": "true"})  # type: ignore[arg-type]
+        prefix = f"checkpoints/{clean_id}/"
+
+        paths_to_download = self._list_remote_files(store, prefix, clean_id)
+        if not paths_to_download:
+            msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
+            raise self.ModelNotFoundError(msg)
+
+        tokenizer_path = self._get_tokenizer_path(clean_id)
+        if tokenizer_path:
+            paths_to_download.append(tokenizer_path)
+
+        def _download_file(remote_path: str) -> None:
+            data = obs.get(store, remote_path)
+            rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
+            out_file = local_dir / rel_path
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            with out_file.open("wb") as f:
+                f.writelines(data.stream())
+
+        logger.info("Downloading %d files for %s from Google Cloud Storage...", len(paths_to_download), model_id)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            list(executor.map(_download_file, paths_to_download))
+
+        self._ensure_safetensors(local_dir)
+        return local_dir
+
+    @classmethod
+    def _ensure_safetensors(cls, path: Path) -> None:
+        """Convert an Orbax checkpoint to safetensors if needed."""
+        if cls._has_safetensors(path):
+            return
+        if not cls._has_orbax(path):
+            return
+        from .convert import convert_orbax_to_safetensors  # noqa: PLC0415
+
+        convert_orbax_to_safetensors(path)

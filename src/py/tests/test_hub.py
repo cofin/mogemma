@@ -1,9 +1,18 @@
+import json
+import struct
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from mogemma.hub import HubManager
+
+
+def _create_dummy_safetensors(model_dir: Path) -> None:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with (model_dir / "model.safetensors").open("wb") as f:
+        h = json.dumps({}).encode("utf-8")
+        f.write(struct.pack("<Q", len(h)) + h)
 
 
 def test_hub_manager_default_path() -> None:
@@ -21,7 +30,7 @@ def test_hub_manager_custom_path(tmp_path: Path) -> None:
 def test_resolve_model_path_local(tmp_path: Path) -> None:
     """Verify local model directories are returned directly."""
     model_dir = tmp_path / "gemma-3-4b"
-    model_dir.mkdir()
+    _create_dummy_safetensors(model_dir)
     hub = HubManager(cache_path=tmp_path)
 
     resolved = hub.resolve_model(str(model_dir))
@@ -30,96 +39,56 @@ def test_resolve_model_path_local(tmp_path: Path) -> None:
 
 def test_resolve_model_cached_path(tmp_path: Path) -> None:
     """Verify cached model directories are returned as filesystem paths."""
-    model_id = "google/gemma-3-4b-it"
-    cached_dir = tmp_path / "google--gemma-3-4b-it"
-    cached_dir.mkdir()
+    model_id = "gemma-3-4b-it"
+    cached_dir = tmp_path / "gemma-3-4b-it"
+    _create_dummy_safetensors(cached_dir)
+
     hub = HubManager(cache_path=tmp_path)
 
     resolved = hub.resolve_model(model_id)
     assert resolved == cached_dir
 
 
-def test_resolve_model_hf_id_cache_miss_returns_model_id(tmp_path: Path) -> None:
-    """Verify cache misses preserve the hub ID for direct hub resolution."""
-    hub = HubManager(cache_path=tmp_path)
-    model_id = "google/gemma-3-4b-it"
+def test_resolve_model_cached_path_ocdbt(tmp_path: Path) -> None:
+    """Verify cached OCDBT checkpoint directories are recognized."""
+    model_id = "gemma3n-e2b-it"
+    cached_dir = tmp_path / "gemma3n-e2b-it"
+    cached_dir.mkdir()
+    (cached_dir / "manifest.ocdbt").touch()
+    (cached_dir / "ocdbt.process_0").mkdir()
 
-    resolved = hub.resolve_model(model_id)
-    assert resolved == Path(model_id)
-
-
-def test_resolve_model_hf_id_downloads_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify missing HF IDs are downloaded when requested."""
-    hub = HubManager(cache_path=tmp_path)
-    model_id = "google/gemma-3-4b-it"
-    downloaded = tmp_path / "google--gemma-3-4b-it"
-    mocked_download = MagicMock(return_value=downloaded)
-    monkeypatch.setattr(hub, "download", mocked_download)
-
-    resolved = hub.resolve_model(model_id, download_if_missing=True)
-
-    assert resolved == downloaded
-    mocked_download.assert_called_once_with(model_id)
-
-
-def test_is_hf_model_id_edge_cases() -> None:
-    """Detect clearly local-looking identifiers as non-HF IDs."""
-    hub = HubManager()
-    assert hub.resolve_model("google/gemma-3-4b-it") == Path("google/gemma-3-4b-it")
-    with pytest.raises(ValueError, match="valid Hugging Face model id"):
-        hub.resolve_model("./google/gemma-3-4b-it", strict=True)
-    with pytest.raises(ValueError, match="valid Hugging Face model id"):
-        hub.resolve_model("../google/gemma-3-4b-it", strict=True)
-    with pytest.raises(ValueError, match="Cannot resolve model path"):
-        hub.resolve_model(str(Path.cwd() / "google" / "gemma-3-4b-it"), strict=True)
-
-
-def test_download_rejects_local_dir_override(tmp_path: Path) -> None:
-    """Cache directory should always be controlled by the HubManager."""
     hub = HubManager(cache_path=tmp_path)
 
-    with pytest.raises(ValueError, match="local_dir"):
-        hub.download("google/gemma-3-4b-it", local_dir=tmp_path / "x")
+    with patch.object(HubManager, "_ensure_safetensors"):
+        resolved = hub.resolve_model(model_id)
+    assert resolved == cached_dir
 
 
-def test_download_maps_offline_error_to_actionable_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Offline failures should provide remediation guidance."""
+def test_resolve_model_ignores_stale_cache(tmp_path: Path) -> None:
+    """Cache dir with no recognized model files should not be treated as valid."""
+    model_id = "gemma-3-4b-it"
+    cached_dir = tmp_path / "gemma-3-4b-it"
+    cached_dir.mkdir()
+    (cached_dir / "tokenizer.model").touch()  # no safetensors or OCDBT
 
-    def fake_snapshot_download(*, repo_id: str, local_dir: Path, **kwargs: object) -> str:
-        del local_dir, kwargs
-        msg = f"Offline mode is enabled for {repo_id}"
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr("mogemma.hub.snapshot_download", fake_snapshot_download)
     hub = HubManager(cache_path=tmp_path)
 
-    with pytest.raises(ConnectionError, match="offline mode"):
-        hub.download("google/gemma-3-4b-it")
-
-
-def test_download_maps_auth_error_to_permission_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Auth failures should recommend token/login steps."""
-
-    def fake_snapshot_download(*, repo_id: str, local_dir: Path, **kwargs: object) -> str:
-        del local_dir, kwargs
-        msg = f"403 Forbidden: token required to access {repo_id}"
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr("mogemma.hub.snapshot_download", fake_snapshot_download)
-    hub = HubManager(cache_path=tmp_path)
-
-    with pytest.raises(PermissionError, match="HF_TOKEN"):
-        hub.download("google/gemma-3-4b-it")
+    resolved = hub.resolve_model(model_id, strict=False)
+    # Should fall through (not return cached_dir)
+    assert resolved != cached_dir
 
 
 def test_resolve_model_strict_rejects_missing_local_path(tmp_path: Path) -> None:
-    """Strict mode should reject unresolved local paths."""
+    """Strict mode with download_if_missing=True will try to download and fail if missing in GCS."""
     hub = HubManager(cache_path=tmp_path)
 
-    with pytest.raises(ValueError, match="existing local directory"):
+    with pytest.raises(FileNotFoundError, match="not found in the public gemma-data bucket"):
         hub.resolve_model("bert-base-uncased-missing", download_if_missing=True, strict=True)
 
 
-@pytest.mark.skip(reason="Requires network/HF token")
-def test_download_model_from_hub() -> None:
-    """Placeholder for hub download test."""
+def test_clean_model_id() -> None:
+    """Verify Google Cloud model id formatting rules."""
+    hub = HubManager()
+    assert hub._clean_model_id("gemma-3-1b-it") == "gemma3-1b-it"
+    assert hub._clean_model_id("google/gemma-3-1b-it") == "gemma3-1b-it"
+    assert hub._clean_model_id("gemma3-1b-it") == "gemma3-1b-it"

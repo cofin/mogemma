@@ -46,7 +46,7 @@ py-install: ## Install Python deps
 build: ## Build Mojo shared library
 	@echo "${INFO} Building Mojo core..."
 	@mkdir -p src/py/mogemma
-	@uv run mojo build --emit shared-lib src/mo/core.mojo -o src/py/mogemma/_core.so
+	@uv run mojo build --emit shared-lib src/mo/mogemma/core.mojo -o src/py/mogemma/_core.so
 
 .PHONY: smoke-test
 smoke-test: ## Run the Mojo bridge smoke test
@@ -58,7 +58,7 @@ smoke-test: ## Run the Mojo bridge smoke test
 .PHONY: test
 test: ## Run all tests
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pytest src/py/tests
+	@uv run pytest src/py/tests src/mo/tests
 
 .PHONY: lint
 lint: ## Lint and format code (Python, Mojo)

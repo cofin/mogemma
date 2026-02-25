@@ -20,12 +20,8 @@ _EXPORT_TO_MODULE = {
 }
 
 _EXTRA_HINT = {
-    "EmbeddingModel": (
-        "Install optional runtime deps with: pip install 'mogemma[embed]' "
-        "(or 'mogemma[text]' if you need built-in text tokenization)."
-    ),
-    "SyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[text]'",
-    "AsyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[text]'",
+    "SyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[llm]'",
+    "AsyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[llm]'",
 }
 
 

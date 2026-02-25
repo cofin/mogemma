@@ -3,19 +3,19 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_EMPTY_PATH_MSG = "model_path must be a non-empty local path or a valid Hugging Face model id"
+_EMPTY_PATH_MSG = "model_path must be a non-empty local path or a valid Google model id"
 _EMPTY_SEQUENCE_MSG = "max_sequence_length must be greater than 0"
 _INVALID_BATCH_SIZE_MSG = "batch_size must be greater than 0"
 _INVALID_TOKENS_MSG = "max_new_tokens must be greater than 0"
-_EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Hugging Face model id"
+_EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Google model id"
 
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
     """Configuration for Gemma 3 Embedding generation."""
 
-    model_path: Path | str
-    """Path to the local Gemma 3 model weights or HF Hub ID."""
+    model_path: Path | str = "gemma3-270m-it"
+    """Path to the local Gemma 3 model weights or Google model ID."""
 
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
@@ -48,8 +48,8 @@ class EmbeddingConfig:
 class GenerationConfig:
     """Configuration for Gemma 3 Text generation."""
 
-    model_path: Path | str
-    """Path to the local Gemma 3 model weights or HF Hub ID."""
+    model_path: Path | str = "gemma3-270m-it"
+    """Path to the local Gemma 3 model weights or Google model ID."""
 
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""

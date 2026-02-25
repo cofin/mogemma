@@ -1,7 +1,17 @@
 import importlib
+import json
+import struct
 import sys
+from pathlib import Path
 
 import pytest
+
+
+def _create_dummy_safetensors(model_dir: Path) -> None:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with (model_dir / "model.safetensors").open("wb") as f:
+        h = json.dumps({}).encode("utf-8")
+        f.write(struct.pack("<Q", len(h)) + h)
 
 
 def test_import_telemetry_has_no_global_provider_side_effect(monkeypatch: pytest.MonkeyPatch) -> None:

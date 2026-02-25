@@ -11,8 +11,9 @@ import numpy.typing as npt
 
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
+from .loader import ModelLoader, auto_loader
 from .telemetry import tracer
-from .typing import _TokenizerImpl
+from .typing import SENTENCEPIECE_INSTALLED, _SPProcessorImpl
 
 try:
     from . import _core
@@ -25,22 +26,51 @@ class _EncodedToken(Protocol):
     ids: Sequence[int]
 
 
-class _Tokenizer(Protocol):
-    def enable_truncation(self, *, max_length: int, **_: object) -> None: ...
+class _Tokenizer:
+    """Wrapper for sentencepiece to match internal tokenizer needs."""
 
-    def enable_padding(self, **_: object) -> None: ...
+    def __init__(self, model_path: str) -> None:
+        if _SPProcessorImpl is None:
+            msg = "sentencepiece runtime is unavailable"
+            raise ModuleNotFoundError(msg)
+        self.sp = _SPProcessorImpl(model_file=model_path)
+        self._max_length: int | None = None
 
-    def encode_batch(self, text: Sequence[str]) -> Sequence[_EncodedToken]: ...
+    def enable_truncation(self, *, max_length: int, **_: object) -> None:
+        self._max_length = max_length
 
-    def encode(self, text: str) -> _EncodedToken: ...
+    def enable_padding(self, **_: object) -> None:
+        pass
 
-    def decode(self, ids: Sequence[int]) -> str: ...
+    def encode_batch(self, text: Sequence[str]) -> Sequence[_EncodedToken]:
+        return [self.encode(t) for t in text]
 
-    def token_to_id(self, token: str) -> int | None: ...
+    def encode(self, text: str) -> _EncodedToken:
+        ids = self.sp.EncodeAsIds(text)
+        if self._max_length is not None:
+            ids = ids[: self._max_length]
+
+        class _Result:
+            def __init__(self, ids: list[int]) -> None:
+                self.ids = ids
+
+        return cast("_EncodedToken", _Result(ids))
+
+    def decode(self, ids: Sequence[int]) -> str:
+        return str(self.sp.DecodeIds(list(ids)))
+
+    def token_to_id(self, token: str) -> int | None:
+        token_id = self.sp.piece_to_id(token)
+        if token_id == self.sp.unk_id() and token not in ("<unk>", " "):
+            return None
+        return int(token_id)
 
 
 _EXPECTED_MATRIX_DIMS = 2
-_EOS_TOKEN_ID_ALIASES = ("</s>", "<eos>", "<|eos|>")
+_BOS_TOKEN_ID = 2
+_EOS_TOKEN_ID_ALIASES = ("<end_of_turn>", "</s>", "<eos>", "<|eos|>")
+_INSTRUCTION_START = "<start_of_turn>"
+_INSTRUCTION_END = "<end_of_turn>"
 
 
 def _resolve_model_path(raw_model_path: str | Path) -> Path:
@@ -48,7 +78,7 @@ def _resolve_model_path(raw_model_path: str | Path) -> Path:
     return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
-def _initialize_llm(model_path: str, *, model_type: str) -> object:
+def _initialize_llm(loader: ModelLoader, *, model_type: str) -> object:
     if _core is None:
         if model_type == "embedding":
             msg = (
@@ -63,9 +93,10 @@ def _initialize_llm(model_path: str, *, model_type: str) -> object:
         raise RuntimeError(msg)
 
     try:
-        return _core.init_model(model_path)
+        metadata = loader.get_tensor_metadata()
+        return _core.init_model(metadata)
     except Exception as exc:
-        msg = f"{model_type} model failed to initialize from '{model_path}': {exc}"
+        msg = f"{model_type} model failed to initialize from '{loader.model_path}': {exc}"
         raise RuntimeError(msg) from exc
 
 
@@ -128,6 +159,20 @@ def _normalize_eos_token_id(tokenizer: _Tokenizer) -> int:
     return 0
 
 
+def _is_instruction_tuned_model(model_path: Path, config_model_path: str | Path) -> bool:
+    """Return True when the configured model looks like an instruction-tuned Gemma variant."""
+    configured = str(config_model_path).lower()
+    resolved = model_path.name.lower()
+    return configured.endswith("-it") or resolved.endswith("-it")
+
+
+def _format_instruction_prompt(prompt: str) -> str:
+    """Wrap plain user prompts in Gemma instruction-turn format."""
+    if _INSTRUCTION_START in prompt or _INSTRUCTION_END in prompt:
+        return prompt
+    return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
+
+
 class EmbeddingModel:
     """Python interface for the Gemma 3 embedding engine."""
 
@@ -138,23 +183,30 @@ class EmbeddingModel:
 
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
+        self._loader = auto_loader(self.model_path)
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(str(self.model_path), model_type="embedding")
+        self._llm: object | None = _initialize_llm(self._loader, model_type="embedding")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
-        if _TokenizerImpl is None:
+        if not SENTENCEPIECE_INSTALLED:
             msg = (
-                "Text tokenization requires optional dependency 'tokenizers'. "
-                "Install with: pip install 'mogemma[text]' or call embed_tokens(...) with pre-tokenized inputs."
+                "Text tokenization requires 'sentencepiece' dependency. "
+                "Install with: pip install 'mogemma[llm]' or call embed_tokens(...) with pre-tokenized inputs."
             )
             raise ModuleNotFoundError(msg)
-        self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
-        return self._tokenizer
 
-    def _embed_token_array(self, tokens: npt.NDArray[np.int32], input_count: int) -> npt.NDArray[np.float32]:
+        sp_path = self.model_path / "tokenizer.model"
+        if sp_path.exists():
+            self._tokenizer = _Tokenizer(str(sp_path))
+            return self._tokenizer
+
+        msg = f"No tokenizer.model found in {self.model_path}"
+        raise FileNotFoundError(msg)
+
+    def _embed_token_array(self, tokens: Sequence[Sequence[int]], input_count: int) -> npt.NDArray[np.float32]:
         if _core is None or self._llm is None:
             msg = (
                 "Mojo core is unavailable for embeddings. "
@@ -188,19 +240,24 @@ class EmbeddingModel:
         tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
         tokenizer.enable_padding()
         encoded = tokenizer.encode_batch(text)
-        tokens = np.asarray([e.ids for e in encoded], dtype=np.int32)
+        tokens = [e.ids for e in encoded]
         return self._embed_token_array(tokens, len(text))
 
-    def embed_tokens(self, tokens: npt.ArrayLike) -> npt.NDArray[np.float32]:
+    def embed_tokens(self, tokens: Sequence[Sequence[int]] | npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
         """Generate embeddings directly from pre-tokenized IDs using Mojo inference."""
-        token_array = np.asarray(tokens, dtype=np.int32)
-        if token_array.ndim != _EXPECTED_MATRIX_DIMS:
-            msg = f"tokens must be a 2D array of token IDs, got shape {token_array.shape}"
-            raise ValueError(msg)
-        if token_array.shape[0] == 0:
+        token_list = []
+        if isinstance(tokens, np.ndarray):
+            if tokens.ndim != _EXPECTED_MATRIX_DIMS:
+                msg = f"tokens must be a 2D array of token IDs, got shape {tokens.shape}"
+                raise ValueError(msg)
+            token_list = tokens.tolist()
+        else:
+            token_list = list(tokens)
+
+        if len(token_list) == 0:
             msg = "tokens must contain at least one row"
             raise ValueError(msg)
-        return self._embed_token_array(token_array, int(token_array.shape[0]))
+        return self._embed_token_array(token_list, len(token_list))
 
     @property
     def tokenizer(self) -> _Tokenizer:
@@ -218,18 +275,26 @@ class SyncGemmaModel:
 
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
+        self._loader = auto_loader(self.model_path)
+        self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(str(self.model_path), model_type="generation")
+        self._llm: object | None = _initialize_llm(self._loader, model_type="generation")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
-        if _TokenizerImpl is None:
-            msg = "Text generation requires optional dependency 'tokenizers'. Install with: pip install 'mogemma[text]'"
+        if not SENTENCEPIECE_INSTALLED:
+            msg = "Text generation requires 'sentencepiece' dependency. Install with: pip install 'mogemma[llm]'"
             raise ModuleNotFoundError(msg)
-        self._tokenizer = cast("_Tokenizer", _TokenizerImpl.from_pretrained(str(self.model_path)))
-        return self._tokenizer
+
+        sp_path = self.model_path / "tokenizer.model"
+        if sp_path.exists():
+            self._tokenizer = _Tokenizer(str(sp_path))
+            return self._tokenizer
+
+        msg = f"No tokenizer.model found in {self.model_path}"
+        raise FileNotFoundError(msg)
 
     def generate(self, prompt: str) -> str:
         """Generate text from the given prompt."""
@@ -238,12 +303,15 @@ class SyncGemmaModel:
     def generate_stream(self, prompt: str) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
+        prompt_to_encode = _format_instruction_prompt(prompt) if self._instruction_tuned else prompt
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
             tokenizer.enable_padding()
-            encoded = tokenizer.encode(prompt)
+            encoded = tokenizer.encode(prompt_to_encode)
             tokens = encoded.ids
+            if not tokens or tokens[0] != _BOS_TOKEN_ID:
+                tokens = [_BOS_TOKEN_ID, *list(tokens)]
 
         if _core is None or self._llm is None:
             msg = (
@@ -251,6 +319,12 @@ class SyncGemmaModel:
                 "Build/install the `mogemma._core` extension before calling generate()."
             )
             raise RuntimeError(msg)
+
+        if isinstance(self._llm, dict):
+            self._llm["pos"] = 0
+
+        for t in tokens[:-1]:
+            _core.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
 
         if tokens:
             current_token = int(tokens[-1])

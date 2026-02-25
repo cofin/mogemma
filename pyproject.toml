@@ -11,10 +11,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "huggingface-hub>=0.20.0",
+    "obstore>=0.2.08",
+    "numpy>=1.26.0",
+    "safetensors>=0.4.5",
+    "tensorstore>=0.1.78",
 ]
 description = "Python/Mojo interface for Google Gemma 3 using MAX Engine"
-license = "MIT"
+license = { file = "LICENSE" }
 name = "mogemma"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,22 +28,13 @@ Issue = "https://github.com/cofin/mogemma/issues/"
 Source = "https://github.com/cofin/mogemma"
 
 [project.optional-dependencies]
-embed = [
-    "numpy>=1.26.0",
-]
-text = [
-    "numpy>=1.26.0",
-    "tokenizers>=0.15.0",
+llm = [
+    "sentencepiece>=0.2.0",
 ]
 telemetry = [
-    "opentelemetry-api>=1.39.1",
+    "opentelemetry-api>=1.35.0",
 ]
-all = [
-    "numpy>=1.26.0",
-    "tokenizers>=0.15.0",
-    "huggingface-hub>=0.20.0",
-    "opentelemetry-api>=1.39.1",
-]
+
 
 [build-system]
 requires = ["hatchling"]
@@ -54,16 +48,21 @@ path = "tools/hatch_build.py"
 
 [tool.uv]
 package = true
-extra-index-url = ["https://modular.gateway.scarf.sh/simple/"]
+prerelease = "allow"
 
 [tool.pytest.ini_options]
-testpaths = ["src/py/tests"]
+testpaths = ["src/py/tests", "src/mo/tests"]
 pythonpath = ["src/py"]
+filterwarnings = [
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+]
 
 [tool.ruff]
 exclude = [".venv", "node_modules", "tmp", ".tmp"]
 line-length = 120
-src = ["src/py/mogemma", "src/py/tests"]
+src = ["src/py/mogemma", "src/py/tests", "src/mo/tests"]
 target-version = "py310"
 
 [tool.ruff.format]
@@ -95,6 +94,16 @@ split-on-trailing-comma = false
   "D103",
   "D107",
   "S101",
+  "SLF001",
+]
+"src/mo/tests/test_*.py" = [
+  "ARG001",
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D107",
+  "S101",
 ]
 
 [tool.mypy]
@@ -104,7 +113,7 @@ python_version = "3.10"
 strict = true
 
 [tool.pyright]
-include = ["src/py/mogemma", "src/py/tests"]
+include = ["src/py/mogemma", "src/py/tests", "src/mo/tests"]
 pythonVersion = "3.10"
 venv = ".venv"
 
@@ -118,9 +127,9 @@ build = ["bump-my-version>=0.31.1", "mojo>=0.26.1"]
 lint = ["mypy>=1.13.0", "pyright>=1.1.386", "ruff>=0.14.14"]
 test = [
     "numpy>=1.26.0",
-    "tokenizers>=0.15.0",
-    "huggingface-hub>=0.20.0",
-    "opentelemetry-api>=1.39.1",
+    "sentencepiece>=0.2.0",
+    "obstore>=0.2.08",
+    "opentelemetry-api>=1.35.0",
     "pytest>=9.0.2",
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.3.0",
@@ -130,7 +139,7 @@ test = [
 allow_dirty = true
 commit = false
 commit_args = "--no-verify"
-current_version = "0.1.0"
+current_version = "0.2.0"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to v{new_version}"

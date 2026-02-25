@@ -20,7 +20,7 @@ class _FakeTokenizer:
     """Deterministic tokenizer stub used to avoid external dependencies."""
 
     @classmethod
-    def from_pretrained(cls, _model_path: str) -> "_FakeTokenizer":
+    def from_pretrained(cls, _model_path: str) -> _FakeTokenizer:
         return cls()
 
     def encode(self, text: str) -> SimpleNamespace:
@@ -53,14 +53,7 @@ class _FakeCore:
         del model_path
         return object()
 
-    def step(
-        self,
-        llm: object,
-        token_id: int,
-        temp: float,
-        top_k: int,
-        top_p: float,
-    ) -> npt.NDArray[np.float32]:
+    def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
         del llm, temp, top_k, top_p
         base = float(token_id)
         return np.asarray([base + 0.1, base + 0.2, base + 0.3], dtype=np.float32)
@@ -70,9 +63,27 @@ class _FakeCore:
         return np.tile(np.arange(768, dtype=np.float32), (tokens.shape[0], 1))
 
 
+class _FakeLoader:
+    """Loader stub that provides empty metadata without requiring real weight files."""
+
+    def __init__(self, model_path: str | Path) -> None:
+        self.model_path = Path(model_path)
+
+    def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
+        return {}
+
+    def close(self) -> None:
+        pass
+
+
+def _fake_auto_loader(model_path: str | Path) -> _FakeLoader:
+    return _FakeLoader(model_path)
+
+
 def _install_stubs() -> None:
     model_module._core = _FakeCore()
     model_module._TokenizerImpl = _FakeTokenizer
+    model_module.auto_loader = _fake_auto_loader  # type: ignore[attr-defined]
 
 
 def _environment_payload() -> dict[str, str]:
@@ -119,11 +130,7 @@ def _run_embedding(config: EmbeddingConfig, texts: list[str], *, rounds: int) ->
 
 def _run_benchmark() -> dict[str, object]:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mode",
-        choices=["generation", "embedding"],
-        default="generation",
-    )
+    parser.add_argument("--mode", choices=["generation", "embedding"], default="generation")
     parser.add_argument("--rounds", type=int, default=10)
     parser.add_argument("--max-new-tokens", type=int, default=64)
     args = parser.parse_args()
@@ -139,9 +146,7 @@ def _run_benchmark() -> dict[str, object]:
     else:
         config = EmbeddingConfig(model_path=model_root)
         metrics = _run_embedding(
-            config,
-            texts=["Benchmark embedding input one", "Benchmark embedding input two"],
-            rounds=args.rounds,
+            config, texts=["Benchmark embedding input one", "Benchmark embedding input two"], rounds=args.rounds
         )
     return {
         "mode": args.mode,

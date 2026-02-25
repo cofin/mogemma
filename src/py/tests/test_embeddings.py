@@ -1,3 +1,5 @@
+import json
+import struct
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,18 +13,26 @@ from mogemma import EmbeddingConfig, EmbeddingModel
 from mogemma.hub import HubManager
 
 
+def _create_dummy_safetensors(model_dir: Path) -> None:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with (model_dir / "model.safetensors").open("wb") as f:
+        h = json.dumps({}).encode("utf-8")
+        f.write(struct.pack("<Q", len(h)) + h)
+    (model_dir / "tokenizer.model").touch()
+
+
 @pytest.fixture
 def dummy_model_path(tmp_path: Path) -> str:
     """Fixture for a dummy model path."""
     model_dir = tmp_path / "bert-base-uncased"
-    model_dir.mkdir()
+    _create_dummy_safetensors(model_dir)
     return str(model_dir)
 
 
 @pytest.fixture
 def mock_tokenizer() -> Iterator[MagicMock]:
-    """Fixture to mock the AutoTokenizer."""
-    with patch("mogemma.model._TokenizerImpl.from_pretrained") as mock:
+    """Fixture to mock the internal tokenizer."""
+    with patch("mogemma.model._Tokenizer") as mock:
         tokenizer = MagicMock()
 
         def _encode_batch(inputs: str | list[str], **_: object) -> list[MagicMock]:
@@ -41,15 +51,13 @@ def mock_tokenizer() -> Iterator[MagicMock]:
 
 @pytest.fixture
 def mock_core(monkeypatch: pytest.MonkeyPatch) -> object:
-    """Fixture to mock Mojo core embedding calls."""
-
     class CoreStub:
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
             del llm
-            return np.ones((tokens.shape[0], 768), dtype=np.float32)
+            return np.ones((len(tokens), 768), dtype=np.float32)
 
     core_stub = CoreStub()
     monkeypatch.setattr(model_module, "_core", core_stub)
@@ -76,6 +84,7 @@ def test_embedding_model_init_uses_hub_resolution(
     """Embedding init should resolve through HubManager for HF-style IDs."""
     downloaded = tmp_path / "google--gemma-3-4b-it"
     downloaded.mkdir()
+    _create_dummy_safetensors(downloaded)
     called: list[tuple[str, bool, bool]] = []
 
     def fake_resolve_model(
@@ -96,7 +105,7 @@ def test_embedding_model_init_uses_hub_resolution(
 def test_embedding_model_init_rejects_unknown_local_path() -> None:
     config = EmbeddingConfig(model_path="bert-base-uncased-missing")
 
-    with pytest.raises(ValueError, match="existing local directory"):
+    with pytest.raises(FileNotFoundError, match="not found in the public gemma-data bucket"):
         EmbeddingModel(config)
 
 
@@ -152,12 +161,12 @@ def test_embed_tokens_uses_mojo_without_tokenizer(dummy_model_path: str, monkeyp
         def init_model(self, _: str) -> object:
             return object()
 
-        def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
             del llm
-            return np.ones((tokens.shape[0], 768), dtype=np.float32)
+            return np.ones((len(tokens), 768), dtype=np.float32)
 
     monkeypatch.setattr(model_module, "_core", CoreStub())
-    monkeypatch.setattr(model_module, "_TokenizerImpl", None)
+    monkeypatch.setattr(model_module, "SENTENCEPIECE_INSTALLED", False)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
@@ -188,11 +197,11 @@ def test_embed_tokens_rejects_empty_row(
         model.embed_tokens(np.empty((0, 1), dtype=np.int32))
 
 
-def test_embed_text_requires_tokenizer_when_transformers_missing(
+def test_embed_text_requires_tokenizer_when_tokenizers_missing(
     dummy_model_path: str, monkeypatch: pytest.MonkeyPatch, mock_core: object
 ) -> None:
-    """Ensure text embedding reports clear requirement when transformers is absent."""
-    monkeypatch.setattr(model_module, "_TokenizerImpl", None)
+    """Ensure text embedding reports clear requirement when tokenizers is absent."""
+    monkeypatch.setattr(model_module, "SENTENCEPIECE_INSTALLED", False)
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)

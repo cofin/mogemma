@@ -1,21 +1,7 @@
 # ruff: noqa: A005
 
-"""Facade re-exports for optional runtime dependencies."""
+"""Facade re-exports for runtime dependencies."""
 
-from ._typing import (
-    HUGGINGFACE_HUB_INSTALLED,
-    OPENTELEMETRY_INSTALLED,
-    TOKENIZERS_INSTALLED,
-    _TokenizerImpl,
-    snapshot_download,
-    trace,
-)
+from ._typing import OPENTELEMETRY_INSTALLED, SENTENCEPIECE_INSTALLED, _SPProcessorImpl, trace
 
-__all__ = [
-    "HUGGINGFACE_HUB_INSTALLED",
-    "OPENTELEMETRY_INSTALLED",
-    "TOKENIZERS_INSTALLED",
-    "_TokenizerImpl",
-    "snapshot_download",
-    "trace",
-]
+__all__ = ["OPENTELEMETRY_INSTALLED", "SENTENCEPIECE_INSTALLED", "_SPProcessorImpl", "trace"]
