@@ -1,4 +1,13 @@
+import sys
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib  # type: ignore[no-redef]
 
 
 def test_mojo_sources_live_in_package_namespace() -> None:
@@ -13,8 +22,13 @@ def test_mojo_sources_live_in_package_namespace() -> None:
 
 def test_build_targets_point_to_namespaced_core() -> None:
     root = Path(__file__).resolve().parents[3]
-    makefile = (root / "Makefile").read_text(encoding="utf-8")
-    hatch_build = (root / "tools" / "hatch_build.py").read_text(encoding="utf-8")
 
-    assert "src/mo/mogemma/core.mojo" in makefile
-    assert 'root / "src" / "mo" / "mogemma" / "core.mojo"' in hatch_build
+    with (root / "pyproject.toml").open("rb") as f:
+        config = tomllib.load(f)
+
+    jobs = config["tool"]["hatch"]["build"]["targets"]["wheel"]["hooks"]["mojo"]["jobs"]
+    core_job = next(j for j in jobs if j["name"] == "core")
+
+    assert core_job["input"] == "src/mo/mogemma/core.mojo"
+    assert core_job["module"] == "mogemma._core"
+    assert "src/mo" in core_job["include-dirs"]

@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/publish.yml'
       - 'pyproject.toml'
-      - 'tools/hatch_build.py'
+      - 'src/mo/**/*.mojo'
 
 jobs:
   build-source:
