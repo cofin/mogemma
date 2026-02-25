@@ -121,7 +121,7 @@ def _convert_mlp_layer(  # noqa: PLR0913
     out[f"{hf}.mlp.down_proj.weight"] = _to_f32(orbax[f"{prefix}/mlp/{linear_key}"].T)
 
 
-def _convert_gemma3(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.NDArray[np.float32]]:
+def _convert_gemma3(orbax: Mapping[str, npt.NDArray[np.generic]]) -> dict[str, npt.NDArray[np.float32]]:
     """Convert a standard Gemma 3 Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.float32]] = {}
 
@@ -150,7 +150,7 @@ def _convert_gemma3(orbax: dict[str, npt.NDArray[np.generic]]) -> dict[str, npt.
 
 
 def _convert_gemma3_nano(  # noqa: C901, PLR0915
-    orbax: dict[str, npt.NDArray[np.generic]],
+    orbax: Mapping[str, npt.NDArray[np.generic]],
 ) -> dict[str, npt.NDArray[np.float32]]:
     """Convert a Gemma 3 Nano Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.float32]] = {}

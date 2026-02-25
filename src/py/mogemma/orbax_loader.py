@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
-import tensorstore as ts  # type: ignore[import-untyped]
 from typing_extensions import Self
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-_TS = cast("Any", ts)
+_TS = cast("Any", importlib.import_module("tensorstore"))
 
 
 class OrbaxLoader:
