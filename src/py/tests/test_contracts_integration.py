@@ -132,7 +132,7 @@ def test_generation_empty_logits_is_deterministic_failure(
     tmp_path: Path, mock_generation_tokenizer: MagicMock, mock_generation_empty_logits: None
 ) -> None:
     _create_dummy_safetensors(tmp_path)
-    config = GenerationConfig(model_path=tmp_path, max_new_tokens=1)
+    config = GenerationConfig(model_path=tmp_path, max_tokens=1)
     model = SyncGemmaModel(config)
 
     with pytest.raises(ValueError, match="backend returned empty logits"):

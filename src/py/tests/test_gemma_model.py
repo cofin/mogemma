@@ -111,7 +111,7 @@ def test_gemma_model_init_rejects_unknown_model_path(mock_tokenizer: MagicMock) 
 
 
 def test_gemma_generate_sampling(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
-    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=5, temperature=0.7, top_k=10, top_p=0.9)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=5, temperature=0.7, top_k=10, top_p=0.9)
     model = SyncGemmaModel(config)
 
     response = model.generate("Hello")
@@ -134,7 +134,7 @@ def test_gemma_generate_empty_prompt(dummy_model_path: str, mock_tokenizer: Magi
 
 
 def test_gemma_consecutive_generations(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
-    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=5)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=5)
     model = SyncGemmaModel(config)
 
     res1 = model.generate("First prompt")
@@ -172,7 +172,7 @@ def test_gemma_generate_stream_uses_backend_logits(
 
     mock_tokenizer.decode.side_effect = lambda token_ids: f"<{token_ids[0]}>"
 
-    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=2, temperature=0.0, top_k=50, top_p=1.0)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=2, temperature=0.0, top_k=50, top_p=1.0)
     model = SyncGemmaModel(config)
 
     output = model.generate("Hello")
@@ -209,7 +209,7 @@ def test_gemma_generate_stream_stops_on_eos(
     monkeypatch.setattr(model_module, "_core", core_stub)
     mock_tokenizer.token_to_id.return_value = 0
 
-    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=5, temperature=1.0)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=5, temperature=1.0)
     model = SyncGemmaModel(config)
     response = model.generate("Hello")
 
@@ -237,7 +237,7 @@ def test_gemma_generate_stream_raises_for_non_string_decode(
     monkeypatch.setattr(model_module, "_core", DecodeTypeStub())
     mock_tokenizer.decode.return_value = b"\xff"
 
-    config = GenerationConfig(model_path=Path(dummy_model_path), max_new_tokens=1)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=1)
     model = SyncGemmaModel(config)
 
     with pytest.raises(TypeError, match=r"tokenizer\.decode returned non-string output"):
@@ -287,7 +287,7 @@ def test_gemma_generate_applies_instruction_template_for_it_models(
     monkeypatch.setattr(model_module, "_core", CoreStub())
     mock_tokenizer.decode.return_value = ""  # stop immediately
 
-    model = SyncGemmaModel(GenerationConfig(model_path=model_dir, max_new_tokens=1))
+    model = SyncGemmaModel(GenerationConfig(model_path=model_dir, max_tokens=1))
     model.generate("What is the capital of France?")
 
     encoded_prompt = mock_tokenizer.encode.call_args.args[0]
@@ -314,7 +314,7 @@ def test_gemma_generate_keeps_existing_instruction_template(
     mock_tokenizer.decode.return_value = ""
 
     prompt = "<start_of_turn>user\nhi\n<end_of_turn>\n<start_of_turn>model\n"
-    model = SyncGemmaModel(GenerationConfig(model_path=model_dir, max_new_tokens=1))
+    model = SyncGemmaModel(GenerationConfig(model_path=model_dir, max_tokens=1))
     model.generate(prompt)
 
     encoded_prompt = mock_tokenizer.encode.call_args.args[0]
