@@ -37,8 +37,13 @@ telemetry = [
 
 
 [build-system]
-requires = ["hatchling", "hatch-mojo"]
+requires = ["hatchling", "hatch-mojo", "mojo>=0.26.1"]
 build-backend = "hatchling.build"
+
+[tool.cibuildwheel]
+build-frontend = "build"
+test-command = "pytest {project}/src/py/tests"
+test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
