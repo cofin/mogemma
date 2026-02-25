@@ -107,7 +107,7 @@ def main():
         sys.exit(1)
 
     models_to_test_llm = [args.model] if args.model else [TEXT_MODEL_ID, NANO_MODEL_ID]
-    models_to_test_embed = [args.model] if args.model else [EMBED_MODEL_ID, NANO_MODEL_ID, "gemma3-text-embedding-4m"]
+    models_to_test_embed = [args.model] if args.model else [EMBED_MODEL_ID, NANO_MODEL_ID]
 
     if args.mode in ["llm", "both"]:
         for m_id in models_to_test_llm:
