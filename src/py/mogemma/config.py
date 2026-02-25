@@ -6,7 +6,7 @@ from pathlib import Path
 _EMPTY_PATH_MSG = "model_path must be a non-empty local path or a valid Google model id"
 _EMPTY_SEQUENCE_MSG = "max_sequence_length must be greater than 0"
 _INVALID_BATCH_SIZE_MSG = "batch_size must be greater than 0"
-_INVALID_TOKENS_MSG = "max_new_tokens must be greater than 0"
+_INVALID_TOKENS_MSG = "max_tokens must be greater than 0"
 _EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Google model id"
 
 
@@ -57,7 +57,7 @@ class GenerationConfig:
     max_sequence_length: int = 512
     """Maximum input sequence length."""
 
-    max_new_tokens: int = 128
+    max_tokens: int = 128
     """Maximum number of tokens to generate."""
 
     temperature: float = 1.0
@@ -88,5 +88,5 @@ class GenerationConfig:
             raise ValueError(_EMPTY_PATH_MSG)
         if self.max_sequence_length <= 0:
             raise ValueError(_EMPTY_SEQUENCE_MSG)
-        if self.max_new_tokens <= 0:
+        if self.max_tokens <= 0:
             raise ValueError(_INVALID_TOKENS_MSG)

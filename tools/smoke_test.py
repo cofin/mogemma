@@ -17,7 +17,7 @@ def main() -> None:
         print(f"Smoke test failed: '{model_path}' is not an existing directory.")
         raise SystemExit(1)
 
-    config = GenerationConfig(model_path=str(model_path), max_new_tokens=10, temperature=0.7)
+    config = GenerationConfig(model_path=str(model_path), max_tokens=10, temperature=0.7)
 
     print(f"Initializing SyncGemmaModel with {model_name}...")
     model = SyncGemmaModel(config)

@@ -141,7 +141,7 @@ def _run_benchmark() -> dict[str, object]:
 
     metrics: dict[str, object]
     if args.mode == "generation":
-        config = GenerationConfig(model_path=model_root, max_new_tokens=args.max_new_tokens)
+        config = GenerationConfig(model_path=model_root, max_tokens=args.max_tokens)
         metrics = _run_generation(config, "Benchmark prompt for release parity.", rounds=args.rounds)
     else:
         config = EmbeddingConfig(model_path=model_root)
@@ -151,7 +151,7 @@ def _run_benchmark() -> dict[str, object]:
     return {
         "mode": args.mode,
         "model_path": str(model_root),
-        "max_new_tokens": args.max_new_tokens,
+        "max_tokens": args.max_tokens,
         "environment": _environment_payload(),
         **metrics,
     }

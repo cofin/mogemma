@@ -56,7 +56,7 @@ async def test_async_generate(tmp_path: Path, mock_tokenizer: MagicMock, mock_co
     model_dir = tmp_path / "dummy-model"
     _create_dummy_safetensors(model_dir)
 
-    config = GenerationConfig(model_path=model_dir, max_new_tokens=5)
+    config = GenerationConfig(model_path=model_dir, max_tokens=5)
     model = AsyncGemmaModel(config)
 
     response = await model.generate("Hello")
@@ -69,7 +69,7 @@ async def test_async_generate_stream(tmp_path: Path, mock_tokenizer: MagicMock, 
     model_dir = tmp_path / "dummy-model"
     _create_dummy_safetensors(model_dir)
 
-    config = GenerationConfig(model_path=model_dir, max_new_tokens=5)
+    config = GenerationConfig(model_path=model_dir, max_tokens=5)
     model = AsyncGemmaModel(config)
 
     tokens = [token async for token in model.generate_stream("Hello")]
@@ -92,7 +92,7 @@ async def test_async_generate_stream_stops_on_eos(
 
     model_dir = tmp_path / "dummy-model"
     _create_dummy_safetensors(model_dir)
-    config = GenerationConfig(model_path=model_dir, max_new_tokens=5, temperature=0.0)
+    config = GenerationConfig(model_path=model_dir, max_tokens=5, temperature=0.0)
     model = AsyncGemmaModel(config)
 
     tokens = [token async for token in model.generate_stream("Hello")]

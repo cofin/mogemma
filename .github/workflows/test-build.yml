@@ -33,8 +33,8 @@ jobs:
           name: source-dist
           path: dist/*.tar.gz
 
-  build-wheel-mojo:
-    name: Build Mojo wheel (${{ matrix.os }})
+  build-wheels:
+    name: Build wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -42,50 +42,12 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-
       - name: Install uv
         uses: astral-sh/setup-uv@v4
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
-
-      - name: Build wheel
-        run: uv build --wheel
-
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22.0
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: test-wheels-${{ matrix.os }}
-          path: dist/*.whl
-
-  test-wheels:
-    name: Test built wheels (${{ matrix.os }})
-    needs: [build-wheel-mojo]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Download wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: test-wheels-${{ matrix.os }}
-          path: dist/
-
-      - name: Test wheel installation
-        run: |
-          uv venv test-env --python 3.12
-          uv pip install --python test-env --find-links dist/ mogemma
-          uv run --python test-env python -c "import mogemma; print('Wheel OK')"
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl

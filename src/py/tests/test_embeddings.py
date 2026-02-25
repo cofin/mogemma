@@ -64,6 +64,12 @@ def mock_core(monkeypatch: pytest.MonkeyPatch) -> object:
     return core_stub
 
 
+def test_embedding_model_string_config(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object) -> None:
+    """EmbeddingModel(str) should create a config with that model path."""
+    model = EmbeddingModel(dummy_model_path)
+    assert str(model.config.model_path) == dummy_model_path
+
+
 def test_embedding_config(dummy_model_path: str) -> None:
     """Test embedding configuration initialization."""
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
@@ -105,7 +111,7 @@ def test_embedding_model_init_uses_hub_resolution(
 def test_embedding_model_init_rejects_unknown_local_path() -> None:
     config = EmbeddingConfig(model_path="bert-base-uncased-missing")
 
-    with pytest.raises(FileNotFoundError, match="not found in the public gemma-data bucket"):
+    with pytest.raises(HubManager.ModelNotFoundError, match="not found in the public gemma-data bucket"):
         EmbeddingModel(config)
 
 

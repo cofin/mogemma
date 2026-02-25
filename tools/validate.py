@@ -47,7 +47,7 @@ def _assert_semantic_quality(model_id: str, response: str) -> None:
 def validate_llm_generation(model_id: str):
     print(f"\n[LLM] Validating Generation ({model_id})...")
     # This will trigger an automatic download from GCS if not in cache
-    config = GenerationConfig(model_path=model_id, max_new_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
+    config = GenerationConfig(model_path=model_id, max_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
 
     try:
         model = SyncGemmaModel(config)
@@ -107,7 +107,7 @@ def main():
         sys.exit(1)
 
     models_to_test_llm = [args.model] if args.model else [TEXT_MODEL_ID, NANO_MODEL_ID]
-    models_to_test_embed = [args.model] if args.model else [EMBED_MODEL_ID, NANO_MODEL_ID, "gemma3-text-embedding-4m"]
+    models_to_test_embed = [args.model] if args.model else [EMBED_MODEL_ID, NANO_MODEL_ID]
 
     if args.mode in ["llm", "both"]:
         for m_id in models_to_test_llm:

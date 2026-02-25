@@ -1,13 +1,13 @@
-# 🔥 Mogemma
+# Mogemma
 
-Python/Mojo interface for Google Gemma 3 with [MAX Engine](https://www.modular.com/max).
+Python/Mojo interface for Google Gemma 3.
 
 ## Features
 
-- **Embeddings** — Generate dense vector embeddings through the Mojo backend.
-- **Text generation** — Synchronous and async streaming text generation with configurable sampling.
-- **Google Cloud Storage** — Automatic model resolution and high-performance concurrent downloading directly from Google's `gemma-data` bucket.
-- **OpenTelemetry** — Built-in tracing instrumentation.
+- **Embeddings** — Dense vector embeddings via a pure Mojo backend.
+- **Text generation** — Synchronous and async streaming with configurable sampling.
+- **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
+- **OpenTelemetry** — Optional tracing instrumentation.
 
 ## Installation
 
@@ -15,75 +15,62 @@ Python/Mojo interface for Google Gemma 3 with [MAX Engine](https://www.modular.c
 pip install mogemma
 ```
 
-Optional: `pip install 'mogemma[llm]'` for generation support (numpy + tokenizers + modular).
+For text generation (requires tokenizer):
 
-**Note**: Text generation requires the **Modular MAX Engine** (nightly build):
 ```bash
-pip install modular
+pip install 'mogemma[llm]'
 ```
 
 ## Quick Start
 
 ### Text Generation
 
-Requires `pip install 'mogemma[llm]'`.
-
 ```python
-from mogemma import GenerationConfig, SyncGemmaModel
+from mogemma import SyncGemmaModel
 
-# Defaults to gemma3-270m-it
-config = GenerationConfig(max_new_tokens=64)
-model = SyncGemmaModel(config)
-
-# Full generation
+model = SyncGemmaModel()
 print(model.generate("Explain quantum computing in one sentence:"))
-
-# Streaming
-for token in model.generate_stream("The future of AI is"):
-    print(token, end="", flush=True)
 ```
 
 ### Async Streaming
 
-Requires `pip install 'mogemma[llm]'`.
-
 ```python
 import asyncio
-from mogemma import GenerationConfig, AsyncGemmaModel
+from mogemma import AsyncGemmaModel
 
 async def main():
-    # Defaults to gemma3-270m-it
-    config = GenerationConfig(max_new_tokens=64)
-    model = AsyncGemmaModel(config)
-
+    model = AsyncGemmaModel()
     async for token in model.generate_stream("Once upon a time"):
         print(token, end="", flush=True)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
 ### Embeddings
 
 ```python
-from mogemma import EmbeddingConfig, EmbeddingModel
+from mogemma import EmbeddingModel
 
-# Defaults to gemma3-270m-it
-config = EmbeddingConfig()
-model = EmbeddingModel(config)
-
-embeddings = model.embed(["Hello, world!", "Model outputs are computed by MAX Engine."])
+model = EmbeddingModel()
+embeddings = model.embed(["Hello, world!", "Mojo runs Gemma inference."])
 print(embeddings.shape)  # (2, 768)
 ```
 
+### Selecting a Model Variant
 
-## Development
+All model classes default to `gemma3-270m-it`. Pass a model ID to use a different variant:
 
-```bash
-make install      # Install dependencies
-make build        # Build Mojo shared library
-make test         # Run tests
-make lint         # Lint and type-check
+```python
+model = SyncGemmaModel("gemma3-1b-it")
+```
+
+For full control over sampling parameters, pass a `GenerationConfig`:
+
+```python
+from mogemma import GenerationConfig, SyncGemmaModel
+
+config = GenerationConfig(model_path="gemma3-1b-it", temperature=0.7)
+model = SyncGemmaModel(config)
 ```
 
 ## License
