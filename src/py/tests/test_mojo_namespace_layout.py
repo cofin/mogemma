@@ -1,13 +1,6 @@
-import sys
 from pathlib import Path
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        import tomli as tomllib  # type: ignore[no-redef]
+import tomli
 
 
 def test_mojo_sources_live_in_package_namespace() -> None:
@@ -24,7 +17,7 @@ def test_build_targets_point_to_namespaced_core() -> None:
     root = Path(__file__).resolve().parents[3]
 
     with (root / "pyproject.toml").open("rb") as f:
-        config = tomllib.load(f)
+        config = tomli.load(f)
 
     jobs = config["tool"]["hatch"]["build"]["targets"]["wheel"]["hooks"]["mojo"]["jobs"]
     core_job = next(j for j in jobs if j["name"] == "core")
