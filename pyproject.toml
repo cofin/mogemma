@@ -1,6 +1,8 @@
 [project]
 authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
 classifiers = [
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -43,12 +45,20 @@ build-backend = "hatchling.build"
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build[uv]"
-skip = ["*-musllinux_*", "*-win*", "pp*"]
+skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
 test-command = "pytest {project}/src/py/tests"
-test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api"]
+test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
 
 [tool.cibuildwheel.linux]
-before-all = "pip install uv"
+before-all = [
+    "dnf install -y zstd unzip",
+    "if [ $(uname -m) = x86_64 ]; then CONDA_SUBDIR=linux-64 CONDA_BUILD=h934c35e_18; else CONDA_SUBDIR=linux-aarch64 CONDA_BUILD=hef695bb_18; fi && curl -sL https://conda.anaconda.org/conda-forge/${CONDA_SUBDIR}/libstdcxx-14.3.0-${CONDA_BUILD}.conda -o /tmp/pkg.conda",
+    "cd /tmp && unzip -o pkg.conda",
+    "cd /tmp && zstd -d pkg-libstdcxx-14.3.0-*.tar.zst -o pkg.tar",
+    "mkdir -p /tmp/out && tar xf /tmp/pkg.tar -C /tmp/out",
+    "cp -a /tmp/out/lib/libstdc++.so* /lib64/ && ldconfig",
+    "pip install uv",
+]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 repair-wheel-command = ""

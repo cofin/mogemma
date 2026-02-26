@@ -27,7 +27,7 @@ class CoreStub:
 
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
         del llm, token_id, temp, top_k, top_p
-        return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+        return np.array([0.0, 5.0, 0.0], dtype=np.float32)
 
 
 @pytest.fixture
@@ -35,6 +35,7 @@ def mock_tokenizer() -> Iterator[MagicMock]:
     with patch("mogemma.model._Tokenizer") as mock:
         tokenizer = MagicMock()
         tokenizer.decode.return_value = "token "
+        tokenizer.token_to_id.return_value = None
 
         encoded_mock = MagicMock()
         encoded_mock.ids = [1, 2, 3]
@@ -56,7 +57,7 @@ async def test_async_generate(tmp_path: Path, mock_tokenizer: MagicMock, mock_co
     model_dir = tmp_path / "dummy-model"
     _create_dummy_safetensors(model_dir)
 
-    config = GenerationConfig(model_path=model_dir, max_tokens=5)
+    config = GenerationConfig(model_path=model_dir, max_tokens=5, temperature=0.0)
     model = AsyncGemmaModel(config)
 
     response = await model.generate("Hello")
@@ -69,7 +70,7 @@ async def test_async_generate_stream(tmp_path: Path, mock_tokenizer: MagicMock, 
     model_dir = tmp_path / "dummy-model"
     _create_dummy_safetensors(model_dir)
 
-    config = GenerationConfig(model_path=model_dir, max_tokens=5)
+    config = GenerationConfig(model_path=model_dir, max_tokens=5, temperature=0.0)
     model = AsyncGemmaModel(config)
 
     tokens = [token async for token in model.generate_stream("Hello")]
