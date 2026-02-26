@@ -49,11 +49,12 @@ test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"
 
 [tool.cibuildwheel.linux]
 before-all = [
-    "dnf install -y zstd",
+    "dnf install -y zstd unzip",
     "curl -sL https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-14.2.0-h4852527_2.conda -o /tmp/pkg.conda",
-    "cd /tmp && python3 -c \"import zipfile; zf=zipfile.ZipFile('pkg.conda'); [zf.extract(n,'.') for n in zf.namelist() if n.startswith('pkg-')]\"",
-    "cd /tmp && zstd -d pkg-*.tar.zst -o pkg.tar && mkdir -p out && tar xf pkg.tar -C out",
-    "cp /tmp/out/lib/libstdc++.so.6* /lib64/ && ldconfig",
+    "cd /tmp && unzip -o pkg.conda",
+    "cd /tmp && zstd -d pkg-libstdcxx-ng-14.2.0-h4852527_2.tar.zst -o pkg.tar",
+    "mkdir -p /tmp/out && tar xf /tmp/pkg.tar -C /tmp/out",
+    "cp -a /tmp/out/lib/libstdc++.so* /lib64/ && ldconfig",
     "pip install uv",
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
