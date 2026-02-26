@@ -48,6 +48,10 @@ build-frontend = "build[uv]"
 skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
 test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
+# Workaround: hatch-mojo discover_modular_lib can't find modular/lib via
+# find_spec because the modular package has no __init__.py (cofin/hatch-mojo#7).
+# Pre-copy libs to a known path and point MODULAR_LIB_DIR at it.
+environment = { MODULAR_LIB_DIR = "/tmp/modular-lib" }
 
 [tool.cibuildwheel.linux]
 before-all = [
@@ -61,10 +65,17 @@ before-all = [
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
-before-build = "python -m pip install 'mojo>=0.26.1' wheel"
+before-build = [
+    "python -m pip install 'mojo>=0.26.1' wheel",
+    "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+]
 
 [tool.cibuildwheel.macos]
 repair-wheel-command = ""
+before-build = [
+    "python -m pip install 'mojo>=0.26.1' wheel",
+    "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
