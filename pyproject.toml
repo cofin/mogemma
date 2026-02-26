@@ -39,7 +39,7 @@ telemetry = [
 
 
 [build-system]
-requires = ["hatchling", "hatch-mojo", "mojo>=0.26.1"]
+requires = ["hatchling", "hatch-mojo>=0.1.4", "mojo>=0.26.1"]
 build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
@@ -61,14 +61,37 @@ before-all = [
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
-before-build = "python -m pip install 'mojo>=0.26.1' wheel"
-repair-wheel-command = "bash ./tools/repair-wheel-linux.sh {dest_dir} {wheel}"
+# Workaround: hatch-mojo can't discover modular/lib (no __init__.py) and
+# install_name_tool fails on macOS (cofin/hatch-mojo#7). On Linux only:
+# 1. Install mojo into the build venv so modular/lib exists
+# 2. Copy libs to /tmp/modular-lib and set MODULAR_LIB_DIR
+# 3. Enable bundle-libs via sed (default is false to avoid macOS breakage)
+environment = { MODULAR_LIB_DIR = "/tmp/modular-lib" }
+before-build = [
+    "pip install 'mojo>=0.26.1' wheel",
+    "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+    "sed -i 's/bundle-libs = false/bundle-libs = true/' pyproject.toml",
+]
+# Mojo runtime libs use GLIBCXX symbols newer than the manylinux_2_34
+# baseline, so auditwheel repair refuses. Since hatch-mojo already bundles
+# libs and patches RPATH, we just retag the wheel (same as official mojo pkg).
+repair-wheel-command = "python -m wheel tags --platform-tag manylinux_2_34_$(uname -m) {wheel} && cp $(dirname {wheel})/*manylinux*.whl {dest_dir}/"
 
 [tool.cibuildwheel.macos]
+# TODO(cofin/hatch-mojo#7): Once install_name_tool and find_spec bugs are
+# fixed, remove this empty override and enable bundle-libs globally. That will
+# bundle Mojo runtime dylibs into macOS wheels (~17 MB) making them
+# self-contained, matching the Linux wheels.
 repair-wheel-command = ""
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
+
+[tool.hatch.build.targets.wheel.hooks.mojo]
+# Disabled by default — enabled via sed in Linux CI before-build.
+# macOS gets valid macosx_* tags without bundling. Once cofin/hatch-mojo#7
+# is fixed (install_name_tool + find_spec), this can be set back to true.
+bundle-libs = false
 
 [[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]
 name = "core"
