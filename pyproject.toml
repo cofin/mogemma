@@ -39,7 +39,7 @@ telemetry = [
 
 
 [build-system]
-requires = ["hatchling", "hatch-mojo", "mojo>=0.26.1"]
+requires = ["hatchling", "hatch-mojo>=0.1.3", "mojo>=0.26.1"]
 build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
@@ -62,7 +62,6 @@ before-all = [
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 before-build = "python -m pip install 'mojo>=0.26.1' wheel"
-repair-wheel-command = "bash ./tools/repair-wheel-linux.sh {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 repair-wheel-command = ""
