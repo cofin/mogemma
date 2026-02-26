@@ -50,9 +50,9 @@ test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"
 [tool.cibuildwheel.linux]
 before-all = [
     "dnf install -y zstd unzip",
-    "curl -sL https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-14.2.0-h4852527_2.conda -o /tmp/pkg.conda",
+    "curl -sL https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-14.3.0-h934c35e_18.conda -o /tmp/pkg.conda",
     "cd /tmp && unzip -o pkg.conda",
-    "cd /tmp && zstd -d pkg-libstdcxx-ng-14.2.0-h4852527_2.tar.zst -o pkg.tar",
+    "cd /tmp && zstd -d pkg-libstdcxx-14.3.0-h934c35e_18.tar.zst -o pkg.tar",
     "mkdir -p /tmp/out && tar xf /tmp/pkg.tar -C /tmp/out",
     "cp -a /tmp/out/lib/libstdc++.so* /lib64/ && ldconfig",
     "pip install uv",
