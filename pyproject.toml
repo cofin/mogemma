@@ -66,15 +66,15 @@ before-all = [
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 before-build = [
-    "python -m pip install 'mojo>=0.26.1' wheel",
-    "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+    "uv pip install 'mojo>=0.26.1' wheel",
+    "uv run python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
 ]
 
 [tool.cibuildwheel.macos]
 repair-wheel-command = ""
 before-build = [
-    "python -m pip install 'mojo>=0.26.1' wheel",
-    "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+    "uv pip install 'mojo>=0.26.1' wheel",
+    "uv run python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
 ]
 
 [tool.hatch.build.targets.wheel]
