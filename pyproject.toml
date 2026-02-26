@@ -64,7 +64,7 @@ manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 repair-wheel-command = "auditwheel repair --exclude libKGENCompilerRTShared.so --exclude libAsyncRTRuntimeGlobals.so --exclude libMSupportGlobals.so --exclude libNVPTX.so --exclude libAsyncRTMojoBindings.so -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
-repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} --exclude libKGENCompilerRTShared --exclude libAsyncRTRuntimeGlobals --exclude libMSupportGlobals --exclude libNVPTX --exclude libAsyncRTMojoBindings -w {dest_dir} -v {wheel}"
+repair-wheel-command = ""
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
