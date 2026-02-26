@@ -78,6 +78,10 @@ before-build = [
 repair-wheel-command = "python -m wheel tags --platform-tag manylinux_2_34_$(uname -m) {wheel} && cp $(dirname {wheel})/*manylinux*.whl {dest_dir}/"
 
 [tool.cibuildwheel.macos]
+# TODO(cofin/hatch-mojo#7): Once install_name_tool and find_spec bugs are
+# fixed, remove this empty override and enable bundle-libs globally. That will
+# bundle Mojo runtime dylibs into macOS wheels (~17 MB) making them
+# self-contained, matching the Linux wheels.
 repair-wheel-command = ""
 
 [tool.hatch.build.targets.wheel]
