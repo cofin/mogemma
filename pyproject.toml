@@ -61,10 +61,8 @@ before-all = [
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
-repair-wheel-command = ""
 
 [tool.cibuildwheel.macos]
-repair-wheel-command = ""
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
