@@ -49,7 +49,7 @@ test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"
 
 [tool.cibuildwheel.linux]
 before-all = [
-    "dnf install -y gcc-toolset-13-libstdc++-devel",
+    "dnf install -y gcc-toolset-13-gcc-c++",
     "pip install uv",
 ]
 environment = { LD_LIBRARY_PATH = "/opt/rh/gcc-toolset-13/root/usr/lib64" }
