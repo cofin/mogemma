@@ -1,4 +1,4 @@
-# Mogemma
+# 🔥 Mogemma
 
 Python/Mojo interface for Google Gemma 3.
 
