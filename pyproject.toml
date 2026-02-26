@@ -48,8 +48,14 @@ test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
 
 [tool.cibuildwheel.linux]
-before-all = "pip install uv"
-container-engine = { name = "docker", create-args = ["-v", "/usr/lib/x86_64-linux-gnu/libstdc++.so.6:/lib64/libstdc++.so.6"] }
+before-all = [
+    "dnf install -y zstd",
+    "curl -sL https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-14.2.0-h4852527_2.conda -o /tmp/pkg.conda",
+    "cd /tmp && python3 -c \"import zipfile; zf=zipfile.ZipFile('pkg.conda'); [zf.extract(n,'.') for n in zf.namelist() if n.startswith('pkg-')]\"",
+    "cd /tmp && zstd -d pkg-*.tar.zst -o pkg.tar && mkdir -p out && tar xf pkg.tar -C out",
+    "cp /tmp/out/lib/libstdc++.so.6* /lib64/ && ldconfig",
+    "pip install uv",
+]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 repair-wheel-command = ""
