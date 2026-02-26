@@ -23,7 +23,7 @@ license = { file = "LICENSE" }
 name = "mogemma"
 readme = "README.md"
 requires-python = ">=3.10"
-version = "0.1.1"
+version = "0.1.2"
 
 [project.urls]
 Issue = "https://github.com/cofin/mogemma/issues/"
@@ -61,7 +61,8 @@ before-all = [
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
-repair-wheel-command = "auditwheel repair --exclude libKGENCompilerRTShared.so --exclude libAsyncRTRuntimeGlobals.so --exclude libMSupportGlobals.so --exclude libNVPTX.so --exclude libAsyncRTMojoBindings.so -w {dest_dir} {wheel}"
+before-build = "python -m pip install 'mojo>=0.26.1' wheel"
+repair-wheel-command = "bash ./tools/repair-wheel-linux.sh {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 repair-wheel-command = ""
@@ -163,7 +164,7 @@ test = [
 allow_dirty = true
 commit = false
 commit_args = "--no-verify"
-current_version = "0.1.1"
+current_version = "0.1.2"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to v{new_version}"
