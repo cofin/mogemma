@@ -33,11 +33,13 @@ def test_build_targets_point_to_namespaced_core() -> None:
     assert "src/mo" in core_job["include-dirs"]
 
 
-def test_linux_wheel_repair_uses_default_auditwheel() -> None:
+def test_linux_wheel_repair_retags_as_manylinux() -> None:
     root = Path(__file__).resolve().parents[3]
 
     with (root / "pyproject.toml").open("rb") as f:
         config = tomllib.load(f)
 
     linux_config = config["tool"]["cibuildwheel"]["linux"]
-    assert "repair-wheel-command" not in linux_config
+    cmd = linux_config["repair-wheel-command"]
+    assert "manylinux_2_34" in cmd
+    assert "wheel tags" in cmd

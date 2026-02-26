@@ -72,6 +72,10 @@ before-build = [
     "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
     "sed -i 's/bundle-libs = false/bundle-libs = true/' pyproject.toml",
 ]
+# Mojo runtime libs use GLIBCXX symbols newer than the manylinux_2_34
+# baseline, so auditwheel repair refuses. Since hatch-mojo already bundles
+# libs and patches RPATH, we just retag the wheel (same as official mojo pkg).
+repair-wheel-command = "python -m wheel tags --platform-tag manylinux_2_34_$(uname -m) {wheel} && cp $(dirname {wheel})/*.whl {dest_dir}/"
 
 [tool.cibuildwheel.macos]
 repair-wheel-command = ""
