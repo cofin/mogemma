@@ -50,8 +50,8 @@ test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore"
 [tool.cibuildwheel.linux]
 before-all = [
     "dnf install -y gcc-toolset-13-gcc-c++",
-    "cp -af /opt/rh/gcc-toolset-13/root/usr/lib64/libstdc++.so.6* /lib64/",
-    "ldconfig",
+    "find /opt/rh/gcc-toolset-13/ -name 'libstdc*' -ls 2>&1 || true",
+    "strings /lib64/libstdc++.so.6 | grep GLIBCXX | tail -5",
     "pip install uv",
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
