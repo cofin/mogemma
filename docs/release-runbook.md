@@ -6,8 +6,11 @@ This runbook defines the concrete evidence and execution flow for the first prod
 
 - Linux and macOS wheels are built by `.github/workflows/publish.yml`.
 - Source distribution is built and published with the same workflow.
-- Python versions currently validated in CI/tests: `3.10`, `3.11`, `3.12`, `3.13`.
+- Python versions: `3.10`, `3.11`, `3.12`, `3.13`, `3.14`.
+- Architectures: Linux x86_64, Linux aarch64, macOS x86_64, macOS arm64.
+- Skipped: musllinux (mojo requires glibc), i686 (mojo is 64-bit only), Windows, PyPy.
 - Build tooling uses `uv` + `mojo` for compiling the shared library.
+- Linux aarch64 builds use QEMU emulation via `docker/setup-qemu-action`.
 
 ## Pre-release evidence collection
 
