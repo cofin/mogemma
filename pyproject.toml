@@ -43,7 +43,7 @@ build-backend = "hatchling.build"
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build[uv]"
-skip = ["*-musllinux_*", "*-win*", "*-i686", "pp*"]
+skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
 test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
 
