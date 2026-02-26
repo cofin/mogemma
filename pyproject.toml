@@ -39,7 +39,7 @@ telemetry = [
 
 
 [build-system]
-requires = ["hatchling", "hatch-mojo>=0.1.3", "mojo>=0.26.1"]
+requires = ["hatchling", "hatch-mojo>=0.1.4", "mojo>=0.26.1"]
 build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
