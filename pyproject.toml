@@ -45,10 +45,14 @@ build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build[uv]"
 skip = ["*-musllinux_*", "*-win*", "pp*"]
 test-command = "pytest {project}/src/py/tests"
-test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api"]
+test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
 
 [tool.cibuildwheel.linux]
-before-all = "pip install uv"
+before-all = [
+    "dnf install -y gcc-toolset-13-libstdc++-devel",
+    "pip install uv",
+]
+environment = { LD_LIBRARY_PATH = "/opt/rh/gcc-toolset-13/root/usr/lib64" }
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 repair-wheel-command = ""

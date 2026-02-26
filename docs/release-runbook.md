@@ -47,8 +47,7 @@ Capture command output with timestamps in release notes.
 3. Create a GitHub release from the tag.
 4. Confirm `.github/workflows/publish.yml` job runs successfully:
    - `build-source`
-   - `build-wheel-mojo` (ubuntu-latest, macos-latest)
-   - `test-wheels`
+   - `build-wheels` (ubuntu-latest, macos-latest)
    - `publish-release`
 
 `publish-release` publishes artifacts from built wheels and source archives after smoke import checks.
