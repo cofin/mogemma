@@ -48,12 +48,8 @@ test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
 
 [tool.cibuildwheel.linux]
-before-all = [
-    "dnf install -y gcc-toolset-13-gcc-c++",
-    "find /opt/rh/gcc-toolset-13/ -name 'libstdc*' -ls 2>&1 || true",
-    "strings /lib64/libstdc++.so.6 | grep GLIBCXX | tail -5",
-    "pip install uv",
-]
+before-all = "pip install uv"
+container-engine = { name = "docker", create-args = ["-v", "/usr/lib/x86_64-linux-gnu/libstdc++.so.6:/lib64/libstdc++.so.6"] }
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
 repair-wheel-command = ""
