@@ -48,10 +48,6 @@ build-frontend = "build[uv]"
 skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
 test-command = "pytest {project}/src/py/tests"
 test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
-# Workaround: hatch-mojo discover_modular_lib can't find modular/lib via
-# find_spec because the modular package has no __init__.py (cofin/hatch-mojo#7).
-# Pre-copy libs to a known path and point MODULAR_LIB_DIR at it.
-environment = { MODULAR_LIB_DIR = "/tmp/modular-lib" }
 
 [tool.cibuildwheel.linux]
 before-all = [
@@ -65,20 +61,29 @@ before-all = [
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
+# Workaround: hatch-mojo can't discover modular/lib (no __init__.py) and
+# install_name_tool fails on macOS (cofin/hatch-mojo#7). On Linux only:
+# 1. Install mojo into the build venv so modular/lib exists
+# 2. Copy libs to /tmp/modular-lib and set MODULAR_LIB_DIR
+# 3. Enable bundle-libs via sed (default is false to avoid macOS breakage)
+environment = { MODULAR_LIB_DIR = "/tmp/modular-lib" }
 before-build = [
-    "uv pip install 'mojo>=0.26.1' wheel",
-    "uv run python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+    "pip install 'mojo>=0.26.1' wheel",
+    "python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
+    "sed -i 's/bundle-libs = false/bundle-libs = true/' pyproject.toml",
 ]
 
 [tool.cibuildwheel.macos]
 repair-wheel-command = ""
-before-build = [
-    "uv pip install 'mojo>=0.26.1' wheel",
-    "uv run python -c \"import sysconfig, shutil; from pathlib import Path; src = Path(sysconfig.get_path('purelib')) / 'modular' / 'lib'; shutil.copytree(str(src), '/tmp/modular-lib', dirs_exist_ok=True)\"",
-]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
+
+[tool.hatch.build.targets.wheel.hooks.mojo]
+# Disabled by default — enabled via sed in Linux CI before-build.
+# macOS gets valid macosx_* tags without bundling. Once cofin/hatch-mojo#7
+# is fixed (install_name_tool + find_spec), this can be set back to true.
+bundle-libs = false
 
 [[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]
 name = "core"
