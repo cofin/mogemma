@@ -69,3 +69,16 @@
   - runtime descriptor owner (read-only post init)
 - temporary scratch + output tensors:
   - entrypoint-local owner (`step` or `generate_embeddings`)
+
+## Manual Verification (Controlled Multi-Prompt Sequence, 2026-03-05)
+
+One loaded model instance was exercised with two consecutive prompts and one embedding batch in the same process (local stubbed core path used for deterministic inspection).
+
+Observed checkpoints:
+
+- `responses_equal = True` for repeated deterministic decode path
+- `first_positions = [0, 0]` (each generation starts at session position 0)
+- `k_cache_zero = True` after generation reset hook
+- `embedding_shape = (2, 8)` on same loaded session context
+
+This confirms session reuse hooks execute without cross-prompt state drift for the current CPU abstraction path.
