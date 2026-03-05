@@ -2,7 +2,7 @@ from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
 from memory import UnsafePointer
-from math import cos, sin
+from math import cos, sin, sqrt
 from collections import List
 
 from mogemma.model import (
@@ -17,11 +17,11 @@ from mogemma.model import (
     PerLayerMapWeights,
 )
 from mogemma.layers import (
-    forward_sequence,
-    forward_step,
+    forward_layer,
     forward_nano_sequence,
     forward_nano_step,
 )
+from mogemma.ops import rms_norm, vec_mat_mul
 
 fn _detect_architecture(metadata_obj: PythonObject) raises -> String:
     var builtins = Python.import_module("builtins")
@@ -247,6 +247,166 @@ fn _build_nano_model_from_runtime(runtime_obj: PythonObject) raises -> NanoModel
 
     return m^
 
+
+fn _build_standard_layer_from_runtime_entry(entry: PythonObject) raises -> LayerWeights:
+    var layer = LayerWeights()
+    layer.input_layernorm = _tensor_from_meta(entry[0])
+    layer.post_attention_layernorm = _tensor_from_meta(entry[1])
+    layer.q_proj = _tensor_from_meta(entry[2])
+    layer.k_proj = _tensor_from_meta(entry[3])
+    layer.v_proj = _tensor_from_meta(entry[4])
+    layer.o_proj = _tensor_from_meta(entry[5])
+    layer.gate_proj = _tensor_from_meta(entry[6])
+    layer.up_proj = _tensor_from_meta(entry[7])
+    layer.down_proj = _tensor_from_meta(entry[8])
+    layer.q_norm = _tensor_from_meta(entry[9])
+    layer.k_norm = _tensor_from_meta(entry[10])
+    layer.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
+    layer.post_feedforward_layernorm = _tensor_from_meta(entry[12])
+    return layer^
+
+
+fn _forward_step_standard_runtime(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    pos: Int,
+    runtime_obj: PythonObject,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    vocab_size: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+) raises:
+    var builtins = Python.import_module("builtins")
+    var layers = runtime_obj["layers"]
+    var num_layers = Int(py=builtins.len(layers))
+    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
+    var norm = _tensor_from_meta(runtime_obj["norm"])
+    var lm_head = _tensor_from_meta(runtime_obj["lm_head"])
+
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + hidden_size
+    var layer_scratch = scratch_ptr + hidden_size * 2
+
+    var emb_scale = sqrt(Float32(hidden_size))
+    var emb_row_offset = token_id * hidden_size
+    for i in range(hidden_size):
+        current_state.store(i, embed_tokens.ptr.load(emb_row_offset + i) * emb_scale)
+
+    for l in range(num_layers):
+        var layer_kv_k_ptr = kv_cache_k_ptr + l * max_seq_len * num_kv_heads * head_dim
+        var layer_kv_v_ptr = kv_cache_v_ptr + l * max_seq_len * num_kv_heads * head_dim
+
+        var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
+        var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
+        var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
+
+        forward_layer(
+            next_state,
+            current_state,
+            layer_weights,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            token_freqs_cos_ptr,
+            token_freqs_sin_ptr,
+            layer_kv_k_ptr,
+            layer_kv_v_ptr,
+            max_seq_len,
+            layer_scratch
+        )
+
+        for i in range(hidden_size):
+            current_state.store(i, next_state.load(i))
+
+    rms_norm(next_state, current_state, norm.ptr, hidden_size, 1e-6)
+    vec_mat_mul(out_logits_ptr, next_state, lm_head.ptr, hidden_size, vocab_size)
+
+
+fn _forward_sequence_standard_runtime(
+    out_emb_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    input_ids_ptr: UnsafePointer[Int32, MutExternalOrigin],
+    seq_len: Int,
+    runtime_obj: PythonObject,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+) raises:
+    var builtins = Python.import_module("builtins")
+    var layers = runtime_obj["layers"]
+    var num_layers = Int(py=builtins.len(layers))
+    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
+    var norm = _tensor_from_meta(runtime_obj["norm"])
+
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + hidden_size
+    var layer_scratch = scratch_ptr + hidden_size * 2
+    var emb_acc = layer_scratch + hidden_size * 10
+    for i in range(hidden_size):
+        emb_acc.store(i, 0.0)
+
+    var emb_scale = sqrt(Float32(hidden_size))
+    for t in range(seq_len):
+        var token_id = Int(input_ids_ptr.load(t))
+        var emb_row_offset = token_id * hidden_size
+        for i in range(hidden_size):
+            current_state.store(i, embed_tokens.ptr.load(emb_row_offset + i) * emb_scale)
+
+        for l in range(num_layers):
+            var layer_kv_k_ptr = kv_cache_k_ptr + l * max_seq_len * num_kv_heads * head_dim
+            var layer_kv_v_ptr = kv_cache_v_ptr + l * max_seq_len * num_kv_heads * head_dim
+
+            var token_freqs_cos_ptr = freqs_cos_ptr + t * head_dim
+            var token_freqs_sin_ptr = freqs_sin_ptr + t * head_dim
+            var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
+
+            forward_layer(
+                next_state,
+                current_state,
+                layer_weights,
+                t,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                token_freqs_cos_ptr,
+                token_freqs_sin_ptr,
+                layer_kv_k_ptr,
+                layer_kv_v_ptr,
+                max_seq_len,
+                layer_scratch
+            )
+
+            for i in range(hidden_size):
+                current_state.store(i, next_state.load(i))
+
+        rms_norm(next_state, current_state, norm.ptr, hidden_size, 1e-6)
+        for i in range(hidden_size):
+            emb_acc.store(i, emb_acc.load(i) + next_state.load(i))
+
+    var scale = 1.0 / Float32(seq_len)
+    for i in range(hidden_size):
+        out_emb_ptr.store(i, emb_acc.load(i) * scale)
+
 @always_inline
 fn _tensor_is_effectively_zero(t: TensorInfo, eps: Float32 = 1e-8) -> Bool:
     if t.ptr == UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
@@ -360,6 +520,7 @@ fn init_model_mojo(
     py_dict["vocab_size"] = vocab_size
     py_dict["per_layer_dim"] = per_layer_dim
     py_dict["runtime"] = runtime_obj
+    py_dict["descriptor_build_count"] = 1
     py_dict["pos"] = 0
     return py_dict
 
@@ -383,6 +544,7 @@ fn step_mojo(
     var token_id = Int(py=token_id_obj)
     
     var runtime_obj = llm["runtime"]
+    var descriptor_build_count = Int(py=llm.get("descriptor_build_count", 1))
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
@@ -408,6 +570,7 @@ fn step_mojo(
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
     
     if arch == "nano":
+        llm["descriptor_build_count"] = descriptor_build_count + 1
         var model_weights = _build_nano_model_from_runtime(runtime_obj)
         num_heads = model_weights.layers[0].base.q_proj.shape_0 // head_dim
         var per_layer_dim = Int(py=llm["per_layer_dim"])
@@ -433,14 +596,16 @@ fn step_mojo(
             scratch_ptr
         )
     else:
-        var model_weights = _build_model_from_runtime(runtime_obj)
-        num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
-        
-        forward_step(
+        var layers = runtime_obj["layers"]
+        var first_layer = layers[0]
+        var q_proj = _tensor_from_meta(first_layer[2])
+        num_heads = q_proj.shape_0 // head_dim
+
+        _forward_step_standard_runtime(
             out_logits_ptr,
             token_id,
             pos,
-            model_weights,
+            runtime_obj,
             hidden_size,
             num_heads,
             num_kv_heads,
@@ -481,6 +646,7 @@ fn generate_embeddings_mojo(
         raise Error("inputs must contain at least one token")
     
     var runtime_obj = llm["runtime"]
+    var descriptor_build_count = Int(py=llm.get("descriptor_build_count", 1))
     var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
@@ -518,14 +684,16 @@ fn generate_embeddings_mojo(
     var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(emb_out.unsafe_ptr()))
     var input_ids_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(input_ids.unsafe_ptr()))
     
-    var standard_model = ModelWeights()
     var nano_model = NanoModelWeights()
     if arch == "nano":
+        llm["descriptor_build_count"] = descriptor_build_count + 1
         nano_model = _build_nano_model_from_runtime(runtime_obj)
         num_heads = nano_model.layers[0].base.q_proj.shape_0 // head_dim
     else:
-        standard_model = _build_model_from_runtime(runtime_obj)
-        num_heads = standard_model.layers[0].q_proj.shape_0 // head_dim
+        var layers = runtime_obj["layers"]
+        var first_layer = layers[0]
+        var q_proj = _tensor_from_meta(first_layer[2])
+        num_heads = q_proj.shape_0 // head_dim
 
     # Process each sequence in the batch
     for b in range(batch_size):
@@ -562,11 +730,11 @@ fn generate_embeddings_mojo(
                 scratch_ptr
             )
         else:
-            forward_sequence(
+            _forward_sequence_standard_runtime(
                 seq_out_ptr,
                 input_ids_ptr,
                 seq_len,
-                standard_model,
+                runtime_obj,
                 hidden_size,
                 num_heads,
                 num_kv_heads,

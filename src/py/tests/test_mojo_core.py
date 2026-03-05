@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-_core = pytest.importorskip("mogemma._core")
+_core = pytest.importorskip("mogemma._core", exc_type=ImportError)
 
 _EXPECTED_HEAD_DIM = 2
 _EXPECTED_HIDDEN_SIZE = 4
@@ -50,6 +50,7 @@ def test_mojo_core_init_standard() -> None:
     assert llm["num_kv_heads"] == _EXPECTED_HEAD_DIM
     assert llm["hidden_size"] == _EXPECTED_HIDDEN_SIZE
     assert llm["vocab_size"] == _EXPECTED_VOCAB_SIZE
+    assert llm.get("descriptor_build_count", 1) == 1
 
 
 def test_mojo_core_step_standard() -> None:
@@ -81,6 +82,7 @@ def test_mojo_core_step_standard() -> None:
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
+    assert llm.get("descriptor_build_count", 1) == 1
 
 
 def test_mojo_core_init_nano() -> None:
@@ -419,3 +421,40 @@ def test_mojo_core_embeddings_nano() -> None:
     input_ids = np.array([[1, 2, 3]], dtype=np.int32)
     embeddings = _core.generate_embeddings(llm, input_ids)
     assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
+
+
+def test_mojo_core_standard_descriptor_cache_reused_across_calls() -> None:
+    tensors = {
+        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.self_attn.k_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.v_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
+        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
+        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+    }
+    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
+    llm = _core.init_model(metadata)
+    if "descriptor_build_count" not in llm:
+        pytest.skip("descriptor_build_count is unavailable in current compiled mogemma._core")
+    assert llm["descriptor_build_count"] == 1
+
+    _ = _core.step(llm, 1, 0.0, 0, 0.0)
+    _ = _core.step(llm, 2, 0.0, 0, 0.0)
+    embeddings = _core.generate_embeddings(llm, np.array([[1, 2, 3]], dtype=np.int32))
+
+    assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
+    assert llm.get("descriptor_build_count", 1) == 1
