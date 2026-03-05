@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Generator, Sequence
+from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -81,6 +82,11 @@ _INSTRUCTION_START = "<start_of_turn>"
 _INSTRUCTION_END = "<end_of_turn>"
 
 
+class ModelVariant(str, Enum):
+    STANDARD = "gemma_standard"
+    NANO = "gemma_nano"
+
+
 def _resolve_model_path(raw_model_path: str | Path) -> Path:
     """Resolve user-supplied model input consistently for all model types."""
     return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
@@ -98,13 +104,64 @@ def _core_unavailable_message(model_type: str) -> str:
     )
 
 
-def _initialize_llm(loader: ModelLoader, backend: GenerationBackend | EmbeddingBackend, *, model_type: str) -> object:
+def _detect_model_variant(metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> ModelVariant:
+    """Classify model variant from tensor metadata names."""
+    keys = metadata.keys()
+    # Nano conversion emits per-layer map and Laurel tensors absent in standard Gemma.
+    if any(".per_layer_map." in name or ".laurel." in name or ".post_laurel_layernorm." in name for name in keys):
+        return ModelVariant.NANO
+    return ModelVariant.STANDARD
+
+
+def _normalize_architecture_overrides(
+    overrides: dict[str, int | float] | None,
+) -> dict[str, int | float] | None:
+    if overrides is None:
+        return None
+    normalized: dict[str, int | float] = {}
+    for key, value in overrides.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            msg = "architecture_overrides values must be numeric (int|float)"
+            raise ValueError(msg)
+        normalized[key] = value
+    return normalized
+
+
+def _initialize_llm(
+    loader: ModelLoader,
+    backend: GenerationBackend | EmbeddingBackend,
+    *,
+    model_type: str,
+    architecture_overrides: dict[str, int | float] | None = None,
+) -> object:
     if _core is None:
         raise RuntimeError(_core_unavailable_message(model_type))
 
     try:
         metadata = loader.get_tensor_metadata()
-        return backend.init_model(metadata)
+        variant = _detect_model_variant(metadata)
+        if variant is ModelVariant.NANO:
+            msg = "Unsupported model architecture 'gemma3n'. This runtime currently supports only standard Gemma 3."
+            raise ValueError(msg)
+
+        normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
+        if normalized_overrides is None:
+            return backend.init_model(metadata)
+
+        init_model_fn = getattr(_core, "init_model", None)
+        if not callable(init_model_fn):
+            msg = "Mojo core does not expose init_model(metadata, architecture_overrides)"
+            raise RuntimeError(msg)
+        try:
+            return init_model_fn(metadata, normalized_overrides)
+        except TypeError as exc:
+            msg = (
+                "Mojo core init_model does not accept architecture_overrides. "
+                "Rebuild/install a compatible mogemma._core extension."
+            )
+            raise RuntimeError(msg) from exc
+    except ValueError:
+        raise
     except Exception as exc:
         msg = f"{model_type} model failed to initialize from '{loader.model_path}': {exc}"
         raise RuntimeError(msg) from exc
@@ -242,7 +299,12 @@ class EmbeddingModel:
         self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(self._loader, self._backend, model_type="embedding")
+        self._llm: object | None = _initialize_llm(
+            self._loader,
+            self._backend,
+            model_type="embedding",
+            architecture_overrides=config.architecture_overrides,
+        )
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -345,7 +407,12 @@ class SyncGemmaModel:
         self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(self._loader, self._backend, model_type="generation")
+        self._llm: object | None = _initialize_llm(
+            self._loader,
+            self._backend,
+            model_type="generation",
+            architecture_overrides=config.architecture_overrides,
+        )
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:

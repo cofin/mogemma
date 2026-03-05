@@ -9,6 +9,7 @@ _INVALID_BATCH_SIZE_MSG = "batch_size must be greater than 0"
 _INVALID_TOKENS_MSG = "max_tokens must be greater than 0"
 _EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Google model id"
 _INVALID_GPU_POLICY_MSG = "unavailable_gpu_policy must be one of: error, use_cpu"
+_INVALID_ARCH_OVERRIDES_MSG = "architecture_overrides must be a dict[str, int | float] or None"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,9 @@ class EmbeddingConfig:
 
     unavailable_gpu_policy: str = "error"
     """Policy when a requested GPU is unavailable: 'error' or 'use_cpu'."""
+
+    architecture_overrides: dict[str, int | float] | None = None
+    """Optional architecture values passed through to Mojo init."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""
@@ -48,6 +52,7 @@ class EmbeddingConfig:
             raise ValueError(_INVALID_BATCH_SIZE_MSG)
         if self.unavailable_gpu_policy not in {"error", "use_cpu"}:
             raise ValueError(_INVALID_GPU_POLICY_MSG)
+        _validate_architecture_overrides(self.architecture_overrides)
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,9 @@ class GenerationConfig:
 
     unavailable_gpu_policy: str = "error"
     """Policy when a requested GPU is unavailable: 'error' or 'use_cpu'."""
+
+    architecture_overrides: dict[str, int | float] | None = None
+    """Optional architecture values passed through to Mojo init."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""
@@ -101,3 +109,16 @@ class GenerationConfig:
             raise ValueError(_INVALID_TOKENS_MSG)
         if self.unavailable_gpu_policy not in {"error", "use_cpu"}:
             raise ValueError(_INVALID_GPU_POLICY_MSG)
+        _validate_architecture_overrides(self.architecture_overrides)
+
+
+def _validate_architecture_overrides(overrides: dict[str, int | float] | None) -> None:
+    if overrides is None:
+        return
+    if not isinstance(overrides, dict):
+        raise ValueError(_INVALID_ARCH_OVERRIDES_MSG)
+    for key, value in overrides.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError(_INVALID_ARCH_OVERRIDES_MSG)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(_INVALID_ARCH_OVERRIDES_MSG)

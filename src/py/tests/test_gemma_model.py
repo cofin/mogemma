@@ -82,6 +82,8 @@ def test_generation_config_validation() -> None:
         GenerationConfig(model_path="dummy", temperature=-1.0)
     with pytest.raises(ValueError, match="top_p"):
         GenerationConfig(model_path="dummy", top_p=1.5)
+    with pytest.raises(ValueError, match="architecture_overrides"):
+        GenerationConfig(model_path="dummy", architecture_overrides={"head_dim": True})  # type: ignore[arg-type]
 
 
 def test_gemma_model_init_uses_hub_resolution(
@@ -516,3 +518,67 @@ def test_generation_model_uses_normalized_backend_descriptor(
     assert seen["request"] == ("cpu", "use_cpu")
     assert seen["backend_device"] == "cpu"
     assert model._device_selection.effective_backend_id == "cpu"  # noqa: SLF001
+
+
+def test_generation_model_passes_architecture_overrides_to_core_init(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class OverrideCore:
+        def __init__(self) -> None:
+            self.seen_overrides: dict[str, int | float] | None = None
+
+        def init_model(
+            self,
+            metadata: dict[str, tuple[int, tuple[int, ...], str]],
+            architecture_overrides: dict[str, int | float],
+        ) -> object:
+            del metadata
+            self.seen_overrides = architecture_overrides
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    core = OverrideCore()
+    monkeypatch.setattr(model_module, "_core", core)
+
+    model = SyncGemmaModel(
+        GenerationConfig(
+            model_path=Path(dummy_model_path),
+            architecture_overrides={"head_dim": 128, "rope_base": 1_000_000.0},
+            max_tokens=1,
+        )
+    )
+
+    assert model is not None
+    assert core.seen_overrides == {"head_dim": 128, "rope_base": 1_000_000.0}
+
+
+def test_generation_model_rejects_nano_metadata_variant(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CoreStub:
+        def init_model(self, _: object) -> object:
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    class LoaderStub:
+        def __init__(self, model_path: Path) -> None:
+            self.model_path = model_path
+
+        def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
+            return {
+                "model.layers.0.per_layer_map.gate.weight": (1, (32, 32), "float32"),
+            }
+
+    resolved_path = Path(dummy_model_path)
+    monkeypatch.setattr(model_module, "_core", CoreStub())
+    monkeypatch.setattr(model_module, "_resolve_model_path", lambda _: resolved_path)
+    monkeypatch.setattr(model_module, "auto_loader", lambda _: LoaderStub(resolved_path))
+
+    with pytest.raises(ValueError, match="Unsupported model architecture 'gemma3n'"):
+        SyncGemmaModel(GenerationConfig(model_path=resolved_path))
