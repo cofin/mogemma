@@ -728,8 +728,13 @@ def test_mojo_core_step_nano_reuses_prepared_model_views() -> None:
 
     _ = _core.step(llm, 1, 0.0, 0, 0.0)
     _ = _core.step(llm, 2, 0.0, 0, 0.0)
+    assert llm["pos"] == 2
     assert llm["nano_model_build_count"] == 1
 
     embeddings = _core.generate_embeddings(llm, np.array([[1, 2, 3]], dtype=np.int32))
     assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
+    assert llm["pos"] == 2
     assert llm["nano_model_build_count"] == 1
+
+    _ = _core.step(llm, 3, 0.0, 0, 0.0)
+    assert llm["pos"] == 3
