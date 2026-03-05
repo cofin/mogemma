@@ -289,3 +289,32 @@ def test_embedding_routes_through_backend_adapter(
 
     assert embeddings.shape == (1, 768)
     assert backend.embed_calls == 1
+
+
+def test_embedding_model_defaults_to_cpu_mojo_backend(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BackendStub:
+        backend_id = "cpu_mojo"
+
+        def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
+            del metadata
+            return object()
+
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
+            del llm, tokens
+            return np.ones((1, 768), dtype=np.float32)
+
+    seen_devices: list[str] = []
+    monkeypatch.setattr(model_module, "_core", object())
+    monkeypatch.setattr(
+        model_module,
+        "_resolve_embedding_backend",
+        lambda device: (seen_devices.append(device), BackendStub())[1],
+        raising=False,
+    )
+
+    model = EmbeddingModel(EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu"))
+
+    assert model._backend_id == "cpu_mojo"  # noqa: SLF001
+    assert seen_devices == ["cpu"]

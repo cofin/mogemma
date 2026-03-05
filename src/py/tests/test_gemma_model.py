@@ -380,3 +380,32 @@ def test_gemma_generate_routes_through_backend_adapter(
 
     assert isinstance(result, str)
     assert backend.step_calls >= 1
+
+
+def test_sync_model_defaults_to_cpu_mojo_backend(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BackendStub:
+        backend_id = "cpu_mojo"
+
+        def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
+            del metadata
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([1.0, 0.0], dtype=np.float32)
+
+    seen_devices: list[str] = []
+    monkeypatch.setattr(model_module, "_core", object())
+    monkeypatch.setattr(
+        model_module,
+        "_resolve_generation_backend",
+        lambda device: (seen_devices.append(device), BackendStub())[1],
+        raising=False,
+    )
+
+    model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
+
+    assert model._backend_id == "cpu_mojo"  # noqa: SLF001
+    assert seen_devices == ["cpu"]
