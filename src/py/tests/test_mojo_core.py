@@ -51,6 +51,10 @@ def test_mojo_core_init_standard() -> None:
     assert llm["num_kv_heads"] == _EXPECTED_HEAD_DIM
     assert llm["hidden_size"] == _EXPECTED_HIDDEN_SIZE
     assert llm["vocab_size"] == _EXPECTED_VOCAB_SIZE
+    expected_session_kv_cache_len = llm["num_layers"] * llm["max_seq_len"] * llm["num_kv_heads"] * llm["head_dim"]
+    assert llm["session_kv_cache_len"] == expected_session_kv_cache_len
+    assert llm["step_scratch_len"] == llm["hidden_size"] * 160
+    assert llm["embedding_scratch_len"] == llm["hidden_size"] * 180
     assert llm.get("descriptor_build_count", 1) == 1
 
 

@@ -75,6 +75,33 @@ fn _tensor_from_meta(meta_obj: PythonObject) raises -> TensorInfo:
 fn _get_tensor(metadata_obj: PythonObject, name: String) raises -> TensorInfo:
     return _tensor_from_meta(metadata_obj.get(name))
 
+@always_inline
+fn _kv_cache_len(num_layers: Int, max_seq_len: Int, num_kv_heads: Int, head_dim: Int) -> Int:
+    return num_layers * max_seq_len * num_kv_heads * head_dim
+
+@always_inline
+fn _rope_cache_len(max_seq_len: Int, head_dim: Int) -> Int:
+    return max_seq_len * head_dim
+
+@always_inline
+fn _step_scratch_len(hidden_size: Int) -> Int:
+    return hidden_size * 160
+
+@always_inline
+fn _embedding_scratch_len(hidden_size: Int) -> Int:
+    return hidden_size * 180
+
+fn _allocate_session_f32(np: PythonObject, length: Int) raises -> PythonObject:
+    return np.zeros(length, dtype=np.float32)
+
+fn _allocate_transient_f32(length: Int) -> List[Float32]:
+    var values = List[Float32](length=length, fill=0.0)
+    return values^
+
+fn _allocate_transient_i32(length: Int) -> List[Int32]:
+    var values = List[Int32](length=length, fill=0)
+    return values^
+
 fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
     var runtime = Python.dict()
@@ -844,12 +871,13 @@ fn init_model_mojo(
     
     var max_seq_len = 8192 # default max seq len
     
-    var size = num_layers * max_seq_len * num_kv_heads * head_dim
-    var k_cache = np.zeros(size, dtype=np.float32)
-    var v_cache = np.zeros(size, dtype=np.float32)
-    
-    var freqs_cos = np.zeros(max_seq_len * head_dim, dtype=np.float32)
-    var freqs_sin = np.zeros(max_seq_len * head_dim, dtype=np.float32)
+    var session_kv_cache_len = _kv_cache_len(num_layers, max_seq_len, num_kv_heads, head_dim)
+    var k_cache = _allocate_session_f32(np, session_kv_cache_len)
+    var v_cache = _allocate_session_f32(np, session_kv_cache_len)
+
+    var rope_cache_len = _rope_cache_len(max_seq_len, head_dim)
+    var freqs_cos = _allocate_session_f32(np, rope_cache_len)
+    var freqs_sin = _allocate_session_f32(np, rope_cache_len)
     
     var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
     var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
@@ -876,6 +904,9 @@ fn init_model_mojo(
     py_dict["hidden_size"] = hidden_size
     py_dict["intermediate_size"] = intermediate_size
     py_dict["vocab_size"] = vocab_size
+    py_dict["session_kv_cache_len"] = session_kv_cache_len
+    py_dict["step_scratch_len"] = _step_scratch_len(hidden_size)
+    py_dict["embedding_scratch_len"] = _embedding_scratch_len(hidden_size)
     py_dict["per_layer_dim"] = per_layer_dim
     py_dict["runtime"] = runtime_obj
     py_dict["descriptor_build_count"] = 1
@@ -921,7 +952,8 @@ fn step_mojo(
     var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
     var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
     
-    var scratch = List[Float32](length=hidden_size * 160, fill=0.0) # generous scratch space
+    var step_scratch_len = Int(py=llm["step_scratch_len"])
+    var scratch = _allocate_transient_f32(step_scratch_len) # generous scratch space
     var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
     
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
@@ -1036,11 +1068,13 @@ fn generate_embeddings_mojo(
         freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_sin_local.unsafe_ptr()))
             
     # Allocations for intermediate state
-    var kv_cache_k = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
-    var kv_cache_v = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
-    var scratch = List[Float32](length=hidden_size * 180, fill=0.0) # generous scratch space
-    var emb_out = List[Float32](length=batch_size * hidden_size, fill=0.0)
-    var input_ids = List[Int32](length=max_seq_len, fill=0)
+    var embedding_kv_cache_len = _kv_cache_len(num_layers, max_seq_len, num_kv_heads, head_dim)
+    var kv_cache_k = _allocate_transient_f32(embedding_kv_cache_len)
+    var kv_cache_v = _allocate_transient_f32(embedding_kv_cache_len)
+    var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
+    var scratch = _allocate_transient_f32(embedding_scratch_len) # generous scratch space
+    var emb_out = _allocate_transient_f32(batch_size * hidden_size)
+    var input_ids = _allocate_transient_i32(max_seq_len)
 
     # Convert lists to pointers
     var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_k.unsafe_ptr()))
