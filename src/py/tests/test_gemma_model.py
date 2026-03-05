@@ -444,3 +444,33 @@ def test_gemma_generation_resets_session_caches_between_calls(
 
     assert np.all(model._llm["k_cache"] == 0.0)  # type: ignore[index]  # noqa: SLF001
     assert np.all(model._llm["v_cache"] == 0.0)  # type: ignore[index]  # noqa: SLF001
+
+
+def test_gemma_generation_restarts_position_each_call(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class PosTrackingCore:
+        def __init__(self) -> None:
+            self.first_positions: list[int] = []
+
+        def init_model(self, _: str) -> object:
+            return {"pos": 0, "k_cache": np.zeros((4,), dtype=np.float32), "v_cache": np.zeros((4,), dtype=np.float32)}
+
+        def step(self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del token_id, temp, top_k, top_p
+            current_pos = int(llm.get("pos", 0))
+            if current_pos == 0:
+                self.first_positions.append(current_pos)
+            llm["pos"] = current_pos + 1
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # eos
+
+    core = PosTrackingCore()
+    monkeypatch.setattr(model_module, "_core", core)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=1, temperature=0.0)
+    model = SyncGemmaModel(config)
+
+    _ = model.generate("first")
+    _ = model.generate("second")
+
+    # First decode step in each generation should start from position 0.
+    assert core.first_positions == [0, 0]
