@@ -23,6 +23,27 @@ from mogemma.layers import (
     forward_nano_step,
 )
 
+var _standard_model_cache = List[ModelWeights]()
+var _nano_model_cache = List[NanoModelWeights]()
+
+fn _cache_standard_model(model: ModelWeights) -> Int:
+    _standard_model_cache.append(model^)
+    return len(_standard_model_cache) - 1
+
+fn _cache_nano_model(model: NanoModelWeights) -> Int:
+    _nano_model_cache.append(model^)
+    return len(_nano_model_cache) - 1
+
+fn _get_cached_standard_model(slot: Int) raises -> ModelWeights:
+    if slot < 0 or slot >= len(_standard_model_cache):
+        raise Error("Invalid standard model cache slot")
+    return _standard_model_cache[slot]
+
+fn _get_cached_nano_model(slot: Int) raises -> NanoModelWeights:
+    if slot < 0 or slot >= len(_nano_model_cache):
+        raise Error("Invalid nano model cache slot")
+    return _nano_model_cache[slot]
+
 fn _detect_architecture(metadata_obj: PythonObject) raises -> String:
     var builtins = Python.import_module("builtins")
     # Gemma 3 Nano has AltUp router weights
@@ -292,10 +313,12 @@ fn init_model_mojo(
     
     var per_layer_dim: Int = 0
     var vocab_size: Int
+    var model_slot: Int
     
     if arch == "nano":
         runtime_obj = _build_nano_runtime(metadata_obj)
         var model_weights = _build_nano_model_from_runtime(runtime_obj)
+        model_slot = _cache_nano_model(model_weights)
         num_layers = len(model_weights.layers)
         if num_layers == 0:
             raise Error("Invalid Nano model weights: no layers found in metadata")
@@ -313,6 +336,7 @@ fn init_model_mojo(
     else:
         runtime_obj = _build_standard_runtime(metadata_obj)
         var model_weights = _build_model_from_runtime(runtime_obj)
+        model_slot = _cache_standard_model(model_weights)
         num_layers = len(model_weights.layers)
         if num_layers == 0:
             raise Error("Invalid standard model weights: no layers found in metadata")
@@ -360,6 +384,8 @@ fn init_model_mojo(
     py_dict["vocab_size"] = vocab_size
     py_dict["per_layer_dim"] = per_layer_dim
     py_dict["runtime"] = runtime_obj
+    py_dict["model_slot"] = model_slot
+    py_dict["descriptor_build_count"] = 1
     py_dict["pos"] = 0
     return py_dict
 
@@ -382,7 +408,7 @@ fn step_mojo(
         
     var token_id = Int(py=token_id_obj)
     
-    var runtime_obj = llm["runtime"]
+    var model_slot = Int(py=llm["model_slot"])
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
@@ -408,7 +434,7 @@ fn step_mojo(
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
     
     if arch == "nano":
-        var model_weights = _build_nano_model_from_runtime(runtime_obj)
+        var model_weights = _get_cached_nano_model(model_slot)
         num_heads = model_weights.layers[0].base.q_proj.shape_0 // head_dim
         var per_layer_dim = Int(py=llm["per_layer_dim"])
         
@@ -433,7 +459,7 @@ fn step_mojo(
             scratch_ptr
         )
     else:
-        var model_weights = _build_model_from_runtime(runtime_obj)
+        var model_weights = _get_cached_standard_model(model_slot)
         num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
         
         forward_step(
@@ -480,7 +506,7 @@ fn generate_embeddings_mojo(
     if max_seq_len == 0:
         raise Error("inputs must contain at least one token")
     
-    var runtime_obj = llm["runtime"]
+    var model_slot = Int(py=llm["model_slot"])
     var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
@@ -521,10 +547,10 @@ fn generate_embeddings_mojo(
     var standard_model = ModelWeights()
     var nano_model = NanoModelWeights()
     if arch == "nano":
-        nano_model = _build_nano_model_from_runtime(runtime_obj)
+        nano_model = _get_cached_nano_model(model_slot)
         num_heads = nano_model.layers[0].base.q_proj.shape_0 // head_dim
     else:
-        standard_model = _build_model_from_runtime(runtime_obj)
+        standard_model = _get_cached_standard_model(model_slot)
         num_heads = standard_model.layers[0].q_proj.shape_0 // head_dim
 
     # Process each sequence in the batch
