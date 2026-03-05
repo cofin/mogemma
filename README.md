@@ -73,6 +73,30 @@ config = GenerationConfig(model_path="gemma3-1b-it", temperature=0.7)
 model = SyncGemmaModel(config)
 ```
 
+### Device Selection
+
+`GenerationConfig` and `EmbeddingConfig` accept:
+
+- `device="cpu"`
+- `device="gpu"`
+- `device="gpu:0"` (or other index)
+
+Device handling is deterministic:
+
+- default: unavailable GPU requests raise an explicit error
+- optional: set `allow_device_fallback=True` to fallback to CPU explicitly
+
+```python
+from mogemma import GenerationConfig, SyncGemmaModel
+
+config = GenerationConfig(
+    model_path="gemma3-1b-it",
+    device="gpu:0",
+    allow_device_fallback=True,
+)
+model = SyncGemmaModel(config)
+```
+
 ## License
 
 MIT
