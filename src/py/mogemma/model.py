@@ -193,6 +193,26 @@ def _format_instruction_prompt(prompt: str) -> str:
     return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
 
 
+def _reset_llm_session_state(llm: object) -> None:
+    """Reset mutable session fields before a new generation run."""
+    if not isinstance(llm, dict):
+        return
+
+    llm["pos"] = 0
+    for cache_key in ("k_cache", "v_cache"):
+        cache = llm.get(cache_key)
+        if cache is None:
+            continue
+        if hasattr(cache, "fill"):
+            cache.fill(0.0)
+            continue
+        try:
+            np.asarray(cache).fill(0.0)
+        except Exception:
+            # Keep reset best-effort for backend-specific cache containers.
+            continue
+
+
 class EmbeddingModel:
     """Python interface for the Gemma 3 embedding engine."""
 
@@ -354,8 +374,7 @@ class SyncGemmaModel:
         if self._llm is None:
             raise RuntimeError(_core_unavailable_message("generation"))
 
-        if isinstance(self._llm, dict):
-            self._llm["pos"] = 0
+        _reset_llm_session_state(self._llm)
 
         for t in tokens[:-1]:
             self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
