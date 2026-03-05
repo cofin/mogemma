@@ -9,12 +9,14 @@
    - Stores mutable position counter (`pos`) and runtime metadata in `llm` dictionary.
 2. `step(llm, token, sampling...)`:
    - Reads mutable position/caches from `llm`.
-   - Rebuilds model-view (`_build_model_from_runtime` / `_build_nano_model_from_runtime`) on each token.
+   - Standard path reads from cached runtime descriptor and no longer calls `_build_model_from_runtime` on each token.
+   - Nano path still rebuilds model-view (`_build_nano_model_from_runtime`) on each token.
    - Allocates transient scratch and output logits each call.
    - Advances `llm[\"pos\"]`.
 3. `generate_embeddings(llm, batch_tokens)`:
    - Reads runtime metadata.
-   - Rebuilds model-view per call.
+   - Standard path reads from cached runtime descriptor and no longer calls `_build_model_from_runtime` per call.
+   - Nano path still rebuilds model-view per call.
    - Re-allocates RoPE, KV, scratch, and intermediate embedding buffers per call.
 
 ## Allocation Boundary Snapshot
@@ -30,7 +32,8 @@
 
 - `step`: scratch buffer, logits buffer
 - `generate_embeddings`: RoPE lists, KV lists, scratch, input_ids, emb_out
-- model-view materialization (`ModelWeights` / `NanoModelWeights`) in both `step` and `generate_embeddings`
+- standard runtime layer descriptor hydration per layer call
+- nano model-view materialization (`NanoModelWeights`) in both `step` and `generate_embeddings`
 
 ## Proposed Runtime/Session Structure
 
@@ -82,3 +85,10 @@ Observed checkpoints:
 - `embedding_shape = (2, 8)` on same loaded session context
 
 This confirms session reuse hooks execute without cross-prompt state drift for the current CPU abstraction path.
+
+## Refactor Checkpoint (2026-03-05)
+
+- Commit `9abe88e` removed standard-path hot-loop calls to `_build_model_from_runtime` in both `step_mojo` and `generate_embeddings_mojo`.
+- New helper paths now consume `llm["runtime"]` directly for standard model execution.
+- `descriptor_build_count` remains stable at `1` for standard-path runs in the updated core test coverage.
+- Nano-path rebuild removal is still pending; `mogemma-2mo.2.4` remains in progress for that scope.
