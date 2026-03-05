@@ -331,3 +331,52 @@ def test_gemma_generate_keeps_existing_instruction_template(
 
     encoded_prompt = mock_tokenizer.encode.call_args.args[0]
     assert encoded_prompt == prompt
+
+
+def test_generation_model_rejects_unknown_backend(
+    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub
+) -> None:
+    del mock_tokenizer
+    del mock_core
+    config = GenerationConfig(model_path=Path(dummy_model_path), device="banana")
+
+    with pytest.raises(ValueError, match="Unsupported backend"):
+        SyncGemmaModel(config)
+
+
+def test_gemma_generate_routes_through_backend_adapter(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CoreTrap:
+        def init_model(self, _: str) -> object:
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            raise AssertionError("SyncGemmaModel should not call _core.step directly")
+
+    class BackendStub:
+        backend_id = "test_backend"
+
+        def __init__(self) -> None:
+            self.step_calls = 0
+
+        def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...]]]) -> object:
+            del metadata
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            self.step_calls += 1
+            return np.array([0.0, 0.0, 5.0], dtype=np.float32)
+
+    backend = BackendStub()
+    monkeypatch.setattr(model_module, "_core", CoreTrap())
+    monkeypatch.setattr(model_module, "_resolve_generation_backend", lambda *_args, **_kwargs: backend, raising=False)
+
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=1, temperature=0.0)
+    model = SyncGemmaModel(config)
+    result = model.generate("Hello")
+
+    assert isinstance(result, str)
+    assert backend.step_calls >= 1

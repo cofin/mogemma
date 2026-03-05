@@ -240,3 +240,52 @@ def test_embedding_init_raises_on_core_init_failure(
 
     with pytest.raises(RuntimeError, match="embedding model failed to initialize"):
         EmbeddingModel(config)
+
+
+def test_embedding_model_rejects_unknown_backend(
+    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object
+) -> None:
+    del mock_tokenizer
+    del mock_core
+    config = EmbeddingConfig(model_path=Path(dummy_model_path), device="banana")
+
+    with pytest.raises(ValueError, match="Unsupported backend"):
+        EmbeddingModel(config)
+
+
+def test_embedding_routes_through_backend_adapter(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CoreTrap:
+        def init_model(self, _: str) -> object:
+            return object()
+
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
+            del llm, tokens
+            raise AssertionError("EmbeddingModel should not call _core.generate_embeddings directly")
+
+    class BackendStub:
+        backend_id = "test_backend"
+
+        def __init__(self) -> None:
+            self.embed_calls = 0
+
+        def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...]]]) -> object:
+            del metadata
+            return object()
+
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
+            del llm
+            self.embed_calls += 1
+            return np.ones((len(tokens), 768), dtype=np.float32)
+
+    backend = BackendStub()
+    monkeypatch.setattr(model_module, "_core", CoreTrap())
+    monkeypatch.setattr(model_module, "_resolve_embedding_backend", lambda *_args, **_kwargs: backend, raising=False)
+
+    config = EmbeddingConfig(model_path=Path(dummy_model_path))
+    model = EmbeddingModel(config)
+    embeddings = model.embed_tokens([[1, 2, 3]])
+
+    assert embeddings.shape == (1, 768)
+    assert backend.embed_calls == 1

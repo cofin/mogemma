@@ -9,6 +9,12 @@ from typing import Protocol, cast
 import numpy as np
 import numpy.typing as npt
 
+from .backends import (
+    EmbeddingBackend,
+    GenerationBackend,
+    resolve_embedding_backend as _resolve_embedding_backend_impl,
+    resolve_generation_backend as _resolve_generation_backend_impl,
+)
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
 from .loader import ModelLoader, auto_loader
@@ -78,26 +84,40 @@ def _resolve_model_path(raw_model_path: str | Path) -> Path:
     return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
-def _initialize_llm(loader: ModelLoader, *, model_type: str) -> object:
+def _core_unavailable_message(model_type: str) -> str:
+    if model_type == "embedding":
+        return (
+            "Mojo core is unavailable for embeddings. "
+            "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
+        )
+    return (
+        "Mojo core is unavailable for text generation. "
+        "Build/install the `mogemma._core` extension before calling generate()."
+    )
+
+
+def _initialize_llm(loader: ModelLoader, backend: GenerationBackend | EmbeddingBackend, *, model_type: str) -> object:
     if _core is None:
-        if model_type == "embedding":
-            msg = (
-                "Mojo core is unavailable for embeddings. "
-                "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
-            )
-        else:
-            msg = (
-                "Mojo core is unavailable for text generation. "
-                "Build/install the `mogemma._core` extension before calling generate()."
-            )
-        raise RuntimeError(msg)
+        raise RuntimeError(_core_unavailable_message(model_type))
 
     try:
         metadata = loader.get_tensor_metadata()
-        return _core.init_model(metadata)
+        return backend.init_model(metadata)
     except Exception as exc:
         msg = f"{model_type} model failed to initialize from '{loader.model_path}': {exc}"
         raise RuntimeError(msg) from exc
+
+
+def _resolve_generation_backend(device: str) -> GenerationBackend:
+    if _core is None:
+        raise RuntimeError(_core_unavailable_message("generation"))
+    return _resolve_generation_backend_impl(device=device, core_module=_core)
+
+
+def _resolve_embedding_backend(device: str) -> EmbeddingBackend:
+    if _core is None:
+        raise RuntimeError(_core_unavailable_message("embedding"))
+    return _resolve_embedding_backend_impl(device=device, core_module=_core)
 
 
 def _sample_next_token(logits: npt.ArrayLike, *, temperature: float, top_k: int, top_p: float) -> int:
@@ -193,9 +213,11 @@ class EmbeddingModel:
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
+        self._backend = _resolve_embedding_backend(config.device)
+        self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(self._loader, model_type="embedding")
+        self._llm: object | None = _initialize_llm(self._loader, self._backend, model_type="embedding")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -216,14 +238,10 @@ class EmbeddingModel:
         raise FileNotFoundError(msg)
 
     def _embed_token_array(self, tokens: Sequence[Sequence[int]], input_count: int) -> npt.NDArray[np.float32]:
-        if _core is None or self._llm is None:
-            msg = (
-                "Mojo core is unavailable for embeddings. "
-                "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
-            )
-            raise RuntimeError(msg)
+        if self._llm is None:
+            raise RuntimeError(_core_unavailable_message("embedding"))
 
-        raw_embeddings = _core.generate_embeddings(self._llm, tokens)
+        raw_embeddings = self._backend.generate_embeddings(self._llm, tokens)
         embeddings = np.asarray(raw_embeddings, dtype=np.float32)
 
         if embeddings.ndim != _EXPECTED_MATRIX_DIMS:
@@ -295,9 +313,11 @@ class SyncGemmaModel:
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
+        self._backend = _resolve_generation_backend(config.device)
+        self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(self._loader, model_type="generation")
+        self._llm: object | None = _initialize_llm(self._loader, self._backend, model_type="generation")
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -331,18 +351,14 @@ class SyncGemmaModel:
             if not tokens or tokens[0] != _BOS_TOKEN_ID:
                 tokens = [_BOS_TOKEN_ID, *list(tokens)]
 
-        if _core is None or self._llm is None:
-            msg = (
-                "Mojo core is unavailable for text generation. "
-                "Build/install the `mogemma._core` extension before calling generate()."
-            )
-            raise RuntimeError(msg)
+        if self._llm is None:
+            raise RuntimeError(_core_unavailable_message("generation"))
 
         if isinstance(self._llm, dict):
             self._llm["pos"] = 0
 
         for t in tokens[:-1]:
-            _core.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
+            self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
 
         if tokens:
             current_token = int(tokens[-1])
@@ -352,7 +368,9 @@ class SyncGemmaModel:
 
         eos_token_id = _normalize_eos_token_id(tokenizer)
         for _ in range(self.config.max_tokens):
-            logits = _core.step(self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p)
+            logits = self._backend.step(
+                self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p
+            )
 
             next_token = _sample_next_token(
                 logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
