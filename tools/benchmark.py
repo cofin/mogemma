@@ -19,9 +19,12 @@ from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemma
 class _FakeTokenizer:
     """Deterministic tokenizer stub used to avoid external dependencies."""
 
+    def __init__(self, model_path: str) -> None:
+        del model_path
+
     @classmethod
     def from_pretrained(cls, _model_path: str) -> _FakeTokenizer:
-        return cls()
+        return cls(_model_path)
 
     def encode(self, text: str) -> SimpleNamespace:
         del text
@@ -49,18 +52,18 @@ class _FakeTokenizer:
 class _FakeCore:
     """Core stub with deterministic outputs for benchmark reproducibility."""
 
-    def init_model(self, model_path: str) -> object:
-        del model_path
-        return object()
+    def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
+        del metadata
+        return {"pos": 0}
 
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
         del llm, temp, top_k, top_p
         base = float(token_id)
         return np.asarray([base + 0.1, base + 0.2, base + 0.3], dtype=np.float32)
 
-    def generate_embeddings(self, llm: object, tokens: npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+    def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
         del llm
-        return np.tile(np.arange(768, dtype=np.float32), (tokens.shape[0], 1))
+        return np.tile(np.arange(768, dtype=np.float32), (len(tokens), 1))
 
 
 class _FakeLoader:
@@ -82,7 +85,8 @@ def _fake_auto_loader(model_path: str | Path) -> _FakeLoader:
 
 def _install_stubs() -> None:
     model_module._core = _FakeCore()
-    model_module._TokenizerImpl = _FakeTokenizer
+    model_module._Tokenizer = _FakeTokenizer
+    model_module.SENTENCEPIECE_INSTALLED = True
     model_module.auto_loader = _fake_auto_loader  # type: ignore[attr-defined]
 
 
@@ -138,10 +142,11 @@ def _run_benchmark() -> dict[str, object]:
     _install_stubs()
     model_root = Path("benchmark-model")
     model_root.mkdir(exist_ok=True)
+    (model_root / "tokenizer.model").touch(exist_ok=True)
 
     metrics: dict[str, object]
     if args.mode == "generation":
-        config = GenerationConfig(model_path=model_root, max_tokens=args.max_tokens)
+        config = GenerationConfig(model_path=model_root, max_tokens=args.max_new_tokens)
         metrics = _run_generation(config, "Benchmark prompt for release parity.", rounds=args.rounds)
     else:
         config = EmbeddingConfig(model_path=model_root)
@@ -151,7 +156,7 @@ def _run_benchmark() -> dict[str, object]:
     return {
         "mode": args.mode,
         "model_path": str(model_root),
-        "max_tokens": args.max_tokens,
+        "max_tokens": args.max_new_tokens,
         "environment": _environment_payload(),
         **metrics,
     }

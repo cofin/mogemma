@@ -75,6 +75,24 @@ If variance exceeds threshold, run a second capture and compare both results bef
   - `docs/baseline-embedding.json`
 - Keep all claims factual and avoid superlatives.
 
+## Runtime-State Refactor Evidence (2026-03-05)
+
+Commands executed:
+
+1. `uv run python tools/benchmark.py --mode generation --rounds 50 --max-new-tokens 64 > docs/baseline-generation.json`
+2. `uv run python tools/benchmark.py --mode embedding --rounds 50 > docs/baseline-embedding.json`
+
+Captured metrics:
+
+- Generation:
+  - `tokens_per_second`: `6500.09526611428`
+  - `elapsed_s`: `0.015230546006932855`
+  - `rounds`: `50`
+- Embedding:
+  - `calls_per_second`: `74006.10586899596`
+  - `elapsed_s`: `0.0006756199290975928`
+  - `rounds`: `50`
+
 ## Performance report template
 
 Use this template when assembling release evidence:
