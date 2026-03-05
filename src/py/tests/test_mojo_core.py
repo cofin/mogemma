@@ -645,4 +645,4 @@ def test_mojo_core_step_nano_reuses_prepared_model_views() -> None:
 
     embeddings = _core.generate_embeddings(llm, np.array([[1, 2, 3]], dtype=np.int32))
     assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
-    assert llm["nano_model_build_count"] == 2
+    assert llm["nano_model_build_count"] == 1
