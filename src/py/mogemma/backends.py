@@ -66,17 +66,29 @@ class CPUCoreBackend:
 
 
 def resolve_backend_id(device: str) -> str:
-    """Resolve user-facing device/backend values into canonical backend IDs."""
+    """Resolve user-facing device/backend values into canonical backend IDs.
+
+    Resolution order:
+    1. Empty/whitespace -> `cpu_mojo`.
+    2. Exact canonical IDs and known aliases (`cpu`, `cpu_mojo`, `gpu`, `gpu_mojo`).
+    3. GPU selectors of the form `gpu:N` (future-compatible with device index).
+    """
     normalized = device.strip().lower()
     if not normalized:
         return _CPU_BACKEND_ID
 
     backend_id = _BACKEND_ALIASES.get(normalized)
-    if backend_id is None:
-        supported = ", ".join(sorted(_BACKEND_ALIASES))
-        msg = f"Unsupported backend '{device}'. Supported backends: {supported}"
-        raise ValueError(msg)
-    return backend_id
+    if backend_id is not None:
+        return backend_id
+
+    if normalized.startswith("gpu:"):
+        _, _, selector = normalized.partition(":")
+        if selector.isdigit():
+            return _GPU_BACKEND_ID
+
+    supported = "cpu, cpu_mojo, gpu, gpu_mojo, gpu:<index>"
+    msg = f"Unsupported backend '{device}'. Supported backends: {supported}"
+    raise ValueError(msg)
 
 
 def resolve_generation_backend(*, device: str, core_module: object) -> GenerationBackend:
