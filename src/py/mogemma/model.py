@@ -292,9 +292,7 @@ class EmbeddingModel:
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
-        self._device_selection: DeviceSelection = resolve_device_selection(
-            config.device, unavailable_gpu_policy=config.unavailable_gpu_policy
-        )
+        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         self._backend = _resolve_embedding_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
 
@@ -400,9 +398,7 @@ class SyncGemmaModel:
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
-        self._device_selection: DeviceSelection = resolve_device_selection(
-            config.device, unavailable_gpu_policy=config.unavailable_gpu_policy
-        )
+        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         self._backend = _resolve_generation_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
 

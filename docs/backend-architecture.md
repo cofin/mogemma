@@ -34,7 +34,7 @@ The following hooks are intentionally left as extension points for `gpu`:
    - Keep CPU behavior intact through `CPUCoreBackend`.
 2. Phase B (GPU adapter introduction):
    - Add `gpu` adapter implementations behind resolver branches.
-   - Keep `cpu` as deterministic CPU downgrade target until parity gates pass.
+   - Keep `cpu` as the explicit CPU execution path.
 3. Phase C (runtime/device integration):
    - Integrate runtime-state and device-selection flows into the adapter seam.
    - Avoid public API changes unless required for explicit capability reporting.
@@ -57,7 +57,7 @@ The following hooks are intentionally left as extension points for `gpu`:
 
 1. `src/py/mogemma/backends.py`:
    - Stable seam: `resolve_backend_id` already normalizes `cpu|gpu|gpu:N`.
-   - Chapter 3 should extend this into full device-capability semantics and unavailable-GPU policy handling.
+   - Chapter 3 should extend this into full device-capability semantics.
 2. `src/py/mogemma/config.py` + `src/py/mogemma/model.py`:
    - Stable seam: `config.device` is threaded into backend resolution.
    - Chapter 3 can add richer validation/capability errors while preserving current defaults.

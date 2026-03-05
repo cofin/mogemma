@@ -15,13 +15,12 @@ Normalized backend IDs (internal):
 
 ## Capability and Unavailable-GPU Policy Matrix
 
-| Requested | GPU available | `unavailable_gpu_policy` | Result |
-| --- | --- | --- | --- |
-| `cpu` | n/a | `error`/`use_cpu` | use `cpu` |
-| `gpu` | `True` | `error`/`use_cpu` | use `gpu` |
-| `gpu:<index>` | `True` | `error`/`use_cpu` | use `gpu` with index |
-| `gpu` / `gpu:<index>` | `False` | `error` | raise deterministic runtime error |
-| `gpu` / `gpu:<index>` | `False` | `use_cpu` | deterministic CPU downgrade |
+| Requested | GPU available | Result |
+| --- | --- | --- |
+| `cpu` | n/a | use `cpu` |
+| `gpu` | `True` | use `gpu` |
+| `gpu:<index>` | `True` | use `gpu` with index |
+| `gpu` / `gpu:<index>` | `False` | raise deterministic runtime error |
 
 ## Capability Hook
 
@@ -37,14 +36,9 @@ This keeps behavior deterministic in tests and CPU-only hosts until runtime GPU 
 ```python
 from mogemma import GenerationConfig, SyncGemmaModel
 
-# Deterministic error if GPU is unavailable:
-strict_gpu = SyncGemmaModel(
-    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0", unavailable_gpu_policy="error")
-)
-
-# Deterministic CPU downgrade if GPU unavailable:
-cpu_downgrade_gpu = SyncGemmaModel(
-    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0", unavailable_gpu_policy="use_cpu")
+# Deterministic error if GPU is unavailable
+gpu_model = SyncGemmaModel(
+    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0")
 )
 ```
 
@@ -52,6 +46,5 @@ cpu_downgrade_gpu = SyncGemmaModel(
 
 Executed local policy checks:
 
-- CPU-only strict mode (`gpu:0`, `unavailable_gpu_policy="error"`) -> deterministic error
-- CPU-only downgrade mode (`gpu:0`, `unavailable_gpu_policy="use_cpu"`) -> `('cpu', 'cpu', True)`
-- Mocked GPU capability (`gpu:1`, `gpu_available=True`) -> `('gpu', 'gpu:1', False)`
+- CPU-only host (`gpu:0`) -> deterministic error
+- Mocked GPU capability (`gpu:1`, `gpu_available=True`) -> selected `('gpu', 'gpu:1')`

@@ -340,9 +340,9 @@ def test_embedding_model_uses_normalized_backend_descriptor(
 
     seen: dict[str, object] = {}
 
-    def fake_resolve_device_selection(device: str, *, unavailable_gpu_policy: str):
-        seen["request"] = (device, unavailable_gpu_policy)
-        return model_module.DeviceSelection(device, "cpu", "cpu", None, False)
+    def fake_resolve_device_selection(device: str):
+        seen["request"] = device
+        return model_module.DeviceSelection(device, "cpu", "cpu", None)
 
     def fake_resolve_backend(device: str) -> BackendStub:
         seen["backend_device"] = device
@@ -352,10 +352,8 @@ def test_embedding_model_uses_normalized_backend_descriptor(
     monkeypatch.setattr(model_module, "resolve_device_selection", fake_resolve_device_selection)
     monkeypatch.setattr(model_module, "_resolve_embedding_backend", fake_resolve_backend, raising=False)
 
-    model = EmbeddingModel(
-        EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu", unavailable_gpu_policy="use_cpu")
-    )
+    model = EmbeddingModel(EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu"))
 
-    assert seen["request"] == ("cpu", "use_cpu")
+    assert seen["request"] == "cpu"
     assert seen["backend_device"] == "cpu"
     assert model._device_selection.effective_backend_id == "cpu"  # noqa: SLF001

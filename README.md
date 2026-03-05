@@ -83,8 +83,8 @@ model = SyncGemmaModel(config)
 
 Device handling is deterministic:
 
-- default: unavailable GPU requests raise an explicit error
-- optional: set `unavailable_gpu_policy="use_cpu"` to run on CPU if GPU is unavailable
+- `device="cpu"` always runs on CPU
+- unavailable GPU requests raise an explicit error
 
 ```python
 from mogemma import GenerationConfig, SyncGemmaModel
@@ -92,7 +92,6 @@ from mogemma import GenerationConfig, SyncGemmaModel
 config = GenerationConfig(
     model_path="gemma3-1b-it",
     device="gpu:0",
-    unavailable_gpu_policy="use_cpu",
 )
 model = SyncGemmaModel(config)
 ```

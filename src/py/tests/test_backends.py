@@ -98,24 +98,11 @@ def test_cpu_core_backend_rejects_missing_core_entrypoints() -> None:
 
 def test_resolve_device_selection_raises_for_unavailable_gpu_by_default() -> None:
     with pytest.raises(RuntimeError, match="unavailable"):
-        resolve_device_selection("gpu:0", unavailable_gpu_policy="error", gpu_available=False)
-
-
-def test_resolve_device_selection_uses_cpu_downgrade_policy_when_enabled() -> None:
-    selection = resolve_device_selection("gpu:0", unavailable_gpu_policy="use_cpu", gpu_available=False)
-    assert selection.effective_backend_id == "cpu"
-    assert selection.effective_device == "cpu"
-    assert selection.used_cpu_downgrade is True
+        resolve_device_selection("gpu:0", gpu_available=False)
 
 
 def test_resolve_device_selection_honors_env_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MOGEMMA_GPU_AVAILABLE", "1")
-    selection = resolve_device_selection("gpu", unavailable_gpu_policy="error")
+    selection = resolve_device_selection("gpu")
     assert selection.effective_backend_id == "gpu"
-    assert selection.used_cpu_downgrade is False
     monkeypatch.delenv("MOGEMMA_GPU_AVAILABLE", raising=False)
-
-
-def test_resolve_device_selection_rejects_invalid_gpu_policy() -> None:
-    with pytest.raises(ValueError, match="Unsupported unavailable_gpu_policy"):
-        resolve_device_selection("gpu", unavailable_gpu_policy="banana", gpu_available=False)

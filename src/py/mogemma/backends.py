@@ -23,7 +23,6 @@ class DeviceSelection:
     effective_backend_id: str
     effective_device: str
     gpu_index: int | None
-    used_cpu_downgrade: bool
 
 
 class CoreModuleContract(Protocol):
@@ -140,17 +139,9 @@ def gpu_capability_available() -> bool:
 def resolve_device_selection(
     device: str,
     *,
-    unavailable_gpu_policy: str,
     gpu_available: bool | None = None,
 ) -> DeviceSelection:
-    """Resolve requested device into a concrete backend selection policy."""
-    policy = unavailable_gpu_policy.strip().lower()
-    if policy not in {"error", "use_cpu"}:
-        msg = (
-            f"Unsupported unavailable_gpu_policy '{unavailable_gpu_policy}'. "
-            "Supported policies: error, use_cpu"
-        )
-        raise ValueError(msg)
+    """Resolve requested device into a concrete backend selection."""
 
     backend_id, gpu_index = parse_device_spec(device)
     if backend_id == _CPU_BACKEND_ID:
@@ -159,7 +150,6 @@ def resolve_device_selection(
             effective_backend_id=_CPU_BACKEND_ID,
             effective_device="cpu",
             gpu_index=None,
-            used_cpu_downgrade=False,
         )
 
     available = gpu_capability_available() if gpu_available is None else gpu_available
@@ -170,22 +160,8 @@ def resolve_device_selection(
             effective_backend_id=_GPU_BACKEND_ID,
             effective_device=requested_label,
             gpu_index=gpu_index,
-            used_cpu_downgrade=False,
         )
-
-    if policy == "use_cpu":
-        return DeviceSelection(
-            requested=device,
-            effective_backend_id=_CPU_BACKEND_ID,
-            effective_device="cpu",
-            gpu_index=None,
-            used_cpu_downgrade=True,
-        )
-
-    msg = (
-        f"Requested device '{requested_label}' is unavailable. "
-        "Set unavailable_gpu_policy='use_cpu' to continue on cpu."
-    )
+    msg = f"Requested device '{requested_label}' is unavailable on this host."
     raise RuntimeError(msg)
 
 
