@@ -47,6 +47,7 @@ build: ## Build Mojo python extension using hatch-mojo
 	@echo "${INFO} Building Mojo core..."
 	@mkdir -p src/py/mogemma
 	@uv build --wheel
+	@uv run python -c 'import glob,zipfile;from pathlib import Path;w=sorted(glob.glob("dist/mogemma-*.whl"));assert w,"No built wheel found under dist/";p=Path("src/py/mogemma/_core.so");z=zipfile.ZipFile(w[-1]);p.write_bytes(z.read("mogemma/_core.so"));z.close();print(f"Staged {p} from {w[-1]}")'
 
 .PHONY: smoke-test
 smoke-test: ## Run the Mojo bridge smoke test
