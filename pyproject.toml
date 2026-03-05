@@ -39,7 +39,7 @@ telemetry = [
 
 
 [build-system]
-requires = ["hatchling", "hatch-mojo>=0.1.5", "mojo>=0.26.1"]
+requires = ["hatchling", "hatch-mojo>=0.1.5", "mojo>=0.26.1", "patchelf>=0.17.2.4; platform_system == 'Linux'"]
 build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
@@ -61,24 +61,17 @@ before-all = [
 ]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64"
 manylinux-aarch64-image = "quay.io/pypa/manylinux_2_34_aarch64"
-# Enable bundle-libs on Linux (safe here; macOS blocked by hatch-mojo#10).
-before-build = ["sed -i 's/bundle-libs = false/bundle-libs = true/' pyproject.toml"]
 # Mojo runtime libs use GLIBCXX symbols newer than the manylinux_2_34
 # baseline, so auditwheel repair refuses. Since hatch-mojo already bundles
 # libs and patches RPATH, we just retag the wheel (same as official mojo pkg).
 repair-wheel-command = "pip install wheel && python -m wheel tags --platform-tag manylinux_2_34_$(uname -m) {wheel} && cp $(dirname {wheel})/*manylinux*.whl {dest_dir}/"
 
-[tool.cibuildwheel.macos]
-# TODO(cofin/hatch-mojo#10): bundle-libs requires libNVPTX which doesn't
-# exist on macOS. Disable repair until upstream makes NVPTX Linux-only.
-repair-wheel-command = ""
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/py/mogemma"]
 
 [tool.hatch.build.targets.wheel.hooks.mojo]
-# Default false for macOS (cofin/hatch-mojo#10); Linux CI enables via sed.
-bundle-libs = false
+# Canonical baseline across local and CI builds.
+bundle-libs = true
 
 [[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]
 name = "core"
