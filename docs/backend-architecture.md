@@ -61,3 +61,11 @@ The following hooks are intentionally left as extension points for `gpu_mojo`:
 2. `src/py/mogemma/config.py` + `src/py/mogemma/model.py`:
    - Stable seam: `config.device` is threaded into backend resolution.
    - Chapter 3 can add richer validation/capability errors while preserving current defaults.
+
+## Manual Smoke Verification (2026-03-05)
+
+Local smoke run executed generation + embedding flows through public model classes with default config values (except local `model_path`) and inspection of runtime fields/calls:
+
+- `generation._backend_id == "cpu_mojo"`
+- `embedding._backend_id == "cpu_mojo"`
+- Core call trace included both generation `step` and embedding `generate_embeddings`, confirming adapter-routed CPU execution path.
