@@ -448,6 +448,39 @@ def test_gemma_generation_resets_session_caches_between_calls(
     assert np.all(model._llm["v_cache"] == 0.0)  # type: ignore[index]  # noqa: SLF001
 
 
+def test_gemma_generation_resets_list_backed_caches_between_calls(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class ListCacheCore:
+        def __init__(self) -> None:
+            self.seen_k_cache_prefix: list[list[float]] = []
+            self.seen_v_cache_prefix: list[list[float]] = []
+
+        def init_model(self, _: str) -> object:
+            return {"pos": 0, "k_cache": [7.0, 7.0, 7.0], "v_cache": [9.0, 9.0, 9.0]}
+
+        def step(self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del token_id, temp, top_k, top_p
+            self.seen_k_cache_prefix.append(list(llm["k_cache"]))  # type: ignore[arg-type]
+            self.seen_v_cache_prefix.append(list(llm["v_cache"]))  # type: ignore[arg-type]
+            llm["pos"] = int(llm.get("pos", 0)) + 1
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # eos immediately
+
+    core = ListCacheCore()
+    monkeypatch.setattr(model_module, "_core", core)
+    config = GenerationConfig(model_path=Path(dummy_model_path), max_tokens=1, temperature=0.0)
+    model = SyncGemmaModel(config)
+
+    _ = model.generate("first")
+    _ = model.generate("second")
+
+    # First decode step in both calls should observe reset caches.
+    assert core.seen_k_cache_prefix[0] == [0.0, 0.0, 0.0]
+    assert core.seen_k_cache_prefix[1] == [0.0, 0.0, 0.0]
+    assert core.seen_v_cache_prefix[0] == [0.0, 0.0, 0.0]
+    assert core.seen_v_cache_prefix[1] == [0.0, 0.0, 0.0]
+
+
 def test_gemma_generation_restarts_position_each_call(
     dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:

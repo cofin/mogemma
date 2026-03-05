@@ -265,6 +265,10 @@ def _reset_llm_session_state(llm: object) -> None:
         if hasattr(cache, "fill"):
             cache.fill(0.0)
             continue
+        if isinstance(cache, list):
+            for i in range(len(cache)):
+                cache[i] = 0.0
+            continue
         try:
             np.asarray(cache).fill(0.0)
         except Exception:
