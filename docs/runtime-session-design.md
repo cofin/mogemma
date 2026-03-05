@@ -31,3 +31,41 @@
 - `step`: scratch buffer, logits buffer
 - `generate_embeddings`: RoPE lists, KV lists, scratch, input_ids, emb_out
 - model-view materialization (`ModelWeights` / `NanoModelWeights`) in both `step` and `generate_embeddings`
+
+## Proposed Runtime/Session Structure
+
+### Runtime Descriptor (immutable after init)
+
+- Owner: `init_model` stage
+- Contents:
+  - architecture kind (`standard` / `nano`)
+  - tensor metadata + static dimensions
+  - optional backend capabilities flags (future)
+- Goal: single source of shape/layout truth across all entrypoints
+
+### Session State (mutable, reusable)
+
+- Owner: `step` + session lifecycle operations
+- Contents:
+  - position (`pos`)
+  - KV caches
+  - reusable RoPE/precompute buffers
+  - counters/diagnostics for build and reuse checks
+- Goal: avoid per-token model-view reconstruction and isolate request/session state
+
+### Embedding Invocation State (ephemeral)
+
+- Owner: `generate_embeddings`
+- Contents:
+  - per-call scratch/input/output working buffers
+- Goal: keep embedding path deterministic without leaking mutable generation state
+
+## Mutable Field Ownership Map (Checkpoint)
+
+- `pos`: session state owner (resettable by lifecycle hook)
+- `k_cache` / `v_cache`: session state owner (resettable/zeroable)
+- `runtime` metadata: runtime descriptor owner (read-only post init)
+- shape/config metadata (`num_layers`, `head_dim`, `hidden_size`, `intermediate_size`, `vocab_size`, `per_layer_dim`, `kv_share_start`):
+  - runtime descriptor owner (read-only post init)
+- temporary scratch + output tensors:
+  - entrypoint-local owner (`step` or `generate_embeddings`)
