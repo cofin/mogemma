@@ -15,11 +15,6 @@ def _get_ptr(arr: npt.NDArray[np.float32]) -> int:
     return int(arr.__array_interface__["data"][0])
 
 
-def _descriptor_build_count(llm: dict[str, object]) -> int:
-    """Return descriptor build count, defaulting to 1 for older cores."""
-    return int(llm.get("descriptor_build_count", 1))
-
-
 def test_mojo_core_init_standard() -> None:
     # Allocate some real arrays
     tensors = {
@@ -55,7 +50,6 @@ def test_mojo_core_init_standard() -> None:
     assert llm["num_kv_heads"] == _EXPECTED_HEAD_DIM
     assert llm["hidden_size"] == _EXPECTED_HIDDEN_SIZE
     assert llm["vocab_size"] == _EXPECTED_VOCAB_SIZE
-    assert _descriptor_build_count(llm) == 1
 
 
 def test_mojo_core_step_standard() -> None:
@@ -87,48 +81,6 @@ def test_mojo_core_step_standard() -> None:
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
-    assert _descriptor_build_count(llm) == 1
-
-    logits2 = _core.step(llm, 2, 0.0, 0, 0.0)
-    assert logits2.shape == (_EXPECTED_VOCAB_SIZE,)
-    assert llm["pos"] == 2
-    assert _descriptor_build_count(llm) == 1
-
-
-def test_mojo_core_reuses_cached_descriptor_across_embedding_and_step() -> None:
-    tensors = {
-        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
-        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
-        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
-        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
-        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
-        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
-        "model.layers.0.self_attn.k_proj.weight": np.zeros(
-            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
-        ),
-        "model.layers.0.self_attn.v_proj.weight": np.zeros(
-            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
-        ),
-        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
-        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
-        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
-        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
-        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
-        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
-        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
-        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
-    }
-    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
-    llm = _core.init_model(metadata)
-    assert _descriptor_build_count(llm) == 1
-
-    embeddings = _core.generate_embeddings(llm, np.array([[1, 2, 3]], dtype=np.int32))
-    assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
-    assert _descriptor_build_count(llm) == 1
-
-    logits = _core.step(llm, 1, 0.0, 0, 0.0)
-    assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
-    assert _descriptor_build_count(llm) == 1
 
 
 def test_mojo_core_init_nano() -> None:
@@ -194,7 +146,6 @@ def test_mojo_core_init_nano() -> None:
     assert llm["num_layers"] == 1
     assert llm["head_dim"] == _EXPECTED_HEAD_DIM
     assert llm["per_layer_dim"] == _EXPECTED_PER_LAYER_DIM_SMALL
-    assert _descriptor_build_count(llm) == 1
 
 
 def test_mojo_core_init_nano_with_3d_per_layer_embed() -> None:
@@ -326,12 +277,6 @@ def test_mojo_core_step_nano() -> None:
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
-    assert _descriptor_build_count(llm) == 1
-
-    logits2 = _core.step(llm, 2, 0.0, 0, 0.0)
-    assert logits2.shape == (_EXPECTED_VOCAB_SIZE,)
-    assert llm["pos"] == 2
-    assert _descriptor_build_count(llm) == 1
 
 
 def test_mojo_core_detects_nano_kv_share_start_boundary() -> None:
@@ -474,4 +419,3 @@ def test_mojo_core_embeddings_nano() -> None:
     input_ids = np.array([[1, 2, 3]], dtype=np.int32)
     embeddings = _core.generate_embeddings(llm, input_ids)
     assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
-    assert _descriptor_build_count(llm) == 1
