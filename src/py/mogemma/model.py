@@ -26,7 +26,7 @@ from .typing import SENTENCEPIECE_INSTALLED, _SPProcessorImpl
 try:
     from . import _core
 except ImportError:
-    # Allow fallback for development/testing if .so is missing
+    # Keep import optional for development/testing environments.
     _core = None
 
 
@@ -236,9 +236,9 @@ class EmbeddingModel:
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
         self._device_selection: DeviceSelection = resolve_device_selection(
-            config.device, allow_fallback=config.allow_device_fallback
+            config.device, unavailable_gpu_policy=config.unavailable_gpu_policy
         )
-        self._backend = _resolve_embedding_backend(self._device_selection.effective_backend_id)
+        self._backend = _resolve_embedding_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
@@ -339,9 +339,9 @@ class SyncGemmaModel:
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
         self._device_selection: DeviceSelection = resolve_device_selection(
-            config.device, allow_fallback=config.allow_device_fallback
+            config.device, unavailable_gpu_policy=config.unavailable_gpu_policy
         )
-        self._backend = _resolve_generation_backend(self._device_selection.effective_backend_id)
+        self._backend = _resolve_generation_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core

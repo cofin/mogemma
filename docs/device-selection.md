@@ -8,20 +8,20 @@ Supported device forms:
 - `gpu`
 - `gpu:<index>` (for example, `gpu:0`)
 
-Normalized backend IDs:
+Normalized backend IDs (internal):
 
-- `cpu` -> `cpu_mojo`
-- `gpu` / `gpu:<index>` -> `gpu_mojo`
+- `cpu` -> `cpu`
+- `gpu` / `gpu:<index>` -> `gpu`
 
-## Capability and Fallback Matrix
+## Capability and Unavailable-GPU Policy Matrix
 
-| Requested | GPU available | `allow_device_fallback` | Result |
+| Requested | GPU available | `unavailable_gpu_policy` | Result |
 | --- | --- | --- | --- |
-| `cpu` | n/a | `False`/`True` | use `cpu_mojo` |
-| `gpu` | `True` | `False`/`True` | use `gpu_mojo` |
-| `gpu:<index>` | `True` | `False`/`True` | use `gpu_mojo` with index |
-| `gpu` / `gpu:<index>` | `False` | `False` | raise deterministic runtime error |
-| `gpu` / `gpu:<index>` | `False` | `True` | deterministic fallback to `cpu_mojo` |
+| `cpu` | n/a | `error`/`use_cpu` | use `cpu` |
+| `gpu` | `True` | `error`/`use_cpu` | use `gpu` |
+| `gpu:<index>` | `True` | `error`/`use_cpu` | use `gpu` with index |
+| `gpu` / `gpu:<index>` | `False` | `error` | raise deterministic runtime error |
+| `gpu` / `gpu:<index>` | `False` | `use_cpu` | deterministic CPU downgrade |
 
 ## Capability Hook
 
@@ -39,12 +39,12 @@ from mogemma import GenerationConfig, SyncGemmaModel
 
 # Deterministic error if GPU is unavailable:
 strict_gpu = SyncGemmaModel(
-    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0", allow_device_fallback=False)
+    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0", unavailable_gpu_policy="error")
 )
 
-# Deterministic fallback to CPU if GPU unavailable:
-fallback_gpu = SyncGemmaModel(
-    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0", allow_device_fallback=True)
+# Deterministic CPU downgrade if GPU unavailable:
+cpu_downgrade_gpu = SyncGemmaModel(
+    GenerationConfig(model_path="gemma3-270m-it", device="gpu:0", unavailable_gpu_policy="use_cpu")
 )
 ```
 
@@ -52,6 +52,6 @@ fallback_gpu = SyncGemmaModel(
 
 Executed local policy checks:
 
-- CPU-only strict mode (`gpu:0`, `allow_device_fallback=False`) -> deterministic error
-- CPU-only fallback mode (`gpu:0`, `allow_device_fallback=True`) -> `('cpu_mojo', 'cpu', True)`
-- Mocked GPU capability (`gpu:1`, `gpu_available=True`) -> `('gpu_mojo', 'gpu:1', False)`
+- CPU-only strict mode (`gpu:0`, `unavailable_gpu_policy="error"`) -> deterministic error
+- CPU-only downgrade mode (`gpu:0`, `unavailable_gpu_policy="use_cpu"`) -> `('cpu', 'cpu', True)`
+- Mocked GPU capability (`gpu:1`, `gpu_available=True`) -> `('gpu', 'gpu:1', False)`

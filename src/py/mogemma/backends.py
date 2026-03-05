@@ -11,14 +11,8 @@ import numpy.typing as npt
 
 TensorMetadata = dict[str, tuple[int, tuple[int, ...], str]]
 
-_CPU_BACKEND_ID = "cpu_mojo"
-_GPU_BACKEND_ID = "gpu_mojo"
-_BACKEND_ALIASES = {
-    "cpu": _CPU_BACKEND_ID,
-    _CPU_BACKEND_ID: _CPU_BACKEND_ID,
-    "gpu": _GPU_BACKEND_ID,
-    _GPU_BACKEND_ID: _GPU_BACKEND_ID,
-}
+_CPU_BACKEND_ID = "cpu"
+_GPU_BACKEND_ID = "gpu"
 
 
 @dataclass(frozen=True)
@@ -29,7 +23,7 @@ class DeviceSelection:
     effective_backend_id: str
     effective_device: str
     gpu_index: int | None
-    used_fallback: bool
+    used_cpu_downgrade: bool
 
 
 class CoreModuleContract(Protocol):
@@ -98,24 +92,23 @@ def resolve_backend_id(device: str) -> str:
     """Resolve user-facing device/backend values into canonical backend IDs.
 
     Resolution order:
-    1. Empty/whitespace -> `cpu_mojo`.
-    2. Exact canonical IDs and known aliases (`cpu`, `cpu_mojo`, `gpu`, `gpu_mojo`).
-    3. GPU selectors of the form `gpu:N` (future-compatible with device index).
+    1. Empty/whitespace -> `cpu`.
+    2. Exact canonical IDs (`cpu`, `gpu`).
+    3. GPU selectors of the form `gpu:N`.
     """
     normalized = device.strip().lower()
     if not normalized:
         return _CPU_BACKEND_ID
 
-    backend_id = _BACKEND_ALIASES.get(normalized)
-    if backend_id is not None:
-        return backend_id
+    if normalized in (_CPU_BACKEND_ID, _GPU_BACKEND_ID):
+        return normalized
 
     if normalized.startswith("gpu:"):
         _, _, selector = normalized.partition(":")
         if selector.isdigit():
             return _GPU_BACKEND_ID
 
-    supported = "cpu, cpu_mojo, gpu, gpu_mojo, gpu:<index>"
+    supported = "cpu, gpu, gpu:<index>"
     msg = f"Unsupported backend '{device}'. Supported backends: {supported}"
     raise ValueError(msg)
 
@@ -147,10 +140,18 @@ def gpu_capability_available() -> bool:
 def resolve_device_selection(
     device: str,
     *,
-    allow_fallback: bool,
+    unavailable_gpu_policy: str,
     gpu_available: bool | None = None,
 ) -> DeviceSelection:
     """Resolve requested device into a concrete backend selection policy."""
+    policy = unavailable_gpu_policy.strip().lower()
+    if policy not in {"error", "use_cpu"}:
+        msg = (
+            f"Unsupported unavailable_gpu_policy '{unavailable_gpu_policy}'. "
+            "Supported policies: error, use_cpu"
+        )
+        raise ValueError(msg)
+
     backend_id, gpu_index = parse_device_spec(device)
     if backend_id == _CPU_BACKEND_ID:
         return DeviceSelection(
@@ -158,7 +159,7 @@ def resolve_device_selection(
             effective_backend_id=_CPU_BACKEND_ID,
             effective_device="cpu",
             gpu_index=None,
-            used_fallback=False,
+            used_cpu_downgrade=False,
         )
 
     available = gpu_capability_available() if gpu_available is None else gpu_available
@@ -169,21 +170,21 @@ def resolve_device_selection(
             effective_backend_id=_GPU_BACKEND_ID,
             effective_device=requested_label,
             gpu_index=gpu_index,
-            used_fallback=False,
+            used_cpu_downgrade=False,
         )
 
-    if allow_fallback:
+    if policy == "use_cpu":
         return DeviceSelection(
             requested=device,
             effective_backend_id=_CPU_BACKEND_ID,
             effective_device="cpu",
             gpu_index=None,
-            used_fallback=True,
+            used_cpu_downgrade=True,
         )
 
     msg = (
         f"Requested device '{requested_label}' is unavailable. "
-        "Set allow_device_fallback=True to permit deterministic fallback to cpu."
+        "Set unavailable_gpu_policy='use_cpu' to continue on cpu."
     )
     raise RuntimeError(msg)
 
@@ -194,7 +195,7 @@ def resolve_generation_backend(*, device: str, core_module: object) -> Generatio
     if backend_id != _CPU_BACKEND_ID:
         msg = (
             f"Unsupported backend '{device}' (resolved as '{backend_id}'). "
-            "Currently available runtime backend: cpu, cpu_mojo"
+            "Currently available runtime backend: cpu"
         )
         raise ValueError(msg)
     _validate_core_module(core_module, required=("init_model", "step"))
@@ -207,7 +208,7 @@ def resolve_embedding_backend(*, device: str, core_module: object) -> EmbeddingB
     if backend_id != _CPU_BACKEND_ID:
         msg = (
             f"Unsupported backend '{device}' (resolved as '{backend_id}'). "
-            "Currently available runtime backend: cpu, cpu_mojo"
+            "Currently available runtime backend: cpu"
         )
         raise ValueError(msg)
     _validate_core_module(core_module, required=("init_model", "generate_embeddings"))
@@ -218,7 +219,7 @@ def _validate_core_module(core_module: object, *, required: tuple[str, ...]) -> 
     missing = [name for name in required if not callable(getattr(core_module, name, None))]
     if missing:
         msg = (
-            "Invalid core module for cpu_mojo backend: missing callables "
+            "Invalid core module for cpu backend: missing callables "
             + ", ".join(missing)
             + "."
         )

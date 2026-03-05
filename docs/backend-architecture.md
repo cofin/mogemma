@@ -3,19 +3,19 @@
 ## Current Runtime Shape
 
 - Python model classes (`SyncGemmaModel`, `EmbeddingModel`) resolve a backend and cache it at construction time.
-- `cpu_mojo` is implemented by `CPUCoreBackend`, which delegates into `mogemma._core` (`init_model`, `step`, `generate_embeddings`).
+- `cpu` is implemented by `CPUCoreBackend`, which delegates into `mogemma._core` (`init_model`, `step`, `generate_embeddings`).
 - Backend IDs are normalized in one place (`resolve_backend_id`) and support:
-  - `cpu`, `cpu_mojo`
-  - `gpu`, `gpu_mojo`, `gpu:<index>` (identifier-level support only in this chapter)
+  - `cpu`
+  - `gpu`, `gpu:<index>` (selector-level support only in this chapter)
 
 ## Future GPU Backend Hooks (No Kernels Yet)
 
-The following hooks are intentionally left as extension points for `gpu_mojo`:
+The following hooks are intentionally left as extension points for `gpu`:
 
 1. `resolve_generation_backend()` in `src/py/mogemma/backends.py`:
-   - Add `gpu_mojo` branch returning a GPU generation adapter that matches the `GenerationBackend` protocol.
+   - Add `gpu` branch returning a GPU generation adapter that matches the `GenerationBackend` protocol.
 2. `resolve_embedding_backend()` in `src/py/mogemma/backends.py`:
-   - Add `gpu_mojo` branch returning a GPU embedding adapter that matches the `EmbeddingBackend` protocol.
+   - Add `gpu` branch returning a GPU embedding adapter that matches the `EmbeddingBackend` protocol.
 3. `CPUCoreBackend` contract surface:
    - Keep adapter method names stable (`init_model`, `step`, `generate_embeddings`) so GPU adapters can be drop-in replacements.
 4. Model wiring in `src/py/mogemma/model.py`:
@@ -33,8 +33,8 @@ The following hooks are intentionally left as extension points for `gpu_mojo`:
    - Introduce backend protocols and resolver seam.
    - Keep CPU behavior intact through `CPUCoreBackend`.
 2. Phase B (GPU adapter introduction):
-   - Add `gpu_mojo` adapter implementations behind resolver branches.
-   - Keep `cpu_mojo` as deterministic fallback until parity gates pass.
+   - Add `gpu` adapter implementations behind resolver branches.
+   - Keep `cpu` as deterministic CPU downgrade target until parity gates pass.
 3. Phase C (runtime/device integration):
    - Integrate runtime-state and device-selection flows into the adapter seam.
    - Avoid public API changes unless required for explicit capability reporting.
@@ -57,7 +57,7 @@ The following hooks are intentionally left as extension points for `gpu_mojo`:
 
 1. `src/py/mogemma/backends.py`:
    - Stable seam: `resolve_backend_id` already normalizes `cpu|gpu|gpu:N`.
-   - Chapter 3 should extend this into full device-capability semantics and fallback policy.
+   - Chapter 3 should extend this into full device-capability semantics and unavailable-GPU policy handling.
 2. `src/py/mogemma/config.py` + `src/py/mogemma/model.py`:
    - Stable seam: `config.device` is threaded into backend resolution.
    - Chapter 3 can add richer validation/capability errors while preserving current defaults.
@@ -66,6 +66,6 @@ The following hooks are intentionally left as extension points for `gpu_mojo`:
 
 Local smoke run executed generation + embedding flows through public model classes with default config values (except local `model_path`) and inspection of runtime fields/calls:
 
-- `generation._backend_id == "cpu_mojo"`
-- `embedding._backend_id == "cpu_mojo"`
+- `generation._backend_id == "cpu"`
+- `embedding._backend_id == "cpu"`
 - Core call trace included both generation `step` and embedding `generate_embeddings`, confirming adapter-routed CPU execution path.

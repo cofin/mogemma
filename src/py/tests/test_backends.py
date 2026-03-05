@@ -13,21 +13,21 @@ from mogemma.backends import (
 )
 
 
-def test_resolve_backend_id_defaults_to_cpu_mojo() -> None:
-    assert resolve_backend_id("") == "cpu_mojo"
-    assert resolve_backend_id("   ") == "cpu_mojo"
+def test_resolve_backend_id_defaults_to_cpu() -> None:
+    assert resolve_backend_id("") == "cpu"
+    assert resolve_backend_id("   ") == "cpu"
 
 
-def test_resolve_backend_id_normalizes_known_aliases() -> None:
-    assert resolve_backend_id("cpu") == "cpu_mojo"
-    assert resolve_backend_id("CPU_MOJO") == "cpu_mojo"
-    assert resolve_backend_id("gpu") == "gpu_mojo"
-    assert resolve_backend_id("GPU_MOJO") == "gpu_mojo"
+def test_resolve_backend_id_normalizes_known_values() -> None:
+    assert resolve_backend_id("cpu") == "cpu"
+    assert resolve_backend_id("CPU") == "cpu"
+    assert resolve_backend_id("gpu") == "gpu"
+    assert resolve_backend_id("GPU") == "gpu"
 
 
 def test_resolve_backend_id_accepts_gpu_device_selector() -> None:
-    assert resolve_backend_id("gpu:0") == "gpu_mojo"
-    assert resolve_backend_id("gpu:17") == "gpu_mojo"
+    assert resolve_backend_id("gpu:0") == "gpu"
+    assert resolve_backend_id("gpu:17") == "gpu"
 
 
 def test_resolve_backend_id_rejects_unknown_values() -> None:
@@ -36,9 +36,9 @@ def test_resolve_backend_id_rejects_unknown_values() -> None:
 
 
 def test_parse_device_spec_returns_backend_and_index() -> None:
-    assert parse_device_spec("cpu") == ("cpu_mojo", None)
-    assert parse_device_spec("gpu") == ("gpu_mojo", None)
-    assert parse_device_spec("gpu:2") == ("gpu_mojo", 2)
+    assert parse_device_spec("cpu") == ("cpu", None)
+    assert parse_device_spec("gpu") == ("gpu", None)
+    assert parse_device_spec("gpu:2") == ("gpu", 2)
 
 
 class _CoreSpy:
@@ -75,7 +75,7 @@ def test_resolve_generation_backend_uses_cpu_core_adapter() -> None:
 def test_resolve_embedding_backend_uses_cpu_core_adapter() -> None:
     core = _CoreSpy()
 
-    backend = resolve_embedding_backend(device="cpu_mojo", core_module=core)
+    backend = resolve_embedding_backend(device="cpu", core_module=core)
 
     assert isinstance(backend, CPUCoreBackend)
     llm = backend.init_model({"weight": (1, (2, 3), "f32")})
@@ -98,19 +98,24 @@ def test_cpu_core_backend_rejects_missing_core_entrypoints() -> None:
 
 def test_resolve_device_selection_raises_for_unavailable_gpu_by_default() -> None:
     with pytest.raises(RuntimeError, match="unavailable"):
-        resolve_device_selection("gpu:0", allow_fallback=False, gpu_available=False)
+        resolve_device_selection("gpu:0", unavailable_gpu_policy="error", gpu_available=False)
 
 
-def test_resolve_device_selection_uses_cpu_fallback_when_enabled() -> None:
-    selection = resolve_device_selection("gpu:0", allow_fallback=True, gpu_available=False)
-    assert selection.effective_backend_id == "cpu_mojo"
+def test_resolve_device_selection_uses_cpu_downgrade_policy_when_enabled() -> None:
+    selection = resolve_device_selection("gpu:0", unavailable_gpu_policy="use_cpu", gpu_available=False)
+    assert selection.effective_backend_id == "cpu"
     assert selection.effective_device == "cpu"
-    assert selection.used_fallback is True
+    assert selection.used_cpu_downgrade is True
 
 
 def test_resolve_device_selection_honors_env_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MOGEMMA_GPU_AVAILABLE", "1")
-    selection = resolve_device_selection("gpu", allow_fallback=False)
-    assert selection.effective_backend_id == "gpu_mojo"
-    assert selection.used_fallback is False
+    selection = resolve_device_selection("gpu", unavailable_gpu_policy="error")
+    assert selection.effective_backend_id == "gpu"
+    assert selection.used_cpu_downgrade is False
     monkeypatch.delenv("MOGEMMA_GPU_AVAILABLE", raising=False)
+
+
+def test_resolve_device_selection_rejects_invalid_gpu_policy() -> None:
+    with pytest.raises(ValueError, match="Unsupported unavailable_gpu_policy"):
+        resolve_device_selection("gpu", unavailable_gpu_policy="banana", gpu_available=False)

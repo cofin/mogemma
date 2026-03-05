@@ -8,6 +8,7 @@ _EMPTY_SEQUENCE_MSG = "max_sequence_length must be greater than 0"
 _INVALID_BATCH_SIZE_MSG = "batch_size must be greater than 0"
 _INVALID_TOKENS_MSG = "max_tokens must be greater than 0"
 _EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Google model id"
+_INVALID_GPU_POLICY_MSG = "unavailable_gpu_policy must be one of: error, use_cpu"
 
 
 @dataclass(frozen=True)
@@ -20,8 +21,8 @@ class EmbeddingConfig:
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
 
-    allow_device_fallback: bool = False
-    """Allow deterministic fallback to CPU when requested GPU is unavailable."""
+    unavailable_gpu_policy: str = "error"
+    """Policy when a requested GPU is unavailable: 'error' or 'use_cpu'."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""
@@ -45,6 +46,8 @@ class EmbeddingConfig:
             raise ValueError(_EMPTY_SEQUENCE_MSG)
         if self.batch_size <= 0:
             raise ValueError(_INVALID_BATCH_SIZE_MSG)
+        if self.unavailable_gpu_policy not in {"error", "use_cpu"}:
+            raise ValueError(_INVALID_GPU_POLICY_MSG)
 
 
 @dataclass(frozen=True)
@@ -57,8 +60,8 @@ class GenerationConfig:
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
 
-    allow_device_fallback: bool = False
-    """Allow deterministic fallback to CPU when requested GPU is unavailable."""
+    unavailable_gpu_policy: str = "error"
+    """Policy when a requested GPU is unavailable: 'error' or 'use_cpu'."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""
@@ -96,3 +99,5 @@ class GenerationConfig:
             raise ValueError(_EMPTY_SEQUENCE_MSG)
         if self.max_tokens <= 0:
             raise ValueError(_INVALID_TOKENS_MSG)
+        if self.unavailable_gpu_policy not in {"error", "use_cpu"}:
+            raise ValueError(_INVALID_GPU_POLICY_MSG)

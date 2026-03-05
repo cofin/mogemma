@@ -295,11 +295,11 @@ def test_embedding_routes_through_backend_adapter(
     assert backend.embed_calls == 1
 
 
-def test_embedding_model_defaults_to_cpu_mojo_backend(
+def test_embedding_model_defaults_to_cpu_backend(
     dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class BackendStub:
-        backend_id = "cpu_mojo"
+        backend_id = "cpu"
 
         def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
             del metadata
@@ -320,15 +320,15 @@ def test_embedding_model_defaults_to_cpu_mojo_backend(
 
     model = EmbeddingModel(EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu"))
 
-    assert model._backend_id == "cpu_mojo"  # noqa: SLF001
-    assert seen_devices == ["cpu_mojo"]
+    assert model._backend_id == "cpu"  # noqa: SLF001
+    assert seen_devices == ["cpu"]
 
 
 def test_embedding_model_uses_normalized_backend_descriptor(
     dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class BackendStub:
-        backend_id = "cpu_mojo"
+        backend_id = "cpu"
 
         def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
             del metadata
@@ -340,9 +340,9 @@ def test_embedding_model_uses_normalized_backend_descriptor(
 
     seen: dict[str, object] = {}
 
-    def fake_resolve_device_selection(device: str, *, allow_fallback: bool):
-        seen["request"] = (device, allow_fallback)
-        return model_module.DeviceSelection(device, "cpu_mojo", "cpu", None, False)
+    def fake_resolve_device_selection(device: str, *, unavailable_gpu_policy: str):
+        seen["request"] = (device, unavailable_gpu_policy)
+        return model_module.DeviceSelection(device, "cpu", "cpu", None, False)
 
     def fake_resolve_backend(device: str) -> BackendStub:
         seen["backend_device"] = device
@@ -352,8 +352,10 @@ def test_embedding_model_uses_normalized_backend_descriptor(
     monkeypatch.setattr(model_module, "resolve_device_selection", fake_resolve_device_selection)
     monkeypatch.setattr(model_module, "_resolve_embedding_backend", fake_resolve_backend, raising=False)
 
-    model = EmbeddingModel(EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu", allow_device_fallback=True))
+    model = EmbeddingModel(
+        EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu", unavailable_gpu_policy="use_cpu")
+    )
 
-    assert seen["request"] == ("cpu", True)
-    assert seen["backend_device"] == "cpu_mojo"
-    assert model._device_selection.effective_backend_id == "cpu_mojo"  # noqa: SLF001
+    assert seen["request"] == ("cpu", "use_cpu")
+    assert seen["backend_device"] == "cpu"
+    assert model._device_selection.effective_backend_id == "cpu"  # noqa: SLF001
