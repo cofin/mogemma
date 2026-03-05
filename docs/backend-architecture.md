@@ -26,3 +26,23 @@ The following hooks are intentionally left as extension points for `gpu_mojo`:
 - Do not reintroduce MAX as the primary runtime path.
 - Preserve existing public model APIs while swapping backend implementations.
 - Keep backend resolution deterministic and cheap (one-time resolution per model instance).
+
+## Chapter Handoff Map (PRD1 Checkpoint)
+
+### Handoff to Chapter 2 (`gpu-runtime-state-refactor_20260304`)
+
+1. `src/py/mogemma/model.py`:
+   - Stable seam: model-level cached backend fields (`_backend`, `_backend_id`, `_llm`).
+   - Chapter 2 can optimize runtime/session lifecycle without changing public APIs.
+2. `src/py/mogemma/backends.py`:
+   - Stable seam: protocol methods (`init_model`, `step`, `generate_embeddings`) and resolver entrypoints.
+   - Chapter 2 can introduce richer runtime state objects as long as adapter contracts stay intact.
+
+### Handoff to Chapter 3 (`gpu-device-selection-api_20260304`)
+
+1. `src/py/mogemma/backends.py`:
+   - Stable seam: `resolve_backend_id` already normalizes `cpu|gpu|gpu:N`.
+   - Chapter 3 should extend this into full device-capability semantics and fallback policy.
+2. `src/py/mogemma/config.py` + `src/py/mogemma/model.py`:
+   - Stable seam: `config.device` is threaded into backend resolution.
+   - Chapter 3 can add richer validation/capability errors while preserving current defaults.
