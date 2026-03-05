@@ -446,6 +446,7 @@ fn init_model_mojo(
     
     var num_layers: Int
     var head_dim: Int
+    var num_heads: Int
     var num_kv_heads: Int
     var hidden_size: Int
     var intermediate_size: Int
@@ -462,6 +463,7 @@ fn init_model_mojo(
         head_dim = model_weights.layers[0].base.q_norm.shape_0
         if head_dim == 0:
             head_dim = 256
+        num_heads = model_weights.layers[0].base.q_proj.shape_0 // head_dim
         num_kv_heads = model_weights.layers[0].base.k_proj.shape_0 // head_dim
         hidden_size = model_weights.embed_tokens.shape_1
         intermediate_size = model_weights.layers[0].base.gate_proj.shape_0
@@ -479,6 +481,7 @@ fn init_model_mojo(
         head_dim = model_weights.layers[0].q_norm.shape_0
         if head_dim == 0:
             head_dim = 256
+        num_heads = model_weights.layers[0].q_proj.shape_0 // head_dim
         num_kv_heads = model_weights.layers[0].k_proj.shape_0 // head_dim
         hidden_size = model_weights.embed_tokens.shape_1
         intermediate_size = model_weights.layers[0].gate_proj.shape_0
@@ -513,6 +516,7 @@ fn init_model_mojo(
     py_dict["freqs_sin"] = freqs_sin
     py_dict["max_seq_len"] = max_seq_len
     py_dict["num_layers"] = num_layers
+    py_dict["num_heads"] = num_heads
     py_dict["num_kv_heads"] = num_kv_heads
     py_dict["head_dim"] = head_dim
     py_dict["hidden_size"] = hidden_size
@@ -548,7 +552,7 @@ fn step_mojo(
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
-    var num_heads: Int
+    var num_heads = Int(py=llm["num_heads"])
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     var kv_share_start = Int(py=llm["kv_share_start"])
@@ -572,7 +576,6 @@ fn step_mojo(
     if arch == "nano":
         llm["descriptor_build_count"] = descriptor_build_count + 1
         var model_weights = _build_nano_model_from_runtime(runtime_obj)
-        num_heads = model_weights.layers[0].base.q_proj.shape_0 // head_dim
         var per_layer_dim = Int(py=llm["per_layer_dim"])
         
         forward_nano_step(
@@ -596,11 +599,6 @@ fn step_mojo(
             scratch_ptr
         )
     else:
-        var layers = runtime_obj["layers"]
-        var first_layer = layers[0]
-        var q_proj = _tensor_from_meta(first_layer[2])
-        num_heads = q_proj.shape_0 // head_dim
-
         _forward_step_standard_runtime(
             out_logits_ptr,
             token_id,
@@ -651,7 +649,7 @@ fn generate_embeddings_mojo(
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
     var head_dim = Int(py=llm["head_dim"])
-    var num_heads: Int
+    var num_heads = Int(py=llm["num_heads"])
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     var kv_share_start = Int(py=llm["kv_share_start"])
@@ -704,12 +702,6 @@ fn generate_embeddings_mojo(
     if arch == "nano":
         llm["descriptor_build_count"] = descriptor_build_count + 1
         nano_model = _build_nano_model_from_runtime(runtime_obj)
-        num_heads = nano_model.layers[0].base.q_proj.shape_0 // head_dim
-    else:
-        var layers = runtime_obj["layers"]
-        var first_layer = layers[0]
-        var q_proj = _tensor_from_meta(first_layer[2])
-        num_heads = q_proj.shape_0 // head_dim
 
     # Process each sequence in the batch
     for b in range(batch_size):

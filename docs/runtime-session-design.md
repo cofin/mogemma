@@ -92,4 +92,5 @@ This confirms session reuse hooks execute without cross-prompt state drift for t
 - New helper paths now consume `llm["runtime"]` directly for standard model execution.
 - `descriptor_build_count` remains stable at `1` for standard-path runs in the updated core test coverage.
 - Commit `uncommitted` (current workspace) switched embedding RoPE handling to reuse session buffers (`llm["freqs_cos"]` / `llm["freqs_sin"]`) when within initialized sequence window, reducing per-call allocations.
+- Current workspace also caches `num_heads` in session state at init (`llm["num_heads"]`) to avoid hot-path shape derivation from metadata in both step and embedding entrypoints.
 - Nano-path rebuild removal is still pending; `mogemma-2mo.2.4` remains in progress for that scope.
