@@ -18,8 +18,11 @@ from mogemma.model import (
 )
 from mogemma.layers import (
     forward_layer,
+    forward_nano_layer,
     forward_nano_sequence,
-    forward_nano_step,
+    _collapse_altup_streams,
+    _prepare_altup_streams,
+    _rms_norm_nano_weighted,
 )
 from mogemma.ops import rms_norm, vec_mat_mul
 
@@ -248,6 +251,220 @@ fn _build_nano_model_from_runtime(runtime_obj: PythonObject) raises -> NanoModel
     return m^
 
 
+fn _tensor_list_from_meta(meta_list: PythonObject) raises -> List[TensorInfo]:
+    var out = List[TensorInfo]()
+    var builtins = Python.import_module("builtins")
+    for i in range(Int(py=builtins.len(meta_list))):
+        out.append(_tensor_from_meta(meta_list[i]))
+    return out^
+
+
+fn _build_nano_layer_from_runtime_entry(entry: PythonObject) raises -> NanoLayerWeights:
+    var layer = NanoLayerWeights()
+    layer.base.input_layernorm = _tensor_from_meta(entry[0])
+    layer.base.post_attention_layernorm = _tensor_from_meta(entry[1])
+    layer.base.q_proj = _tensor_from_meta(entry[2])
+    layer.base.k_proj = _tensor_from_meta(entry[3])
+    layer.base.v_proj = _tensor_from_meta(entry[4])
+    layer.base.o_proj = _tensor_from_meta(entry[5])
+    layer.base.gate_proj = _tensor_from_meta(entry[6])
+    layer.base.up_proj = _tensor_from_meta(entry[7])
+    layer.base.down_proj = _tensor_from_meta(entry[8])
+    layer.base.q_norm = _tensor_from_meta(entry[9])
+    layer.base.k_norm = _tensor_from_meta(entry[10])
+    layer.base.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
+    layer.base.post_feedforward_layernorm = _tensor_from_meta(entry[12])
+    layer.altup.router = _tensor_from_meta(entry[13])
+    layer.altup.router_norm = _tensor_from_meta(entry[14])
+    layer.altup.prediction_coefs = _tensor_from_meta(entry[15])
+    layer.altup.correction_coefs = _tensor_from_meta(entry[16])
+    layer.altup.output_scale = _tensor_from_meta(entry[17])
+    layer.laurel.down_proj = _tensor_from_meta(entry[18])
+    layer.laurel.up_proj = _tensor_from_meta(entry[19])
+    layer.laurel.norm = _tensor_from_meta(entry[20])
+    layer.per_layer_map.gate = _tensor_from_meta(entry[21])
+    layer.per_layer_map.projection = _tensor_from_meta(entry[22])
+    layer.per_layer_map.norm = _tensor_from_meta(entry[23])
+    return layer^
+
+
+fn _build_token_per_layer_inputs_runtime(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_layers, per_layer_dim]
+    base_stream_ptr: UnsafePointer[Float32, MutExternalOrigin], # [hidden_size]
+    token_id: Int,
+    per_layer_embed: TensorInfo,
+    per_layer_projection: TensorInfo,
+    per_layer_norm: TensorInfo,
+    per_layer_table_layers: Int,
+    num_layers: Int,
+    hidden_size: Int,
+    per_layer_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+):
+    var proj_ptr = scratch_ptr
+    var proj_norm_ptr = scratch_ptr + per_layer_dim
+
+    var projection_scale = 1.0 / sqrt(Float32(hidden_size))
+    var per_layer_input_scale: Float32 = 0.7071067811865475
+    var token_embed_scale = sqrt(Float32(per_layer_dim))
+
+    for l in range(num_layers):
+        for p in range(per_layer_dim):
+            var acc: Float32 = 0.0
+            for d in range(hidden_size):
+                var w_idx = d * per_layer_table_layers * per_layer_dim + l * per_layer_dim + p
+                acc += base_stream_ptr.load(d) * per_layer_projection.ptr.load(w_idx)
+            proj_ptr.store(p, acc * projection_scale)
+
+        _rms_norm_nano_weighted(proj_norm_ptr, proj_ptr, per_layer_norm.ptr, per_layer_dim, 1e-6)
+
+        var embed_base = per_layer_embed.ptr + token_id * per_layer_table_layers * per_layer_dim + l * per_layer_dim
+        var out_base = out_ptr + l * per_layer_dim
+        for p in range(per_layer_dim):
+            var token_embed = embed_base.load(p) * token_embed_scale
+            out_base.store(p, (proj_norm_ptr.load(p) + token_embed) * per_layer_input_scale)
+
+
+fn _forward_step_nano_runtime(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    pos: Int,
+    runtime_obj: PythonObject,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    per_layer_dim: Int,
+    vocab_size: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    kv_share_start: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+) raises:
+    var builtins = Python.import_module("builtins")
+    var runtime_layers = runtime_obj["layers"]
+    var num_layers = Int(py=builtins.len(runtime_layers))
+    if num_layers == 0:
+        raise Error("Invalid Nano runtime: no layers found")
+
+    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
+    var norm = _tensor_from_meta(runtime_obj["norm"])
+    var lm_head = _tensor_from_meta(runtime_obj["lm_head"])
+    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
+    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
+    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
+    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
+
+    var first_layer = runtime_layers[0]
+    var num_modalities = _tensor_from_meta(first_layer[13]).shape_0
+    var per_layer_table_layers = per_layer_embed.shape_1
+
+    var hidden_ptr = scratch_ptr
+    var token_scratch_ptr = scratch_ptr + hidden_size
+    var current_streams_ptr = token_scratch_ptr
+    var next_streams_ptr = current_streams_ptr + num_modalities * hidden_size
+    var per_layer_inputs_ptr = next_streams_ptr + num_modalities * hidden_size
+    var layer_scratch_ptr = per_layer_inputs_ptr + num_layers * per_layer_dim
+    var collapse_scratch_ptr = layer_scratch_ptr + hidden_size * 72
+    var stream_init_scratch_ptr = layer_scratch_ptr + hidden_size * 68
+
+    var emb_scale = sqrt(Float32(hidden_size))
+    var emb_row_offset = token_id * hidden_size
+    for i in range(hidden_size):
+        current_streams_ptr.store(i, embed_tokens.ptr.load(emb_row_offset + i) * emb_scale)
+
+    _prepare_altup_streams(
+        current_streams_ptr,
+        current_streams_ptr,
+        altup_projections,
+        hidden_size,
+        num_modalities,
+        stream_init_scratch_ptr
+    )
+
+    _build_token_per_layer_inputs_runtime(
+        per_layer_inputs_ptr,
+        current_streams_ptr,
+        token_id,
+        per_layer_embed,
+        per_layer_projection,
+        per_layer_norm,
+        per_layer_table_layers,
+        num_layers,
+        hidden_size,
+        per_layer_dim,
+        layer_scratch_ptr
+    )
+
+    var last_full_kv_layer = kv_share_start - 1
+    while last_full_kv_layer >= 0 and ((last_full_kv_layer + 1) % 5) != 0:
+        last_full_kv_layer -= 1
+    var last_sliding_kv_layer = kv_share_start - 1
+    while last_sliding_kv_layer >= 0 and ((last_sliding_kv_layer + 1) % 5) == 0:
+        last_sliding_kv_layer -= 1
+
+    for l in range(num_layers):
+        var kv_layer_idx = l
+        var write_kv = True
+        if kv_share_start < num_layers and l >= kv_share_start:
+            write_kv = False
+            if ((l + 1) % 5) == 0 and last_full_kv_layer >= 0:
+                kv_layer_idx = last_full_kv_layer
+            elif last_sliding_kv_layer >= 0:
+                kv_layer_idx = last_sliding_kv_layer
+            else:
+                kv_layer_idx = kv_share_start - 1
+
+        var layer_kv_k_ptr = kv_cache_k_ptr + kv_layer_idx * max_seq_len * num_kv_heads * head_dim
+        var layer_kv_v_ptr = kv_cache_v_ptr + kv_layer_idx * max_seq_len * num_kv_heads * head_dim
+        var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
+        var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
+        var layer_per_input_ptr = per_layer_inputs_ptr + l * per_layer_dim
+        var layer_weights = _build_nano_layer_from_runtime_entry(runtime_layers[l])
+
+        forward_nano_layer(
+            next_streams_ptr,
+            current_streams_ptr,
+            layer_weights,
+            l,
+            layer_per_input_ptr,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            per_layer_dim,
+            token_freqs_cos_ptr,
+            token_freqs_sin_ptr,
+            layer_kv_k_ptr,
+            layer_kv_v_ptr,
+            max_seq_len,
+            num_modalities,
+            write_kv,
+            layer_scratch_ptr
+        )
+
+        for i in range(num_modalities * hidden_size):
+            current_streams_ptr.store(i, next_streams_ptr.load(i))
+
+    _collapse_altup_streams(
+        hidden_ptr,
+        current_streams_ptr,
+        altup_unembeds,
+        hidden_size,
+        num_modalities,
+        collapse_scratch_ptr
+    )
+    _rms_norm_nano_weighted(hidden_ptr, hidden_ptr, norm.ptr, hidden_size, 1e-6)
+    vec_mat_mul(out_logits_ptr, hidden_ptr, lm_head.ptr, hidden_size, vocab_size)
+
+
 fn _build_standard_layer_from_runtime_entry(entry: PythonObject) raises -> LayerWeights:
     var layer = LayerWeights()
     layer.input_layernorm = _tensor_from_meta(entry[0])
@@ -453,10 +670,12 @@ fn init_model_mojo(
     
     var per_layer_dim: Int = 0
     var vocab_size: Int
+    var nano_model_build_count = 0
     
     if arch == "nano":
         runtime_obj = _build_nano_runtime(metadata_obj)
         var model_weights = _build_nano_model_from_runtime(runtime_obj)
+        nano_model_build_count = 1
         num_layers = len(model_weights.layers)
         if num_layers == 0:
             raise Error("Invalid Nano model weights: no layers found in metadata")
@@ -525,6 +744,7 @@ fn init_model_mojo(
     py_dict["per_layer_dim"] = per_layer_dim
     py_dict["runtime"] = runtime_obj
     py_dict["descriptor_build_count"] = 1
+    py_dict["nano_model_build_count"] = nano_model_build_count
     py_dict["pos"] = 0
     return py_dict
 
@@ -573,14 +793,13 @@ fn step_mojo(
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
     
     if arch == "nano":
-        var model_weights = _build_nano_model_from_runtime(runtime_obj)
         var per_layer_dim = Int(py=llm["per_layer_dim"])
-        
-        forward_nano_step(
+
+        _forward_step_nano_runtime(
             out_logits_ptr,
             token_id,
             pos,
-            model_weights,
+            runtime_obj,
             hidden_size,
             num_heads,
             num_kv_heads,
@@ -697,6 +916,8 @@ fn generate_embeddings_mojo(
     
     var nano_model = NanoModelWeights()
     if arch == "nano":
+        var nano_model_build_count = Int(py=llm.get("nano_model_build_count", 1))
+        llm["nano_model_build_count"] = nano_model_build_count + 1
         nano_model = _build_nano_model_from_runtime(runtime_obj)
 
     # Process each sequence in the batch

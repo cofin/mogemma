@@ -570,3 +570,79 @@ def test_mojo_core_nano_descriptor_cache_reused_across_calls() -> None:
 
     assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
     assert llm.get("descriptor_build_count", 1) == 1
+
+
+def test_mojo_core_step_nano_reuses_prepared_model_views() -> None:
+    tensors = {
+        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.per_layer_embed.weight": np.zeros(
+            (_EXPECTED_VOCAB_SIZE, 30, _EXPECTED_PER_LAYER_DIM_SMALL), dtype=np.float32
+        ),
+        "model.per_layer_embed.projection.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, 30, _EXPECTED_PER_LAYER_DIM_SMALL), dtype=np.float32
+        ),
+        "model.per_layer_embed.norm.weight": np.zeros((_EXPECTED_PER_LAYER_DIM_SMALL,), dtype=np.float32),
+        "model.layers.0.altup.router.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.altup.router_norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.altup.prediction_coefs": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.altup.correction_coefs": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.altup.output_scale": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.laurel.down_proj.weight": np.zeros(
+            (_EXPECTED_PER_LAYER_DIM_SMALL, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.laurel.up_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_PER_LAYER_DIM_SMALL), dtype=np.float32
+        ),
+        "model.layers.0.laurel.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.per_layer_map.gate.weight": np.zeros(
+            (_EXPECTED_PER_LAYER_DIM_SMALL, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.per_layer_map.projection.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_PER_LAYER_DIM_SMALL), dtype=np.float32
+        ),
+        "model.layers.0.per_layer_map.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.self_attn.k_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.v_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
+        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
+        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.altup.projection.0.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.altup.projection.1.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.altup.projection.2.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.altup.unembed.0.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.altup.unembed.1.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.altup.unembed.2.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+    }
+    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
+    llm = _core.init_model(metadata)
+
+    assert llm["arch"] == "nano"
+    assert llm["nano_model_build_count"] == 1
+
+    _ = _core.step(llm, 1, 0.0, 0, 0.0)
+    _ = _core.step(llm, 2, 0.0, 0, 0.0)
+    assert llm["nano_model_build_count"] == 1
+
+    embeddings = _core.generate_embeddings(llm, np.array([[1, 2, 3]], dtype=np.int32))
+    assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
+    assert llm["nano_model_build_count"] == 2
