@@ -548,7 +548,6 @@ fn step_mojo(
     var token_id = Int(py=token_id_obj)
     
     var runtime_obj = llm["runtime"]
-    var descriptor_build_count = Int(py=llm.get("descriptor_build_count", 1))
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
@@ -574,7 +573,6 @@ fn step_mojo(
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
     
     if arch == "nano":
-        llm["descriptor_build_count"] = descriptor_build_count + 1
         var model_weights = _build_nano_model_from_runtime(runtime_obj)
         var per_layer_dim = Int(py=llm["per_layer_dim"])
         
@@ -644,7 +642,6 @@ fn generate_embeddings_mojo(
         raise Error("inputs must contain at least one token")
     
     var runtime_obj = llm["runtime"]
-    var descriptor_build_count = Int(py=llm.get("descriptor_build_count", 1))
     var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
@@ -700,7 +697,6 @@ fn generate_embeddings_mojo(
     
     var nano_model = NanoModelWeights()
     if arch == "nano":
-        llm["descriptor_build_count"] = descriptor_build_count + 1
         nano_model = _build_nano_model_from_runtime(runtime_obj)
 
     # Process each sequence in the batch
