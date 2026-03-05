@@ -27,6 +27,21 @@ The following hooks are intentionally left as extension points for `gpu_mojo`:
 - Preserve existing public model APIs while swapping backend implementations.
 - Keep backend resolution deterministic and cheap (one-time resolution per model instance).
 
+## Migration Strategy
+
+1. Phase A (this chapter):
+   - Introduce backend protocols and resolver seam.
+   - Keep CPU behavior intact through `CPUCoreBackend`.
+2. Phase B (GPU adapter introduction):
+   - Add `gpu_mojo` adapter implementations behind resolver branches.
+   - Keep `cpu_mojo` as deterministic fallback until parity gates pass.
+3. Phase C (runtime/device integration):
+   - Integrate runtime-state and device-selection flows into the adapter seam.
+   - Avoid public API changes unless required for explicit capability reporting.
+4. Phase D (validation + promotion):
+   - Enforce parity and performance gates before changing backend defaults.
+   - Keep rollout policy tied to documented release and runbook guidance.
+
 ## Chapter Handoff Map (PRD1 Checkpoint)
 
 ### Handoff to Chapter 2 (`gpu-runtime-state-refactor_20260304`)
