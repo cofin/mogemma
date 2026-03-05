@@ -655,18 +655,36 @@ fn generate_embeddings_mojo(
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     var kv_share_start = Int(py=llm["kv_share_start"])
-    
-    # RoPE precompute
-    var freqs_cos = List[Float32](length=max_seq_len * head_dim, fill=0.0)
-    var freqs_sin = List[Float32](length=max_seq_len * head_dim, fill=0.0)
-    var base: Float32 = 10000.0
-    for t in range(max_seq_len):
-        for d in range(head_dim // 2):
-            var exp = Float32(d * 2) / Float32(head_dim)
-            var inv_freq = 1.0 / (base ** exp)
-            var freq = Float32(t) * inv_freq
-            freqs_cos[t * head_dim + d] = cos(freq)
-            freqs_sin[t * head_dim + d] = sin(freq)
+
+    # Prefer session-level RoPE buffers computed in init_model.
+    var freqs_cos = llm["freqs_cos"]
+    var freqs_sin = llm["freqs_sin"]
+    var runtime_max_seq_len = Int(py=llm["max_seq_len"])
+
+    var freqs_cos_local = List[Float32]()
+    var freqs_sin_local = List[Float32]()
+    var freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    if max_seq_len <= runtime_max_seq_len:
+        freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](
+            unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0])
+        )
+        freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](
+            unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0])
+        )
+    else:
+        freqs_cos_local = List[Float32](length=max_seq_len * head_dim, fill=0.0)
+        freqs_sin_local = List[Float32](length=max_seq_len * head_dim, fill=0.0)
+        var base: Float32 = 10000.0
+        for t in range(max_seq_len):
+            for d in range(head_dim // 2):
+                var exp = Float32(d * 2) / Float32(head_dim)
+                var inv_freq = 1.0 / (base ** exp)
+                var freq = Float32(t) * inv_freq
+                freqs_cos_local[t * head_dim + d] = cos(freq)
+                freqs_sin_local[t * head_dim + d] = sin(freq)
+        freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_cos_local.unsafe_ptr()))
+        freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_sin_local.unsafe_ptr()))
             
     # Allocations for intermediate state
     var kv_cache_k = List[Float32](length=num_layers * max_seq_len * num_kv_heads * head_dim, fill=0.0)
@@ -676,8 +694,6 @@ fn generate_embeddings_mojo(
     var input_ids = List[Int32](length=max_seq_len, fill=0)
 
     # Convert lists to pointers
-    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_cos.unsafe_ptr()))
-    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_sin.unsafe_ptr()))
     var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_k.unsafe_ptr()))
     var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_v.unsafe_ptr()))
     var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
@@ -757,8 +773,10 @@ fn generate_embeddings_mojo(
             result_np[b][i] = val
             
     # We must ensure refs to Mojo lists are kept alive till here.
-    _ = freqs_cos[0]
-    _ = freqs_sin[0]
+    if len(freqs_cos_local) > 0:
+        _ = freqs_cos_local[0]
+    if len(freqs_sin_local) > 0:
+        _ = freqs_sin_local[0]
     _ = kv_cache_k[0]
     _ = kv_cache_v[0]
     _ = scratch[0]

@@ -91,4 +91,5 @@ This confirms session reuse hooks execute without cross-prompt state drift for t
 - Commit `9abe88e` removed standard-path hot-loop calls to `_build_model_from_runtime` in both `step_mojo` and `generate_embeddings_mojo`.
 - New helper paths now consume `llm["runtime"]` directly for standard model execution.
 - `descriptor_build_count` remains stable at `1` for standard-path runs in the updated core test coverage.
+- Commit `uncommitted` (current workspace) switched embedding RoPE handling to reuse session buffers (`llm["freqs_cos"]` / `llm["freqs_sin"]`) when within initialized sequence window, reducing per-call allocations.
 - Nano-path rebuild removal is still pending; `mogemma-2mo.2.4` remains in progress for that scope.
