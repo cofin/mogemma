@@ -72,3 +72,13 @@ def test_resolve_embedding_backend_uses_cpu_core_adapter() -> None:
     assert embeddings.shape == (1, 4)
     assert core.calls[0][0] == "init_model"
     assert core.calls[1][0] == "generate_embeddings"
+
+
+def test_cpu_core_backend_rejects_missing_core_entrypoints() -> None:
+    class IncompleteCore:
+        def init_model(self, metadata: object) -> object:
+            del metadata
+            return object()
+
+    with pytest.raises(TypeError, match="missing callables"):
+        resolve_generation_backend(device="cpu", core_module=IncompleteCore())

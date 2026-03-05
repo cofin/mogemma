@@ -19,6 +19,22 @@ _BACKEND_ALIASES = {
 }
 
 
+class CoreModuleContract(Protocol):
+    """Required callable surface exposed by `mogemma._core`."""
+
+    def init_model(self, metadata: TensorMetadata) -> object:
+        """Initialize a backend model session from tensor metadata."""
+        ...
+
+    def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
+        """Run one token step and return logits."""
+        ...
+
+    def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
+        """Run batched embedding inference and return embedding rows."""
+        ...
+
+
 class GenerationBackend(Protocol):
     """Contract for generation backends."""
 
@@ -52,7 +68,7 @@ class CPUCoreBackend:
 
     backend_id = _CPU_BACKEND_ID
 
-    def __init__(self, core_module: object) -> None:
+    def __init__(self, core_module: CoreModuleContract) -> None:
         self._core = core_module
 
     def init_model(self, metadata: TensorMetadata) -> object:
@@ -100,6 +116,7 @@ def resolve_generation_backend(*, device: str, core_module: object) -> Generatio
             "Currently available runtime backend: cpu, cpu_mojo"
         )
         raise ValueError(msg)
+    _validate_core_module(core_module, required=("init_model", "step"))
     return CPUCoreBackend(core_module)
 
 
@@ -112,4 +129,16 @@ def resolve_embedding_backend(*, device: str, core_module: object) -> EmbeddingB
             "Currently available runtime backend: cpu, cpu_mojo"
         )
         raise ValueError(msg)
+    _validate_core_module(core_module, required=("init_model", "generate_embeddings"))
     return CPUCoreBackend(core_module)
+
+
+def _validate_core_module(core_module: object, *, required: tuple[str, ...]) -> None:
+    missing = [name for name in required if not callable(getattr(core_module, name, None))]
+    if missing:
+        msg = (
+            "Invalid core module for cpu_mojo backend: missing callables "
+            + ", ".join(missing)
+            + "."
+        )
+        raise TypeError(msg)

@@ -235,6 +235,10 @@ def test_embedding_init_raises_on_core_init_failure(
             msg = "checkpoint missing or unreadable"
             raise RuntimeError(msg)
 
+        def generate_embeddings(self, llm: object, tokens: list[list[int]]) -> npt.NDArray[np.float32]:
+            del llm, tokens
+            return np.zeros((1, 768), dtype=np.float32)
+
     monkeypatch.setattr(model_module, "_core", CoreInitFailure())
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
 

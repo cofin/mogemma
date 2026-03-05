@@ -274,6 +274,10 @@ def test_gemma_init_raises_on_core_init_failure(
             msg = "checkpoint missing or unreadable"
             raise RuntimeError(msg)
 
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([0.0, 0.0], dtype=np.float32)
+
     monkeypatch.setattr(model_module, "_core", CoreInitFailure())
     config = GenerationConfig(model_path=Path(dummy_model_path))
 
