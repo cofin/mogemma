@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 import numpy.typing as npt
@@ -17,6 +19,17 @@ _BACKEND_ALIASES = {
     "gpu": _GPU_BACKEND_ID,
     _GPU_BACKEND_ID: _GPU_BACKEND_ID,
 }
+
+
+@dataclass(frozen=True)
+class DeviceSelection:
+    """Normalized device-selection result used by model init paths."""
+
+    requested: str
+    effective_backend_id: str
+    effective_device: str
+    gpu_index: int | None
+    used_fallback: bool
 
 
 class CoreModuleContract(Protocol):
@@ -105,6 +118,74 @@ def resolve_backend_id(device: str) -> str:
     supported = "cpu, cpu_mojo, gpu, gpu_mojo, gpu:<index>"
     msg = f"Unsupported backend '{device}'. Supported backends: {supported}"
     raise ValueError(msg)
+
+
+def parse_device_spec(device: str) -> tuple[str, int | None]:
+    """Parse a device spec into `(backend_id, gpu_index)`."""
+    normalized = device.strip().lower()
+    if not normalized:
+        normalized = "cpu"
+
+    backend_id = resolve_backend_id(normalized)
+    gpu_index: int | None = None
+    if normalized.startswith("gpu:"):
+        _, _, selector = normalized.partition(":")
+        gpu_index = int(selector)
+    return backend_id, gpu_index
+
+
+def gpu_capability_available() -> bool:
+    """Best-effort GPU capability hook.
+
+    Current policy hook is env-based to keep behavior deterministic in tests and
+    CPU-only hosts. Runtime integration can replace this with a richer probe.
+    """
+    value = os.getenv("MOGEMMA_GPU_AVAILABLE", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def resolve_device_selection(
+    device: str,
+    *,
+    allow_fallback: bool,
+    gpu_available: bool | None = None,
+) -> DeviceSelection:
+    """Resolve requested device into a concrete backend selection policy."""
+    backend_id, gpu_index = parse_device_spec(device)
+    if backend_id == _CPU_BACKEND_ID:
+        return DeviceSelection(
+            requested=device,
+            effective_backend_id=_CPU_BACKEND_ID,
+            effective_device="cpu",
+            gpu_index=None,
+            used_fallback=False,
+        )
+
+    available = gpu_capability_available() if gpu_available is None else gpu_available
+    requested_label = "gpu" if gpu_index is None else f"gpu:{gpu_index}"
+    if available:
+        return DeviceSelection(
+            requested=device,
+            effective_backend_id=_GPU_BACKEND_ID,
+            effective_device=requested_label,
+            gpu_index=gpu_index,
+            used_fallback=False,
+        )
+
+    if allow_fallback:
+        return DeviceSelection(
+            requested=device,
+            effective_backend_id=_CPU_BACKEND_ID,
+            effective_device="cpu",
+            gpu_index=None,
+            used_fallback=True,
+        )
+
+    msg = (
+        f"Requested device '{requested_label}' is unavailable. "
+        "Set allow_device_fallback=True to permit deterministic fallback to cpu."
+    )
+    raise RuntimeError(msg)
 
 
 def resolve_generation_backend(*, device: str, core_module: object) -> GenerationBackend:

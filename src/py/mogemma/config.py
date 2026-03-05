@@ -20,6 +20,9 @@ class EmbeddingConfig:
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
 
+    allow_device_fallback: bool = False
+    """Allow deterministic fallback to CPU when requested GPU is unavailable."""
+
     max_sequence_length: int = 512
     """Maximum input sequence length."""
 
@@ -53,6 +56,9 @@ class GenerationConfig:
 
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
+
+    allow_device_fallback: bool = False
+    """Allow deterministic fallback to CPU when requested GPU is unavailable."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""

@@ -10,8 +10,10 @@ import numpy as np
 import numpy.typing as npt
 
 from .backends import (
+    DeviceSelection,
     EmbeddingBackend,
     GenerationBackend,
+    resolve_device_selection,
     resolve_embedding_backend as _resolve_embedding_backend_impl,
     resolve_generation_backend as _resolve_generation_backend_impl,
 )
@@ -233,7 +235,10 @@ class EmbeddingModel:
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
-        self._backend = _resolve_embedding_backend(config.device)
+        self._device_selection: DeviceSelection = resolve_device_selection(
+            config.device, allow_fallback=config.allow_device_fallback
+        )
+        self._backend = _resolve_embedding_backend(self._device_selection.effective_backend_id)
         self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
@@ -333,7 +338,10 @@ class SyncGemmaModel:
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
-        self._backend = _resolve_generation_backend(config.device)
+        self._device_selection: DeviceSelection = resolve_device_selection(
+            config.device, allow_fallback=config.allow_device_fallback
+        )
+        self._backend = _resolve_generation_backend(self._device_selection.effective_backend_id)
         self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core

@@ -1,10 +1,16 @@
 from __future__ import annotations
-
 import numpy as np
 import numpy.typing as npt
 import pytest
 
-from mogemma.backends import CPUCoreBackend, resolve_backend_id, resolve_embedding_backend, resolve_generation_backend
+from mogemma.backends import (
+    CPUCoreBackend,
+    parse_device_spec,
+    resolve_backend_id,
+    resolve_device_selection,
+    resolve_embedding_backend,
+    resolve_generation_backend,
+)
 
 
 def test_resolve_backend_id_defaults_to_cpu_mojo() -> None:
@@ -27,6 +33,12 @@ def test_resolve_backend_id_accepts_gpu_device_selector() -> None:
 def test_resolve_backend_id_rejects_unknown_values() -> None:
     with pytest.raises(ValueError, match="Unsupported backend"):
         resolve_backend_id("banana")
+
+
+def test_parse_device_spec_returns_backend_and_index() -> None:
+    assert parse_device_spec("cpu") == ("cpu_mojo", None)
+    assert parse_device_spec("gpu") == ("gpu_mojo", None)
+    assert parse_device_spec("gpu:2") == ("gpu_mojo", 2)
 
 
 class _CoreSpy:
@@ -82,3 +94,23 @@ def test_cpu_core_backend_rejects_missing_core_entrypoints() -> None:
 
     with pytest.raises(TypeError, match="missing callables"):
         resolve_generation_backend(device="cpu", core_module=IncompleteCore())
+
+
+def test_resolve_device_selection_raises_for_unavailable_gpu_by_default() -> None:
+    with pytest.raises(RuntimeError, match="unavailable"):
+        resolve_device_selection("gpu:0", allow_fallback=False, gpu_available=False)
+
+
+def test_resolve_device_selection_uses_cpu_fallback_when_enabled() -> None:
+    selection = resolve_device_selection("gpu:0", allow_fallback=True, gpu_available=False)
+    assert selection.effective_backend_id == "cpu_mojo"
+    assert selection.effective_device == "cpu"
+    assert selection.used_fallback is True
+
+
+def test_resolve_device_selection_honors_env_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MOGEMMA_GPU_AVAILABLE", "1")
+    selection = resolve_device_selection("gpu", allow_fallback=False)
+    assert selection.effective_backend_id == "gpu_mojo"
+    assert selection.used_fallback is False
+    monkeypatch.delenv("MOGEMMA_GPU_AVAILABLE", raising=False)

@@ -412,7 +412,7 @@ def test_sync_model_defaults_to_cpu_mojo_backend(
     model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
 
     assert model._backend_id == "cpu_mojo"  # noqa: SLF001
-    assert seen_devices == ["cpu"]
+    assert seen_devices == ["cpu_mojo"]
 
 
 def test_gemma_generation_resets_session_caches_between_calls(
@@ -474,3 +474,40 @@ def test_gemma_generation_restarts_position_each_call(
 
     # First decode step in each generation should start from position 0.
     assert core.first_positions == [0, 0]
+
+
+def test_generation_model_uses_normalized_backend_descriptor(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BackendStub:
+        backend_id = "cpu_mojo"
+
+        def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
+            del metadata
+            return object()
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    seen: dict[str, object] = {}
+
+    def fake_resolve_device_selection(device: str, *, allow_fallback: bool):
+        seen["request"] = (device, allow_fallback)
+        return model_module.DeviceSelection(device, "cpu_mojo", "cpu", None, False)
+
+    def fake_resolve_backend(device: str) -> BackendStub:
+        seen["backend_device"] = device
+        return BackendStub()
+
+    monkeypatch.setattr(model_module, "_core", object())
+    monkeypatch.setattr(model_module, "resolve_device_selection", fake_resolve_device_selection)
+    monkeypatch.setattr(model_module, "_resolve_generation_backend", fake_resolve_backend, raising=False)
+
+    model = SyncGemmaModel(
+        GenerationConfig(model_path=Path(dummy_model_path), device="cpu", allow_device_fallback=True, max_tokens=1)
+    )
+
+    assert seen["request"] == ("cpu", True)
+    assert seen["backend_device"] == "cpu_mojo"
+    assert model._device_selection.effective_backend_id == "cpu_mojo"  # noqa: SLF001
