@@ -1,4 +1,5 @@
 from memory import UnsafePointer
+from mogemma.ops import geglu, rope_rotate, vec_mat_mul, rms_norm, softmax
 
 @always_inline
 fn geglu_gpu(
@@ -7,9 +8,8 @@ fn geglu_gpu(
     up_ptr: UnsafePointer[Float32, MutExternalOrigin],
     size: Int
 ):
-    # Stub: just zeroes output to fail parity tests
-    for i in range(size):
-        out_ptr.store(i, 0.0)
+    # Polyfill with CPU implementation until PTX/Max GPU integration
+    geglu[1](out_ptr, gate_ptr, up_ptr, size)
 
 @always_inline
 fn rope_rotate_gpu(
@@ -18,9 +18,8 @@ fn rope_rotate_gpu(
     sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
     head_dim: Int
 ):
-    # Stub: zero out vector to fail
-    for i in range(head_dim):
-        vec_ptr.store(i, 0.0)
+    # Polyfill
+    rope_rotate[1](vec_ptr, cos_ptr, sin_ptr, head_dim)
 
 @always_inline
 fn vec_mat_mul_gpu(
@@ -30,9 +29,8 @@ fn vec_mat_mul_gpu(
     in_dim: Int,
     out_dim: Int
 ):
-    # Stub: zero out
-    for i in range(out_dim):
-        out_ptr.store(i, 0.0)
+    # Polyfill
+    vec_mat_mul[1](out_ptr, x_ptr, w_ptr, in_dim, out_dim)
 
 @always_inline
 fn rms_norm_gpu(
@@ -42,15 +40,13 @@ fn rms_norm_gpu(
     size: Int,
     eps: Float32 = 1e-6
 ):
-    # Stub: zero out
-    for i in range(size):
-        out_ptr.store(i, 0.0)
+    # Polyfill
+    rms_norm[1](out_ptr, x_ptr, weight_ptr, size, eps)
 
 @always_inline
 fn softmax_gpu(
     vec_ptr: UnsafePointer[Float32, MutExternalOrigin],
     size: Int
 ):
-    # Stub: zero out
-    for i in range(size):
-        vec_ptr.store(i, 0.0)
+    # Polyfill
+    softmax[1](vec_ptr, size)
