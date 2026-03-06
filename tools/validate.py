@@ -44,10 +44,10 @@ def _assert_semantic_quality(model_id: str, response: str) -> None:
         raise ValueError(msg)
 
 
-def validate_llm_generation(model_id: str):
-    print(f"\n[LLM] Validating Generation ({model_id})...")
+def validate_llm_generation(model_id: str, device: str = "cpu"):
+    print(f"\n[LLM] Validating Generation ({model_id}) on device '{device}'...")
     # This will trigger an automatic download from GCS if not in cache
-    config = GenerationConfig(model_path=model_id, max_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
+    config = GenerationConfig(model_path=model_id, device=device, max_tokens=64, temperature=0.0, top_k=1, top_p=1.0)
 
     try:
         model = SyncGemmaModel(config)
@@ -75,9 +75,9 @@ def validate_llm_generation(model_id: str):
         sys.exit(1)
 
 
-def validate_embeddings(model_id: str):
-    print(f"\n[Embed] Validating Embeddings ({model_id})...")
-    config = EmbeddingConfig(model_path=model_id)
+def validate_embeddings(model_id: str, device: str = "cpu"):
+    print(f"\n[Embed] Validating Embeddings ({model_id}) on device '{device}'...")
+    config = EmbeddingConfig(model_path=model_id, device=device)
 
     try:
         model = EmbeddingModel(config)
@@ -94,6 +94,7 @@ def main():
     parser = argparse.ArgumentParser(description="Mogemma End-to-End Validator")
     parser.add_argument("--mode", choices=["llm", "embed", "both"], default="both", help="Validation mode")
     parser.add_argument("--model", type=str, help="Model ID or path to use for validation")
+    parser.add_argument("--device", type=str, default="cpu", help="Device to validate (cpu, gpu)")
     args = parser.parse_args()
 
     print("--- Starting Mogemma Validation ---")
@@ -111,11 +112,11 @@ def main():
 
     if args.mode in ["llm", "both"]:
         for m_id in models_to_test_llm:
-            validate_llm_generation(m_id)
+            validate_llm_generation(m_id, args.device)
 
     if args.mode in ["embed", "both"]:
         for m_id in models_to_test_embed:
-            validate_embeddings(m_id)
+            validate_embeddings(m_id, args.device)
 
     print("\n--- Validation Complete! ---")
 

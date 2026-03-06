@@ -112,6 +112,29 @@ jobs:
           name: wheels-${{ matrix.os }}
           path: ./wheelhouse/*.whl
 
+  build-wheels-cuda:
+    name: Build wheels CUDA (${{ matrix.os }})
+    needs: [lint, test-linux]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22.0
+        env:
+          CIBW_ARCHS_LINUX: x86_64
+          MOGEMMA_CUDA_BUILD: "1"
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-cuda-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
   build-source:
     name: Build source distribution
     needs: [lint, test-linux]
