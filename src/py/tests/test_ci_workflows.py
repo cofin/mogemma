@@ -10,6 +10,7 @@ def test_ci_workflow_has_gpu_smoke_job() -> None:
     workflow_text = ci_path.read_text(encoding="utf-8")
     
     assert "build-wheels-cuda:" in workflow_text, "CI must include a CUDA wheel build job for smoke testing"
+    assert "benchmark_cpu_generation.json" in workflow_text, "CI must save CPU benchmark artifact"
     
 def test_publish_workflow_has_cuda_matrix() -> None:
     root = Path(__file__).resolve().parents[3]
@@ -19,3 +20,4 @@ def test_publish_workflow_has_cuda_matrix() -> None:
     
     assert "build-wheels-cuda:" in workflow_text, "Publish workflow must include a CUDA wheel matrix"
     assert "upload-artifact" in workflow_text, "Must upload CUDA wheel artifacts"
+    assert "benchmark_gpu_generation.json" in workflow_text, "Publish workflow must run and save GPU benchmarks"
