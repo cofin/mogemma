@@ -256,6 +256,7 @@ fn main() raises:
     test_forward_per_layer_mapping()
     test_forward_altup_predict_and_correct()
     test_forward_nano_layer()
+    test_forward_mlp_nano_sparsity()
     print("test_nano_layers.mojo CPU passed!")
 
     var gpu_passed = False
@@ -264,6 +265,7 @@ fn main() raises:
         test_forward_per_layer_mapping_gpu()
         test_forward_altup_predict_and_correct_gpu()
         test_forward_nano_layer_gpu()
+        test_forward_mlp_nano_sparsity_gpu()
         gpu_passed = True
     except e:
         print("GPU tests failed (expected during RED phase):", String(e))
@@ -499,4 +501,82 @@ fn test_forward_nano_layer_gpu() raises:
     assert_true(non_zero, "forward_nano_layer_gpu output should be non-zero")
 
     _ = out_streams[0]
+    _ = scratch[0]
+
+fn test_forward_mlp_nano_sparsity() raises:
+    var hidden_size = 4
+    var intermediate_size = 4
+    var weights = LayerWeights()
+    var gate_proj = alloc_zeros(intermediate_size * hidden_size)
+    var up_proj = alloc_ones(intermediate_size * hidden_size)
+    var down_proj = alloc_ones(hidden_size * intermediate_size)
+
+    gate_proj[0] = 10.0
+    gate_proj[1 * hidden_size + 1] = 10.0
+    gate_proj[2 * hidden_size + 2] = 0.0
+    gate_proj[3 * hidden_size + 3] = 0.0
+
+    weights.gate_proj = TensorInfo(Int(gate_proj.unsafe_ptr()), intermediate_size, hidden_size)
+    weights.up_proj = TensorInfo(Int(up_proj.unsafe_ptr()), intermediate_size, hidden_size)
+    weights.down_proj = TensorInfo(Int(down_proj.unsafe_ptr()), hidden_size, intermediate_size)
+
+    var x = alloc_zeros(hidden_size)
+    x[0] = 1.0
+    x[1] = 1.0
+    x[2] = 0.0
+    x[3] = 0.0
+
+    var out = alloc_zeros(hidden_size)
+    var scratch = alloc_zeros(intermediate_size * 4)
+
+    forward_mlp_nano(get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, 0, get_ptr(scratch))
+    
+    var out_dense = alloc_zeros(hidden_size)
+    forward_mlp_nano(get_ptr(out_dense), get_ptr(x), weights, hidden_size, intermediate_size, 15, get_ptr(scratch))
+
+    _ = gate_proj[0]
+    _ = up_proj[0]
+    _ = down_proj[0]
+    _ = x[0]
+    _ = out[0]
+    _ = out_dense[0]
+    _ = scratch[0]
+
+fn test_forward_mlp_nano_sparsity_gpu() raises:
+    var hidden_size = 4
+    var intermediate_size = 4
+    var weights = LayerWeights()
+    var gate_proj = alloc_zeros(intermediate_size * hidden_size)
+    var up_proj = alloc_ones(intermediate_size * hidden_size)
+    var down_proj = alloc_ones(hidden_size * intermediate_size)
+
+    gate_proj[0] = 10.0
+    gate_proj[1 * hidden_size + 1] = 10.0
+    gate_proj[2 * hidden_size + 2] = 0.0
+    gate_proj[3 * hidden_size + 3] = 0.0
+
+    weights.gate_proj = TensorInfo(Int(gate_proj.unsafe_ptr()), intermediate_size, hidden_size)
+    weights.up_proj = TensorInfo(Int(up_proj.unsafe_ptr()), intermediate_size, hidden_size)
+    weights.down_proj = TensorInfo(Int(down_proj.unsafe_ptr()), hidden_size, intermediate_size)
+
+    var x = alloc_zeros(hidden_size)
+    x[0] = 1.0
+    x[1] = 1.0
+    x[2] = 0.0
+    x[3] = 0.0
+
+    var out = alloc_zeros(hidden_size)
+    var scratch = alloc_zeros(intermediate_size * 4)
+
+    forward_mlp_nano_gpu(get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, 0, get_ptr(scratch))
+    
+    var out_dense = alloc_zeros(hidden_size)
+    forward_mlp_nano_gpu(get_ptr(out_dense), get_ptr(x), weights, hidden_size, intermediate_size, 15, get_ptr(scratch))
+
+    _ = gate_proj[0]
+    _ = up_proj[0]
+    _ = down_proj[0]
+    _ = x[0]
+    _ = out[0]
+    _ = out_dense[0]
     _ = scratch[0]
