@@ -35,8 +35,8 @@ install: clean ## Install everything (Python, Mojo, Beads)
 
 .PHONY: beads-install
 beads-install: ## Install beads
-	@if ! command -v bd >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash; fi
-	@if [ ! -f .beads/config.yaml ]; then bd init --stealth || true; fi
+	@if ! command -v br >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh | bash; fi
+	@if [ ! -f .beads/config.yaml ]; then br init --prefix mogemma || true; fi
 
 .PHONY: py-install
 py-install: ## Install Python deps
