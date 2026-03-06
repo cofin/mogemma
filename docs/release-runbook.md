@@ -8,6 +8,7 @@ This runbook defines the concrete evidence and execution flow for the first prod
 - Source distribution is built and published with the same workflow.
 - Python versions: `3.10`, `3.11`, `3.12`, `3.13`, `3.14`.
 - Architectures: Linux x86_64, Linux aarch64, macOS x86_64, macOS arm64.
+- CUDA Architectures: Linux x86_64 (`MOGEMMA_CUDA_BUILD=1` outputting `+cu12` tagged artifacts).
 - Skipped: musllinux (mojo requires glibc), i686 (mojo is 64-bit only), Windows, PyPy.
 - Build tooling uses `uv` + `mojo` for compiling the shared library.
 - Linux aarch64 builds use QEMU emulation via `docker/setup-qemu-action`.
@@ -21,12 +22,14 @@ Run locally from a clean branch before opening a release:
    (runs strict lint + tests)
 3. `uv build --sdist`
 4. `uv build --wheel`
-5. `uv run python -m pip install --force-reinstall ./dist/*.whl`
-6. `uv run python -c "import mogemma; print('import ok')"`
-7. `make benchmark`
-8. `uv run python tools/benchmark.py --mode generation --rounds 30 --max-new-tokens 64 > docs/baseline-generation.json`
-9. `uv run python tools/benchmark.py --mode embedding --rounds 30 > docs/baseline-embedding.json`
-10. `git status` (ensure only intentional release-related changes are staged)
+5. `MOGEMMA_CUDA_BUILD=1 uv build --wheel` (verify CUDA wheel builds)
+6. `uv run python -m pip install --force-reinstall ./dist/*.whl`
+7. `uv run python -c "import mogemma; print('import ok')"`
+8. `make benchmark`
+9. `uv run python tools/benchmark.py --mode generation --rounds 30 --max-new-tokens 64 > docs/baseline-generation.json`
+10. `uv run python tools/benchmark.py --mode embedding --rounds 30 > docs/baseline-embedding.json`
+11. Optional (if GPU present): `uv run python tools/validate.py --device gpu` to capture GPU parity evidence.
+12. `git status` (ensure only intentional release-related changes are staged)
 
 Capture command output with timestamps in release notes.
 
