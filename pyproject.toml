@@ -143,6 +143,7 @@ exclude = ["tmp/", ".tmp/"]
 packages = ["mogemma", "tests"]
 python_version = "3.10"
 strict = true
+warn_unused_ignores = false
 
 [tool.pyright]
 include = ["src/py/mogemma", "src/py/tests", "src/mo/tests"]
