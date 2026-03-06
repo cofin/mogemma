@@ -1,0 +1,11 @@
+{
+  "flow_id": "quality-gates-zero-warning_20260222",
+  "type": "feature",
+  "status": "completed",
+  "parent_prd": "production-release-0-1-0_20260222",
+  "beads_epic_id": "mogemma-bp0.4",
+  "created_at": "2026-02-22T21:38:25Z",
+  "updated_at": "2026-02-22T23:25:27Z",
+  "description": "Enforce strict zero-warning lint/type/test gates locally and in CI with minimal suppression policy.",
+  "synced_at": "2026-02-22T23:25:27Z"
+}

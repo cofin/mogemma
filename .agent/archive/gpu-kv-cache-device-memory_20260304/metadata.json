@@ -1,0 +1,23 @@
+{
+  "flow_id": "gpu-kv-cache-device-memory_20260304",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "mojo-gpu-standard-kernels_20260304",
+  "beads_epic_id": "mogemma-3hl.2",
+  "created_at": "2026-03-04T23:38:07Z",
+  "updated_at": "2026-03-05T17:55:43Z",
+  "description": "Move standard Gemma KV cache and per-step temporary buffers to device-resident memory with explicit transfer/sync policy.",
+  "files_analyzed": [
+    ".agent/patterns.md",
+    ".agent/research/gpu-acceleration-options_20260304/research.md",
+    ".agent/specs/mojo-gpu-standard-kernels_20260304/prd.md",
+    "src/mo/mogemma/core.mojo",
+    "src/mo/mogemma/layers.mojo",
+    "src/mo/mogemma/model.mojo",
+    "src/mo/tests/test_layers.mojo",
+    "src/py/mogemma/config.py",
+    "src/py/mogemma/model.py",
+    "src/py/tests/test_mojo_core.py"
+  ],
+  "synced_at": "2026-03-05T17:55:43Z"
+}

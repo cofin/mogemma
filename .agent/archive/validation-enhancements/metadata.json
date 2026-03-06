@@ -1,0 +1,10 @@
+{
+  "flow_id": "validation-enhancements",
+  "type": "task",
+  "status": "planned",
+  "parent_prd": "fix-e2e-inference",
+  "beads_epic_id": "mogemma-yj1.3",
+  "created_at": "2026-02-24T18:28:05Z",
+  "updated_at": "2026-02-24T18:34:16Z",
+  "description": "Harden tools/validate.py with deterministic semantic assertions and explicit failure diagnostics."
+}

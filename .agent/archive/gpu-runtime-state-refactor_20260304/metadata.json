@@ -1,0 +1,23 @@
+{
+  "flow_id": "gpu-runtime-state-refactor_20260304",
+  "type": "feature",
+  "status": "archived",
+  "archived_at": "2026-03-06T00:25:00Z",
+  "parent_prd": "mojo-gpu-foundation_20260304",
+  "beads_epic_id": "mogemma-2mo.2",
+  "created_at": "2026-03-04T23:38:07Z",
+  "updated_at": "2026-03-06T00:22:00Z",
+  "synced_at": "2026-03-06T00:22:00Z",
+  "description": "Refactor per-token runtime behavior to cache model wrappers/session state and separate host/device allocations, removing CPU-only token-step rebuild overhead.",
+  "files_analyzed": [
+    ".agent/patterns.md",
+    ".agent/research/gpu-acceleration-options_20260304/research.md",
+    "src/py/mogemma/model.py",
+    "src/mo/mogemma/core.mojo",
+    "src/mo/mogemma/layers.mojo",
+    "src/mo/mogemma/model.mojo",
+    "src/py/tests/test_mojo_core.py",
+    "src/mo/tests/test_altup_contract.mojo",
+    "src/mo/tests/test_mojo.py"
+  ]
+}

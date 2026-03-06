@@ -1,0 +1,8 @@
+{
+  "flow_id": "text-inference-engine",
+  "type": "feature",
+  "status": "in_progress",
+  "created_at": "2026-02-08T12:00:00Z",
+  "updated_at": "2026-02-08T12:00:00Z",
+  "description": "Implement the core text inference engine with KV caching and streaming support."
+}

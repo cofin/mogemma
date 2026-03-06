@@ -1,0 +1,10 @@
+{
+  "flow_id": "gemma3-nano-conversion",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "model-architecture-support",
+  "beads_epic_id": "mogemma-r9c.2",
+  "created_at": "2026-02-23T00:00:00Z",
+  "updated_at": "2026-02-23T00:00:00Z",
+  "description": "Build _convert_gemma3_nano() for Nano's 671-tensor Orbax layout. Add model-family auto-detection. Refactor shared conversion helpers."
+}

@@ -1,0 +1,12 @@
+{
+  "flow_id": "hatch-mojo-docs-knowledge-sync_20260301",
+  "type": "feature",
+  "status": "archived",
+  "archived_at": "2026-03-06T00:25:00Z",
+  "parent_prd": "hatch-mojo-alignment_20260301",
+  "beads_epic_id": "mogemma-227.3",
+  "created_at": "2026-03-01T22:32:30Z",
+  "updated_at": "2026-03-06T00:22:00Z",
+  "synced_at": "2026-03-06T00:22:00Z",
+  "description": "Synchronize release and agent knowledge docs with the post-realignment hatch-mojo baseline and rationale."
+}

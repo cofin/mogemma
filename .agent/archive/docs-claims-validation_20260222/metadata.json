@@ -1,0 +1,11 @@
+{
+  "flow_id": "docs-claims-validation_20260222",
+  "type": "feature",
+  "status": "completed",
+  "parent_prd": "production-release-0-1-0_20260222",
+  "beads_epic_id": "mogemma-bp0.6",
+  "created_at": "2026-02-22T21:38:25Z",
+  "updated_at": "2026-02-22T23:25:27Z",
+  "description": "Audit and align docs and claims to tested behavior, removing marketing language and improving technical precision.",
+  "synced_at": "2026-02-22T23:25:27Z"
+}

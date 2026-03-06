@@ -1,0 +1,11 @@
+{
+  "flow_id": "hub-hard-cutover_20260302",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "obstore-to-mojo-cffi_20260302",
+  "beads_epic_id": "mogemma-h4n.3",
+  "created_at": "2026-03-02T03:32:30Z",
+  "updated_at": "2026-03-05T17:55:46Z",
+  "description": "Plan hard cutover to Rust+Mojo CFFI in HubManager.download with no obstore fallback.",
+  "synced_at": "2026-03-05T17:55:46Z"
+}

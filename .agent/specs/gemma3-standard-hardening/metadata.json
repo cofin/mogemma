@@ -1,0 +1,11 @@
+{
+  "flow_id": "gemma3-standard-hardening",
+  "type": "feature",
+  "status": "in_progress",
+  "parent_prd": "model-architecture-support",
+  "beads_epic_id": "mogemma-r9c.1",
+  "created_at": "2026-02-23T00:00:00Z",
+  "updated_at": "2026-03-05T17:21:29Z",
+  "synced_at": "2026-03-05T17:21:29Z",
+  "description": "Remove hardcoded head_dim=256 and embedding_dim=768 from core.mojo. Derive dimensions from tensor shapes with Python override support. Fix GenerationConfig default. Add QK norm correctness fix."
+}

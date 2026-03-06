@@ -1,0 +1,10 @@
+{
+  "flow_id": "core-embedding-padding",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "fix-e2e-inference",
+  "beads_epic_id": "mogemma-yj1.1",
+  "created_at": "2026-02-24T00:00:00Z",
+  "updated_at": "2026-02-24T00:00:00Z",
+  "description": "Push padding logic down into the Mojo _core implementation to handle jagged arrays performantly."
+}
