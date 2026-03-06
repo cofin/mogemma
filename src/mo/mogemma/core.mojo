@@ -891,7 +891,6 @@ fn _init_model_impl_mojo(
     var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
     var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
     
-    # RoPE precompute
     var base: Float32 = 10000.0
     for t in range(max_seq_len):
         for d in range(head_dim // 2):
@@ -901,8 +900,12 @@ fn _init_model_impl_mojo(
             freqs_cos_ptr.store(t * head_dim + d, cos(freq))
             freqs_sin_ptr.store(t * head_dim + d, sin(freq))
             
+    var step_scratch_len = _step_scratch_len(hidden_size)
+    var step_scratch_obj = _allocate_session_f32(np, step_scratch_len)
+
     py_dict["k_cache"] = k_cache
     py_dict["v_cache"] = v_cache
+    py_dict["step_scratch"] = step_scratch_obj
     py_dict["freqs_cos"] = freqs_cos
     py_dict["freqs_sin"] = freqs_sin
     py_dict["max_seq_len"] = max_seq_len
@@ -914,7 +917,7 @@ fn _init_model_impl_mojo(
     py_dict["intermediate_size"] = intermediate_size
     py_dict["vocab_size"] = vocab_size
     py_dict["session_kv_cache_len"] = session_kv_cache_len
-    py_dict["step_scratch_len"] = _step_scratch_len(hidden_size)
+    py_dict["step_scratch_len"] = step_scratch_len
     py_dict["embedding_scratch_len"] = _embedding_scratch_len(hidden_size)
     py_dict["per_layer_dim"] = per_layer_dim
     py_dict["runtime"] = runtime_obj
@@ -1008,8 +1011,8 @@ fn step_mojo(
     var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
     
     var step_scratch_len = Int(py=llm["step_scratch_len"])
+    var scratch_obj = llm["step_scratch"]
     var scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var scratch: List[Float32]
     
     var session_kv_cache_len = Int(py=llm["session_kv_cache_len"])
     var mock_k_cache: List[Float32]
@@ -1021,16 +1024,18 @@ fn step_mojo(
         mock_v_cache = _allocate_transient_f32(session_kv_cache_len)
         kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(mock_k_cache.unsafe_ptr()))
         kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(mock_v_cache.unsafe_ptr()))
-        scratch = _allocate_transient_f32(step_scratch_len)
-        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
+        
+        # scratch_obj is a numpy array for scaffolding
+        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0]))
     else:
         # standard numpy cache
         mock_k_cache = _allocate_transient_f32(1) # Unused dummy
         mock_v_cache = _allocate_transient_f32(1) # Unused dummy
         kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache.__array_interface__["data"][0]))
         kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache.__array_interface__["data"][0]))
-        scratch = _allocate_transient_f32(step_scratch_len)
-        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
+        
+        # for cpu, scratch_obj is a numpy array
+        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0]))
         
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
@@ -1083,7 +1088,6 @@ fn step_mojo(
             scratch_ptr
         )
     
-    _ = scratch[0] # keep alive
     llm["pos"] = pos + 1
     
     return _ensure_step_logits(out_logits, np)
