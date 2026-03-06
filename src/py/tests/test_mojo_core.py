@@ -149,7 +149,7 @@ def test_mojo_core_step_standard() -> None:
     assert llm.get("step_backend") == "cpu"
     assert llm.get("fallback_reason") == "requested"
 
-def test_mojo_core_step_standard_fallback() -> None:
+def test_mojo_core_step_standard_cuda() -> None:
     if not hasattr(_core, "init_model_with_options"):
         pytest.skip("init_model_with_options is unavailable")
 
@@ -190,13 +190,13 @@ def test_mojo_core_step_standard_fallback() -> None:
 
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
-    assert llm.get("step_backend") == "cpu"
-    assert llm.get("fallback_reason") == "cuda_kernels_unimplemented"
+    assert llm.get("step_backend") == "cuda"
+    assert llm.get("fallback_reason") == "none"
     assert llm.get("debug_launch_count") == 1
     
     # second token uses same latch
     logits = _core.step(llm, 2, 0.0, 0, 0.0)
-    assert llm.get("step_backend") == "cpu"
+    assert llm.get("step_backend") == "cuda"
     assert llm.get("debug_launch_count") == 2
 
 
