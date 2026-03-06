@@ -877,9 +877,13 @@ fn _init_model_impl_mojo(
     var v_cache: PythonObject
     
     if device_backend == "cuda":
-        # Opaque dummy handle for GPU residency. Actual device allocation deferred to Chapter 3.
-        k_cache = 0
-        v_cache = 0
+        # Opaque dummy handle for GPU residency. We use Numpy internally for Phase 1-3 testing to avoid segfaults.
+        var k_np = _allocate_session_f32(np, session_kv_cache_len)
+        var v_np = _allocate_session_f32(np, session_kv_cache_len)
+        py_dict["_mock_k"] = k_np
+        py_dict["_mock_v"] = v_np
+        k_cache = k_np.__array_interface__["data"][0]
+        v_cache = v_np.__array_interface__["data"][0]
     else:
         k_cache = _allocate_session_f32(np, session_kv_cache_len)
         v_cache = _allocate_session_f32(np, session_kv_cache_len)
@@ -1014,23 +1018,16 @@ fn step_mojo(
     var scratch_obj = llm["step_scratch"]
     var scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
     
-    var session_kv_cache_len = Int(py=llm["session_kv_cache_len"])
-    var mock_k_cache: List[Float32]
-    var mock_v_cache: List[Float32]
+    var kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
     
     if step_backend == "cuda":
-        # Mock GPU memory with CPU memory for testing Phase 1-3 polyfills
-        mock_k_cache = _allocate_transient_f32(session_kv_cache_len)
-        mock_v_cache = _allocate_transient_f32(session_kv_cache_len)
-        kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(mock_k_cache.unsafe_ptr()))
-        kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(mock_v_cache.unsafe_ptr()))
-        
+        kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache))
+        kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache))
         # scratch_obj is a numpy array for scaffolding
         scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0]))
     else:
         # standard numpy cache
-        mock_k_cache = _allocate_transient_f32(1) # Unused dummy
-        mock_v_cache = _allocate_transient_f32(1) # Unused dummy
         kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache.__array_interface__["data"][0]))
         kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache.__array_interface__["data"][0]))
         

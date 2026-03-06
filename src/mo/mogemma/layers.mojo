@@ -11,6 +11,7 @@ from mogemma.model import (
     TensorInfo,
 )
 from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu
+from mogemma.ops_gpu import vec_mat_mul_gpu, rope_rotate_gpu, softmax_gpu, rms_norm_gpu, geglu_gpu
 
 @always_inline
 fn forward_attention(
@@ -1061,3 +1062,147 @@ fn forward_nano_sequence(
     var scale = 1.0 / Float32(seq_len)
     for i in range(hidden_size):
         out_emb_ptr.store(i, emb_acc.load(i) * scale)
+
+@always_inline
+fn forward_attention_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: LayerWeights,
+    pos: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+):
+    var q_size = num_heads * head_dim
+    var kv_size = num_kv_heads * head_dim
+    var q_ptr = scratch_ptr
+    var k_ptr = scratch_ptr + q_size
+    var v_ptr = scratch_ptr + q_size + kv_size
+    
+    vec_mat_mul_gpu(q_ptr, x_ptr, weights.q_proj.ptr, hidden_size, q_size)
+    vec_mat_mul_gpu(k_ptr, x_ptr, weights.k_proj.ptr, hidden_size, kv_size)
+    vec_mat_mul_gpu(v_ptr, x_ptr, weights.v_proj.ptr, hidden_size, kv_size)
+
+    if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        for h in range(num_heads):
+            rms_norm_gpu(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+    if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        for h in range(num_kv_heads):
+            rms_norm_gpu(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+
+    for h in range(num_heads):
+        rope_rotate_gpu(q_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
+    for h in range(num_kv_heads):
+        rope_rotate_gpu(k_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
+        
+    var kv_offset = pos * kv_size
+    for i in range(kv_size):
+        kv_cache_k_ptr.store(kv_offset + i, k_ptr.load(i))
+        kv_cache_v_ptr.store(kv_offset + i, v_ptr.load(i))
+        
+    var heads_per_kv = num_heads // num_kv_heads
+    var scale_attn = 1.0 / sqrt(Float32(head_dim))
+    var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
+    
+    for h in range(num_heads):
+        var kv_h = h // heads_per_kv
+        var q_head_ptr = q_ptr + h * head_dim
+        var scores_ptr = attn_out_ptr + num_heads * head_dim
+        
+        for t in range(pos + 1):
+            var k_head_ptr = kv_cache_k_ptr + t * kv_size + kv_h * head_dim
+            var score: Float32 = 0.0
+            for d in range(head_dim):
+                score += q_head_ptr.load(d) * k_head_ptr.load(d)
+            scores_ptr.store(t, score * scale_attn)
+            
+        softmax_gpu(scores_ptr, pos + 1)
+        
+        var out_head_ptr = attn_out_ptr + h * head_dim
+        for d in range(head_dim):
+            out_head_ptr.store(d, 0.0)
+            
+        for t in range(pos + 1):
+            var v_head_ptr = kv_cache_v_ptr + t * kv_size + kv_h * head_dim
+            var prob = scores_ptr.load(t)
+            for d in range(head_dim):
+                var acc = out_head_ptr.load(d)
+                out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
+                
+    vec_mat_mul_gpu(out_ptr, attn_out_ptr, weights.o_proj.ptr, q_size, hidden_size)
+
+@always_inline
+fn forward_mlp_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: LayerWeights,
+    hidden_size: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+):
+    var gate_ptr = scratch_ptr
+    var up_ptr = scratch_ptr + intermediate_size
+    var geglu_out_ptr = scratch_ptr + intermediate_size * 2
+    
+    vec_mat_mul_gpu(gate_ptr, x_ptr, weights.gate_proj.ptr, hidden_size, intermediate_size)
+    vec_mat_mul_gpu(up_ptr, x_ptr, weights.up_proj.ptr, hidden_size, intermediate_size)
+    
+    geglu_gpu(geglu_out_ptr, gate_ptr, up_ptr, intermediate_size)
+    
+    vec_mat_mul_gpu(out_ptr, geglu_out_ptr, weights.down_proj.ptr, intermediate_size, hidden_size)
+
+@always_inline
+fn forward_layer_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: LayerWeights,
+    pos: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+):
+    var norm_x_ptr = scratch_ptr
+    var attn_out_ptr = scratch_ptr + hidden_size
+    var attn_scratch_ptr = scratch_ptr + hidden_size * 2
+    
+    rms_norm_gpu(norm_x_ptr, x_ptr, weights.input_layernorm.ptr, hidden_size, 1e-6)
+    
+    forward_attention_gpu(
+        attn_out_ptr, norm_x_ptr, weights, pos, hidden_size, num_heads, num_kv_heads,
+        head_dim, freqs_cos_ptr, freqs_sin_ptr, kv_cache_k_ptr, kv_cache_v_ptr, max_seq_len, attn_scratch_ptr
+    )
+    
+    var post_attn_out_ptr = scratch_ptr + hidden_size * 2
+    rms_norm_gpu(post_attn_out_ptr, attn_out_ptr, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+    
+    var residual_ptr = scratch_ptr + hidden_size * 3
+    for i in range(hidden_size):
+        residual_ptr.store(i, x_ptr.load(i) + post_attn_out_ptr.load(i))
+        
+    var norm_residual_ptr = scratch_ptr + hidden_size * 4
+    rms_norm_gpu(norm_residual_ptr, residual_ptr, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    
+    var mlp_out_ptr = scratch_ptr + hidden_size * 5
+    var mlp_scratch_ptr = scratch_ptr + hidden_size * 6
+    forward_mlp_gpu(mlp_out_ptr, norm_residual_ptr, weights, hidden_size, intermediate_size, mlp_scratch_ptr)
+    
+    var post_mlp_out_ptr = scratch_ptr + hidden_size * 7
+    rms_norm_gpu(post_mlp_out_ptr, mlp_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    
+    for i in range(hidden_size):
+        out_ptr.store(i, residual_ptr.load(i) + post_mlp_out_ptr.load(i))

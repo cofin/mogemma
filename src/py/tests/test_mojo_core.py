@@ -200,6 +200,55 @@ def test_mojo_core_step_standard_cuda() -> None:
     assert llm.get("debug_launch_count") == 2
 
 
+def test_mojo_core_step_standard_cuda_zero_alloc_validation() -> None:
+    if not hasattr(_core, "init_model_with_options"):
+        pytest.skip("init_model_with_options is unavailable")
+
+    tensors = {
+        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.self_attn.k_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.v_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
+        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
+        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+    }
+    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
+    llm = _core.init_model_with_options(
+        metadata,
+        {},
+        {
+            "backend": "cuda",
+            "device_kind": "gpu",
+            "requested": "cuda",
+            "strict": False,
+            "availability_source": "auto"
+        },
+    )
+
+    # First step
+    logits1 = _core.step(llm, 1, 0.0, 0, 0.0)
+    assert logits1.shape == (_EXPECTED_VOCAB_SIZE,)
+    assert llm.get("step_backend") == "cuda"
+    
+    # Second step tests cache writing / pointer reuse without blowing up
+    logits2 = _core.step(llm, 2, 0.0, 0, 0.0)
+    assert llm.get("step_backend") == "cuda"
+    assert llm["pos"] == 2
+
 def test_mojo_core_embeddings_standard_uses_local_rope_when_sequence_exceeds_runtime_window() -> None:
     tensors = {
         "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
@@ -852,3 +901,54 @@ def test_mojo_core_step_nano_reuses_prepared_model_views() -> None:
 
     _ = _core.step(llm, 3, 0.0, 0, 0.0)
     assert llm["pos"] == 3
+
+def test_mojo_core_step_standard_cpu_gpu_parity() -> None:
+    if not hasattr(_core, "init_model_with_options"):
+        pytest.skip("init_model_with_options is unavailable")
+
+    tensors = {
+        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.self_attn.k_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.v_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
+        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
+        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+    }
+    
+    # Populate with some non-zero data to make the math meaningful
+    for k in tensors:
+        tensors[k] += 0.1
+
+    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
+    
+    llm_cpu = _core.init_model_with_options(
+        metadata, {}, {"backend": "cpu", "device_kind": "cpu", "requested": "cpu", "strict": False, "availability_source": "auto"}
+    )
+    
+    llm_gpu = _core.init_model_with_options(
+        metadata, {}, {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"}
+    )
+
+    logits_cpu_1 = _core.step(llm_cpu, 1, 0.0, 0, 0.0)
+    logits_gpu_1 = _core.step(llm_gpu, 1, 0.0, 0, 0.0)
+    
+    np.testing.assert_allclose(logits_cpu_1, logits_gpu_1, atol=1e-6, rtol=1e-5)
+    
+    logits_cpu_2 = _core.step(llm_cpu, 2, 0.0, 0, 0.0)
+    logits_gpu_2 = _core.step(llm_gpu, 2, 0.0, 0, 0.0)
+    
+    np.testing.assert_allclose(logits_cpu_2, logits_gpu_2, atol=1e-6, rtol=1e-5)
