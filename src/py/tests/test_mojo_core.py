@@ -47,7 +47,8 @@ def test_mojo_core_init_standard() -> None:
     assert llm["arch"] == "standard"
     assert llm["num_layers"] == 1
     assert llm["head_dim"] == _EXPECTED_HEAD_DIM
-    assert llm["num_heads"] == 4
+    expected_num_heads = 4
+    assert llm["num_heads"] == expected_num_heads
     assert llm["num_kv_heads"] == _EXPECTED_HEAD_DIM
     assert llm["hidden_size"] == _EXPECTED_HIDDEN_SIZE
     assert llm["vocab_size"] == _EXPECTED_VOCAB_SIZE
@@ -110,7 +111,8 @@ def test_mojo_core_init_model_with_options_caches_runtime_device_descriptor() ->
     }
     assert llm["device_backend"] == "gpu"
     assert llm["device_kind"] == "gpu"
-    assert llm["device_index"] == 2
+    expected_device_index = 2
+    assert llm["device_index"] == expected_device_index
     assert llm["device_request"] == "gpu:2"
     assert llm["device_availability_source"] == "override"
     assert llm["device_strict"] is True
@@ -149,6 +151,7 @@ def test_mojo_core_step_standard() -> None:
     assert llm.get("step_backend") == "cpu"
     assert llm.get("fallback_reason") == "requested"
 
+
 def test_mojo_core_step_standard_cuda() -> None:
     if not hasattr(_core, "init_model_with_options"):
         pytest.skip("init_model_with_options is unavailable")
@@ -179,13 +182,7 @@ def test_mojo_core_step_standard_cuda() -> None:
     llm = _core.init_model_with_options(
         metadata,
         {},
-        {
-            "backend": "cuda",
-            "device_kind": "gpu",
-            "requested": "cuda",
-            "strict": False,
-            "availability_source": "auto"
-        },
+        {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"},
     )
 
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
@@ -193,11 +190,12 @@ def test_mojo_core_step_standard_cuda() -> None:
     assert llm.get("step_backend") == "cuda"
     assert llm.get("fallback_reason") == "none"
     assert llm.get("debug_launch_count") == 1
-    
+
     # second token uses same latch
     logits = _core.step(llm, 2, 0.0, 0, 0.0)
     assert llm.get("step_backend") == "cuda"
-    assert llm.get("debug_launch_count") == 2
+    expected_launch_count = 2
+    assert llm.get("debug_launch_count") == expected_launch_count
 
 
 def test_mojo_core_step_standard_cuda_zero_alloc_validation() -> None:
@@ -230,24 +228,20 @@ def test_mojo_core_step_standard_cuda_zero_alloc_validation() -> None:
     llm = _core.init_model_with_options(
         metadata,
         {},
-        {
-            "backend": "cuda",
-            "device_kind": "gpu",
-            "requested": "cuda",
-            "strict": False,
-            "availability_source": "auto"
-        },
+        {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"},
     )
 
     # First step
     logits1 = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits1.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm.get("step_backend") == "cuda"
-    
+
     # Second step tests cache writing / pointer reuse without blowing up
-    logits2 = _core.step(llm, 2, 0.0, 0, 0.0)
+    _ = _core.step(llm, 2, 0.0, 0, 0.0)
     assert llm.get("step_backend") == "cuda"
-    assert llm["pos"] == 2
+    expected_pos = 2
+    assert llm["pos"] == expected_pos
+
 
 def test_mojo_core_embeddings_standard_uses_local_rope_when_sequence_exceeds_runtime_window() -> None:
     tensors = {
@@ -344,7 +338,8 @@ def test_mojo_core_init_nano() -> None:
     assert llm["arch"] == "nano"
     assert llm["num_layers"] == 1
     assert llm["head_dim"] == _EXPECTED_HEAD_DIM
-    assert llm["num_heads"] == 4
+    expected_num_heads = 4
+    assert llm["num_heads"] == expected_num_heads
     assert llm["per_layer_dim"] == _EXPECTED_PER_LAYER_DIM_SMALL
 
 
@@ -495,12 +490,16 @@ def test_mojo_core_detects_nano_kv_share_start_boundary() -> None:
 
     for layer_idx in range(2):
         pfx = f"model.layers.{layer_idx}"
-        tensors[f"{pfx}.altup.router.weight"] = np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
+        tensors[f"{pfx}.altup.router.weight"] = np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
         tensors[f"{pfx}.altup.router_norm.weight"] = np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
         tensors[f"{pfx}.altup.prediction_coefs"] = np.zeros(
             (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
         )
-        tensors[f"{pfx}.altup.correction_coefs"] = np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
+        tensors[f"{pfx}.altup.correction_coefs"] = np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
         tensors[f"{pfx}.altup.output_scale"] = np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
         tensors[f"{pfx}.laurel.down_proj.weight"] = np.zeros(
             (_EXPECTED_PER_LAYER_DIM_SMALL, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
@@ -548,7 +547,8 @@ def test_mojo_core_detects_nano_kv_share_start_boundary() -> None:
     llm = _core.init_model(metadata)
 
     assert llm["arch"] == "nano"
-    assert llm["num_layers"] == 2
+    expected_num_layers = 2
+    assert llm["num_layers"] == expected_num_layers
     assert llm["kv_share_start"] == 1
 
 
@@ -568,12 +568,16 @@ def test_mojo_core_step_nano_kv_share_keeps_shared_layer_cache_slots_pristine() 
 
     for layer_idx in range(2):
         pfx = f"model.layers.{layer_idx}"
-        tensors[f"{pfx}.altup.router.weight"] = np.ones((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
+        tensors[f"{pfx}.altup.router.weight"] = np.ones(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
         tensors[f"{pfx}.altup.router_norm.weight"] = np.ones((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
         tensors[f"{pfx}.altup.prediction_coefs"] = np.ones(
             (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
         )
-        tensors[f"{pfx}.altup.correction_coefs"] = np.ones((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
+        tensors[f"{pfx}.altup.correction_coefs"] = np.ones(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
         tensors[f"{pfx}.altup.output_scale"] = np.ones((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
         tensors[f"{pfx}.laurel.down_proj.weight"] = np.ones(
             (_EXPECTED_PER_LAYER_DIM_SMALL, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
@@ -618,13 +622,18 @@ def test_mojo_core_step_nano_kv_share_keeps_shared_layer_cache_slots_pristine() 
         tensors[f"{pfx}.post_feedforward_layernorm.weight"] = np.ones((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
 
     for i in range(3):
-        tensors[f"model.altup.projection.{i}.weight"] = np.ones((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
-        tensors[f"model.altup.unembed.{i}.weight"] = np.ones((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
+        tensors[f"model.altup.projection.{i}.weight"] = np.ones(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
+        tensors[f"model.altup.unembed.{i}.weight"] = np.ones(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
 
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
     llm = _core.init_model(metadata)
     assert llm["arch"] == "nano"
-    assert llm["num_layers"] == 2
+    expected_num_layers = 2
+    assert llm["num_layers"] == expected_num_layers
     assert llm["kv_share_start"] == 1
 
     _ = _core.step(llm, 1, 0.0, 0, 0.0)
@@ -891,16 +900,20 @@ def test_mojo_core_step_nano_reuses_prepared_model_views() -> None:
 
     _ = _core.step(llm, 1, 0.0, 0, 0.0)
     _ = _core.step(llm, 2, 0.0, 0, 0.0)
-    assert llm["pos"] == 2
+    expected_pos = 2
+    assert llm["pos"] == expected_pos
     assert llm["nano_model_build_count"] == 1
 
     embeddings = _core.generate_embeddings(llm, np.array([[1, 2, 3]], dtype=np.int32))
     assert embeddings.shape == (1, _EXPECTED_HIDDEN_SIZE)
-    assert llm["pos"] == 2
+    expected_pos = 2
+    assert llm["pos"] == expected_pos
     assert llm["nano_model_build_count"] == 1
 
     _ = _core.step(llm, 3, 0.0, 0, 0.0)
-    assert llm["pos"] == 3
+    expected_pos_3 = 3
+    assert llm["pos"] == expected_pos_3
+
 
 def test_mojo_core_step_standard_cpu_gpu_parity() -> None:
     if not hasattr(_core, "init_model_with_options"):
@@ -928,30 +941,35 @@ def test_mojo_core_step_standard_cpu_gpu_parity() -> None:
         "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
         "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
     }
-    
+
     # Populate with some non-zero data to make the math meaningful
     for k in tensors:
         tensors[k] += 0.1
 
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
-    
+
     llm_cpu = _core.init_model_with_options(
-        metadata, {}, {"backend": "cpu", "device_kind": "cpu", "requested": "cpu", "strict": False, "availability_source": "auto"}
+        metadata,
+        {},
+        {"backend": "cpu", "device_kind": "cpu", "requested": "cpu", "strict": False, "availability_source": "auto"},
     )
-    
+
     llm_gpu = _core.init_model_with_options(
-        metadata, {}, {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"}
+        metadata,
+        {},
+        {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"},
     )
 
     logits_cpu_1 = _core.step(llm_cpu, 1, 0.0, 0, 0.0)
     logits_gpu_1 = _core.step(llm_gpu, 1, 0.0, 0, 0.0)
-    
+
     np.testing.assert_allclose(logits_cpu_1, logits_gpu_1, atol=1e-6, rtol=1e-5)
-    
+
     logits_cpu_2 = _core.step(llm_cpu, 2, 0.0, 0, 0.0)
     logits_gpu_2 = _core.step(llm_gpu, 2, 0.0, 0, 0.0)
-    
+
     np.testing.assert_allclose(logits_cpu_2, logits_gpu_2, atol=1e-6, rtol=1e-5)
+
 
 def test_mojo_core_step_nano_cpu_gpu_parity() -> None:
     if not hasattr(_core, "init_model_with_options"):
@@ -972,7 +990,9 @@ def test_mojo_core_step_nano_cpu_gpu_parity() -> None:
 
     for layer_idx in range(2):
         pfx = f"model.layers.{layer_idx}"
-        tensors[f"{pfx}.altup.router.weight"] = np.zeros((_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
+        tensors[f"{pfx}.altup.router.weight"] = np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        )
         tensors[f"{pfx}.altup.router_norm.weight"] = np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
         tensors[f"{pfx}.altup.prediction_coefs"] = np.zeros(
             (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
@@ -1026,25 +1046,29 @@ def test_mojo_core_step_nano_cpu_gpu_parity() -> None:
         )
 
     # Populate with some non-zero data
-    for k in tensors:
-        tensors[k] = (tensors[k] + 0.1).astype(np.float32)
+    for k, v in tensors.items():
+        tensors[k] = (v + 0.1).astype(np.float32)
 
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
-    
+
     llm_cpu = _core.init_model_with_options(
-        metadata, {}, {"backend": "cpu", "device_kind": "cpu", "requested": "cpu", "strict": False, "availability_source": "auto"}
+        metadata,
+        {},
+        {"backend": "cpu", "device_kind": "cpu", "requested": "cpu", "strict": False, "availability_source": "auto"},
     )
-    
+
     llm_gpu = _core.init_model_with_options(
-        metadata, {}, {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"}
+        metadata,
+        {},
+        {"backend": "cuda", "device_kind": "gpu", "requested": "cuda", "strict": False, "availability_source": "auto"},
     )
 
     logits_cpu_1 = _core.step(llm_cpu, 1, 0.0, 0, 0.0)
     logits_gpu_1 = _core.step(llm_gpu, 1, 0.0, 0, 0.0)
-    
+
     np.testing.assert_allclose(logits_cpu_1, logits_gpu_1, atol=1e-6, rtol=1e-5)
-    
+
     logits_cpu_2 = _core.step(llm_cpu, 2, 0.0, 0, 0.0)
     logits_gpu_2 = _core.step(llm_gpu, 2, 0.0, 0, 0.0)
-    
+
     np.testing.assert_allclose(logits_cpu_2, logits_gpu_2, atol=1e-6, rtol=1e-5)

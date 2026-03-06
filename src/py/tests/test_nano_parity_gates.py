@@ -12,16 +12,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import numpy as np
 
 from mogemma.config import GenerationConfig
 from mogemma.model import SyncGemmaModel
-from parity_config import (
-    DETERMINISTIC_PROFILE,
-    PROMPT_FIXTURES,
-    PARITY_THRESHOLDS,
-    PERF_THRESHOLDS
-)
+from parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
 
 
 def _create_dummy_safetensors(model_dir: Path) -> None:
@@ -61,21 +55,21 @@ def test_deterministic_token_parity(nano_model_path: Path, mock_tokenizer: Magic
         device="cpu",
         temperature=DETERMINISTIC_PROFILE.temperature,
         top_k=DETERMINISTIC_PROFILE.top_k,
-        top_p=DETERMINISTIC_PROFILE.top_p
+        top_p=DETERMINISTIC_PROFILE.top_p,
     )
     config_gpu = GenerationConfig(
         model_path=nano_model_path,
         device="gpu",
         temperature=DETERMINISTIC_PROFILE.temperature,
         top_k=DETERMINISTIC_PROFILE.top_k,
-        top_p=DETERMINISTIC_PROFILE.top_p
+        top_p=DETERMINISTIC_PROFILE.top_p,
     )
 
     model_cpu = SyncGemmaModel(config_cpu)
     model_gpu = SyncGemmaModel(config_gpu)
 
     prompt = PROMPT_FIXTURES["medium"]
-    
+
     # These will fail if the backend is not implemented or parity is missing
     output_cpu = model_cpu.generate(prompt)
     output_gpu = model_gpu.generate(prompt)
@@ -92,14 +86,14 @@ def test_quality_gate_instruction_prompts(nano_model_path: Path, mock_tokenizer:
         device="gpu",
         temperature=DETERMINISTIC_PROFILE.temperature,
         top_k=DETERMINISTIC_PROFILE.top_k,
-        top_p=DETERMINISTIC_PROFILE.top_p
+        top_p=DETERMINISTIC_PROFILE.top_p,
     )
     model_gpu = SyncGemmaModel(config_gpu)
 
     # Test that the prompt encoding respects instruction wrap
     prompt = PROMPT_FIXTURES["gibberish_regression"]
     _ = model_gpu.generate(prompt)
-    
+
     # Assert tokenizer encode was called with start_of_turn wrapper
     encoded_prompt = mock_tokenizer.encode.call_args.args[0]
     if DETERMINISTIC_PROFILE.instruction_wrap:
@@ -129,4 +123,3 @@ def test_performance_gate_throughput(nano_model_path: Path, mock_tokenizer: Magi
     gpu_throughput = 10 / gpu_time if gpu_time > 0 else 0
 
     assert gpu_throughput >= (cpu_throughput * PERF_THRESHOLDS.throughput_improvement_ratio)
-

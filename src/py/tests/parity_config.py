@@ -5,7 +5,6 @@ pass/fail thresholds for GPU vs CPU nano parity tests.
 """
 
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass(frozen=True)
@@ -23,7 +22,7 @@ class DeterministicDecodeProfile:
 DETERMINISTIC_PROFILE = DeterministicDecodeProfile()
 
 
-PROMPT_FIXTURES: Dict[str, str] = {
+PROMPT_FIXTURES: dict[str, str] = {
     "short": "What is 2+2?",
     "medium": "Write a python function to compute the fibonacci sequence.",
     "long": "Explain the architectural differences between a standard Transformer and the Gemma 3 architecture.",
@@ -51,5 +50,6 @@ class PerfThresholds:
 
     throughput_improvement_ratio: float = 1.25  # GPU throughput should be >= 1.25x CPU throughput
     latency_p95_regression_ratio: float = 1.15  # GPU latency p95 should be <= 1.15x CPU latency
-    
+
+
 PERF_THRESHOLDS = PerfThresholds()

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
-import numpy.typing as npt
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import numpy.typing as npt
 
 TensorMetadata = dict[str, tuple[int, tuple[int, ...], str]]
 
@@ -28,21 +30,25 @@ class DeviceSelection:
 
     @property
     def effective_backend_id(self) -> str:
+        """Get the resolved backend identifier."""
         return self.backend
 
     @property
     def effective_device(self) -> str:
+        """Get the effective device string."""
         if self.device_kind == _CPU_BACKEND_ID:
             return _CPU_BACKEND_ID
-        if self.device_index is None:
-            return _GPU_BACKEND_ID
-        return f"gpu:{self.device_index}"
+        if self.device_index is not None:
+            return f"{self.device_kind}:{self.device_index}"
+        return self.device_kind
 
     @property
     def gpu_index(self) -> int | None:
+        """Get the parsed GPU index, if any."""
         return self.device_index
 
     def as_runtime_descriptor(self) -> dict[str, object]:
+        """Convert selection to a dictionary for Mojo core initialization."""
         return {
             "requested": self.requested,
             "backend": self.backend,
@@ -98,20 +104,24 @@ class EmbeddingBackend(Protocol):
 
 
 class CPUCoreBackend:
-    """Adapter around the compiled `mogemma._core` module."""
+    """Wrapper mapping to the standard generic CPU backend implementation."""
 
     backend_id = _CPU_BACKEND_ID
 
     def __init__(self, core_module: CoreModuleContract) -> None:
+        """Initialize the CPU core backend wrapper."""
         self._core = core_module
 
     def init_model(self, metadata: TensorMetadata) -> object:
+        """Initialize the model context inside the core backend."""
         return self._core.init_model(metadata)
 
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
+        """Step the LLM context to decode the next token logits."""
         return self._core.step(llm, token_id, temp, top_k, top_p)
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
+        """Generate numerical embeddings from sequences of tokens."""
         return self._core.generate_embeddings(llm, tokens)
 
 
@@ -164,13 +174,8 @@ def gpu_capability_available() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
-def resolve_device_selection(
-    device: str,
-    *,
-    gpu_available: bool | None = None,
-) -> DeviceSelection:
+def resolve_device_selection(device: str, *, gpu_available: bool | None = None) -> DeviceSelection:
     """Resolve requested device into a concrete backend selection."""
-
     normalized = device.strip().lower() or "cpu"
     backend_id, gpu_index = parse_device_spec(device)
     if backend_id == _CPU_BACKEND_ID:
@@ -202,34 +207,24 @@ def resolve_generation_backend(*, device: str, core_module: object) -> Generatio
     """Resolve the active generation backend implementation."""
     backend_id = resolve_backend_id(device)
     if backend_id != _CPU_BACKEND_ID:
-        msg = (
-            f"Unsupported backend '{device}' (resolved as '{backend_id}'). "
-            "Currently available runtime backend: cpu"
-        )
+        msg = f"Unsupported backend '{device}' (resolved as '{backend_id}'). Currently available runtime backend: cpu"
         raise ValueError(msg)
     _validate_core_module(core_module, required=("init_model", "step"))
-    return CPUCoreBackend(core_module)
+    return CPUCoreBackend(cast("CoreModuleContract", core_module))
 
 
 def resolve_embedding_backend(*, device: str, core_module: object) -> EmbeddingBackend:
     """Resolve the active embedding backend implementation."""
     backend_id = resolve_backend_id(device)
     if backend_id != _CPU_BACKEND_ID:
-        msg = (
-            f"Unsupported backend '{device}' (resolved as '{backend_id}'). "
-            "Currently available runtime backend: cpu"
-        )
+        msg = f"Unsupported backend '{device}' (resolved as '{backend_id}'). Currently available runtime backend: cpu"
         raise ValueError(msg)
     _validate_core_module(core_module, required=("init_model", "generate_embeddings"))
-    return CPUCoreBackend(core_module)
+    return CPUCoreBackend(cast("CoreModuleContract", core_module))
 
 
 def _validate_core_module(core_module: object, *, required: tuple[str, ...]) -> None:
     missing = [name for name in required if not callable(getattr(core_module, name, None))]
     if missing:
-        msg = (
-            "Invalid core module for cpu backend: missing callables "
-            + ", ".join(missing)
-            + "."
-        )
+        msg = "Invalid core module for cpu backend: missing callables " + ", ".join(missing) + "."
         raise TypeError(msg)

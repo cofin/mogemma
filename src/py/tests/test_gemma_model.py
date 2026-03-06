@@ -26,6 +26,7 @@ class CoreStub:
     """Stub for the Mojo _core module used in tests."""
 
     def __init__(self) -> None:
+        """Initialize the stub."""
         self.step_calls: list[tuple[int, float, int, float]] = []
 
     def init_model(self, _: str) -> object:
@@ -359,7 +360,8 @@ def test_gemma_generate_routes_through_backend_adapter(
 
         def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
             del llm, token_id, temp, top_k, top_p
-            raise AssertionError("SyncGemmaModel should not call _core.step directly")
+            msg = "SyncGemmaModel should not call _core.step directly"
+            raise AssertionError(msg)
 
     class BackendStub:
         backend_id = "test_backend"
@@ -413,7 +415,7 @@ def test_sync_model_defaults_to_cpu_backend(
 
     model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
 
-    assert model._backend_id == "cpu"  # noqa: SLF001
+    assert model._backend_id == "cpu"
     assert seen_devices == ["cpu"]
 
 
@@ -422,13 +424,11 @@ def test_gemma_generation_resets_session_caches_between_calls(
 ) -> None:
     class SessionCore:
         def init_model(self, _: str) -> object:
-            return {
-                "pos": 0,
-                "k_cache": np.ones((8,), dtype=np.float32),
-                "v_cache": np.ones((8,), dtype=np.float32),
-            }
+            return {"pos": 0, "k_cache": np.ones((8,), dtype=np.float32), "v_cache": np.ones((8,), dtype=np.float32)}
 
-        def step(self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+        def step(
+            self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float
+        ) -> npt.NDArray[np.float32]:
             del token_id, temp, top_k, top_p
             llm["pos"] = int(llm.get("pos", 0)) + 1
             return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # eos immediately
@@ -438,14 +438,14 @@ def test_gemma_generation_resets_session_caches_between_calls(
     model = SyncGemmaModel(config)
 
     # Mutate caches to non-zero after init.
-    assert isinstance(model._llm, dict)  # noqa: SLF001
-    model._llm["k_cache"][:] = 7.0  # type: ignore[index]  # noqa: SLF001
-    model._llm["v_cache"][:] = 9.0  # type: ignore[index]  # noqa: SLF001
+    assert isinstance(model._llm, dict)
+    model._llm["k_cache"][:] = 7.0  # type: ignore[index]
+    model._llm["v_cache"][:] = 9.0  # type: ignore[index]
 
     _ = model.generate("first")
 
-    assert np.all(model._llm["k_cache"] == 0.0)  # type: ignore[index]  # noqa: SLF001
-    assert np.all(model._llm["v_cache"] == 0.0)  # type: ignore[index]  # noqa: SLF001
+    assert np.all(model._llm["k_cache"] == 0.0)  # type: ignore[index]
+    assert np.all(model._llm["v_cache"] == 0.0)  # type: ignore[index]
 
 
 def test_gemma_generation_resets_list_backed_caches_between_calls(
@@ -459,7 +459,9 @@ def test_gemma_generation_resets_list_backed_caches_between_calls(
         def init_model(self, _: str) -> object:
             return {"pos": 0, "k_cache": [7.0, 7.0, 7.0], "v_cache": [9.0, 9.0, 9.0]}
 
-        def step(self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+        def step(
+            self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float
+        ) -> npt.NDArray[np.float32]:
             del token_id, temp, top_k, top_p
             self.seen_k_cache_prefix.append(list(llm["k_cache"]))  # type: ignore[arg-type]
             self.seen_v_cache_prefix.append(list(llm["v_cache"]))  # type: ignore[arg-type]
@@ -491,7 +493,9 @@ def test_gemma_generation_restarts_position_each_call(
         def init_model(self, _: str) -> object:
             return {"pos": 0, "k_cache": np.zeros((4,), dtype=np.float32), "v_cache": np.zeros((4,), dtype=np.float32)}
 
-        def step(self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+        def step(
+            self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float
+        ) -> npt.NDArray[np.float32]:
             del token_id, temp, top_k, top_p
             current_pos = int(llm.get("pos", 0))
             if current_pos == 0:
@@ -527,9 +531,16 @@ def test_generation_model_uses_normalized_backend_descriptor(
 
     seen: dict[str, object] = {}
 
-    def fake_resolve_device_selection(device: str):
+    def fake_resolve_device_selection(device: str) -> object:
         seen["request"] = device
-        return model_module.DeviceSelection(device, "cpu", "cpu", None, False, "override")
+        return model_module.DeviceSelection(
+            requested=device,
+            backend="cpu",
+            device_kind="cpu",
+            device_index=None,
+            strict=False,
+            availability_source="override",
+        )
 
     def fake_resolve_backend(device: str) -> BackendStub:
         seen["backend_device"] = device
@@ -539,17 +550,11 @@ def test_generation_model_uses_normalized_backend_descriptor(
     monkeypatch.setattr(model_module, "resolve_device_selection", fake_resolve_device_selection)
     monkeypatch.setattr(model_module, "_resolve_generation_backend", fake_resolve_backend, raising=False)
 
-    model = SyncGemmaModel(
-        GenerationConfig(
-            model_path=Path(dummy_model_path),
-            device="cpu",
-            max_tokens=1,
-        )
-    )
+    model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
 
     assert seen["request"] == "cpu"
     assert seen["backend_device"] == "cpu"
-    assert model._device_selection.effective_backend_id == "cpu"  # noqa: SLF001
+    assert model._device_selection.effective_backend_id == "cpu"
 
 
 def test_generation_model_caches_device_selection_in_runtime_state(
@@ -570,14 +575,23 @@ def test_generation_model_caches_device_selection_in_runtime_state(
     monkeypatch.setattr(
         model_module,
         "resolve_device_selection",
-        lambda device: model_module.DeviceSelection(device, "cpu", "cpu", None, False, "override"),
+        lambda device: model_module.DeviceSelection(
+            requested=device,
+            backend="cpu",
+            device_kind="cpu",
+            device_index=None,
+            strict=False,
+            availability_source="override",
+        ),
     )
-    monkeypatch.setattr(model_module, "_resolve_generation_backend", lambda *_args, **_kwargs: BackendStub(), raising=False)
+    monkeypatch.setattr(
+        model_module, "_resolve_generation_backend", lambda *_args, **_kwargs: BackendStub(), raising=False
+    )
 
     model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
 
-    assert isinstance(model._llm, dict)  # noqa: SLF001
-    assert model._llm["device_selection"] == {  # noqa: SLF001
+    assert isinstance(model._llm, dict)
+    assert model._llm["device_selection"] == {
         "requested": "cpu",
         "backend": "cpu",
         "device_kind": "cpu",
@@ -595,9 +609,7 @@ def test_generation_model_passes_architecture_overrides_to_core_init(
             self.seen_overrides: dict[str, int | float] | None = None
 
         def init_model(
-            self,
-            metadata: dict[str, tuple[int, tuple[int, ...], str]],
-            architecture_overrides: dict[str, int | float],
+            self, metadata: dict[str, tuple[int, tuple[int, ...], str]], architecture_overrides: dict[str, int | float]
         ) -> object:
             del metadata
             self.seen_overrides = architecture_overrides
@@ -631,7 +643,8 @@ def test_generation_model_prefers_init_model_with_options_when_available(
             self.seen_device_selection: dict[str, object] | None = None
 
         def init_model(self, _: object) -> object:
-            raise AssertionError("legacy init_model path should not be used")
+            msg = "legacy init_model path should not be used"
+            raise AssertionError(msg)
 
         def init_model_with_options(
             self,
@@ -670,9 +683,9 @@ def test_generation_model_prefers_init_model_with_options_when_available(
         "strict": False,
         "availability_source": "cpu-default",
     }
-    assert isinstance(model._llm, dict)  # noqa: SLF001
-    assert model._llm["architecture_overrides"] == {"head_dim": 128, "rope_base": 1_000_000.0}  # noqa: SLF001
-    assert model._llm["device_selection"] == core.seen_device_selection  # noqa: SLF001
+    assert isinstance(model._llm, dict)
+    assert model._llm["architecture_overrides"] == {"head_dim": 128, "rope_base": 1_000_000.0}
+    assert model._llm["device_selection"] == core.seen_device_selection
 
 
 def test_generation_model_rejects_nano_metadata_variant(
@@ -691,9 +704,7 @@ def test_generation_model_rejects_nano_metadata_variant(
             self.model_path = model_path
 
         def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
-            return {
-                "model.layers.0.per_layer_map.gate.weight": (1, (32, 32), "float32"),
-            }
+            return {"model.layers.0.per_layer_map.gate.weight": (1, (32, 32), "float32")}
 
     resolved_path = Path(dummy_model_path)
     monkeypatch.setattr(model_module, "_core", CoreStub())
@@ -703,23 +714,26 @@ def test_generation_model_rejects_nano_metadata_variant(
     with pytest.raises(ValueError, match="Unsupported model architecture 'gemma3n'"):
         SyncGemmaModel(GenerationConfig(model_path=resolved_path))
 
-def test_generation_backend_parity_reporting(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
+
+def test_generation_backend_parity_reporting(
+    dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub
+) -> None:
     # Test that setting deterministic parameters produces predictable step calls and reports backend correctly.
     # In reality _core would produce real tokens, but we use the stub to assert the model wrapper respects the settings.
     config_cpu = GenerationConfig(model_path=Path(dummy_model_path), temperature=0.0, top_k=1)
     config_gpu = GenerationConfig(model_path=Path(dummy_model_path), temperature=0.0, top_k=1)
-    
+
     # Normally we would force config_gpu.device_backend = 'cuda', but the wrapper relies on _core
     model_cpu = SyncGemmaModel(config_cpu)
     model_gpu = SyncGemmaModel(config_gpu)
-    
+
     # Assert deterministic generation parameters are passed identically down
     res_cpu = model_cpu.generate("Test prompt")
     res_gpu = model_gpu.generate("Test prompt")
-    
+
     assert res_cpu == res_gpu
     assert len(mock_core.step_calls) > 0
     # temp 0.0 means greedy
     for call in mock_core.step_calls:
         assert call[1] == 0.0  # temp
-        assert call[2] == 1    # top_k
+        assert call[2] == 1  # top_k

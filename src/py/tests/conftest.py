@@ -1,3 +1,5 @@
+"""Pytest configuration and global fixtures for mogemma test suite."""
+
 from __future__ import annotations
 
 import ctypes
@@ -22,4 +24,3 @@ def _preload_modular_runtime() -> None:
 
 
 _preload_modular_runtime()
-

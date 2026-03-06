@@ -38,11 +38,10 @@ def test_cuda_build_policy_environment_wiring() -> None:
 
     with (root / "pyproject.toml").open("rb") as f:
         config = tomllib.load(f)
-        
+
     # Ensure there is a CIBW env configuration placeholder for CUDA builds
     # even if it's currently empty, to satisfy the packaging contract.
     cibw = config.get("tool", {}).get("cibuildwheel", {})
     assert "linux" in cibw
     assert "repair-wheel-command" in cibw["linux"]
     assert "manylinux_2_34" in cibw["linux"]["repair-wheel-command"]
-

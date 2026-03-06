@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 
 import obstore as obs
+
 logger = logging.getLogger(__name__)
 
 
@@ -123,7 +124,8 @@ class HubManager:
         try:
             for page in obs.list(store, prefix):
                 for item in self._normalize_list_page(page):
-                    path = item["path"]  # pyright: ignore[reportCallIssue,reportArgumentType]
+                    # We know item is a dict-like object returned by obstore
+                    path = item["path"]  # type: ignore[index]
                     if not path.endswith("_$folder$"):
                         paths.append(path)
         except Exception as exc:
@@ -136,7 +138,7 @@ class HubManager:
         try:
             async for page in store.list_async(prefix):
                 for item in self._normalize_list_page(page):
-                    path = item["path"]  # pyright: ignore[reportCallIssue,reportArgumentType]
+                    path = item["path"]  # type: ignore[index]
                     if not path.endswith("_$folder$"):
                         paths.append(path)
         except Exception as exc:
@@ -149,7 +151,9 @@ class HubManager:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(data)
 
-    def _finalize_download(self, clean_id: str, local_dir: Path, staging_dir: Path, tokenizer_required: bool) -> Path:
+    def _finalize_download(
+        self, clean_id: str, local_dir: Path, staging_dir: Path, *, tokenizer_required: bool
+    ) -> Path:
         if tokenizer_required and not (staging_dir / "tokenizer.model").exists():
             msg = f"Download failed for '{clean_id}': integrity error (missing tokenizer.model)"
             raise ValueError(msg)
@@ -173,23 +177,25 @@ class HubManager:
         store = self._make_store()
         tokenizer_path = self._get_tokenizer_path(clean_id)
 
-        try:
-            paths_to_download = self._list_remote_files_sync(store, prefix, clean_id)
-            if not paths_to_download:
-                msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
-                raise self.ModelNotFoundError(msg)
-            if tokenizer_path:
-                paths_to_download.append(tokenizer_path)
+        paths_to_download = self._list_remote_files_sync(store, prefix, clean_id)
+        if not paths_to_download:
+            msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
+            raise self.ModelNotFoundError(msg)
+        if tokenizer_path:
+            paths_to_download.append(tokenizer_path)
 
+        try:
             logger.info("Downloading %d files for %s from Google Cloud Storage...", len(paths_to_download), model_id)
             staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
             try:
                 for remote_path in paths_to_download:
                     result = obs.get(store, remote_path)
-                    data = result.bytes()
+                    data = result.bytes().to_bytes()
                     rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
                     self._write_file(staging_dir / rel_path, data)
-                return self._finalize_download(clean_id, local_dir, staging_dir, tokenizer_path is not None)
+                return self._finalize_download(
+                    clean_id, local_dir, staging_dir, tokenizer_required=tokenizer_path is not None
+                )
             except Exception:
                 self._cleanup_dir(staging_dir)
                 raise
@@ -206,24 +212,28 @@ class HubManager:
         store = self._make_store()
         tokenizer_path = self._get_tokenizer_path(clean_id)
 
-        try:
-            paths_to_download = await self._list_remote_files_async(store, prefix, clean_id)
-            if not paths_to_download:
-                msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
-                raise self.ModelNotFoundError(msg)
-            if tokenizer_path:
-                paths_to_download.append(tokenizer_path)
+        paths_to_download = await self._list_remote_files_async(store, prefix, clean_id)
+        if not paths_to_download:
+            msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
+            raise self.ModelNotFoundError(msg)
+        if tokenizer_path:
+            paths_to_download.append(tokenizer_path)
 
+        try:
             logger.info("Downloading %d files for %s from Google Cloud Storage...", len(paths_to_download), model_id)
             staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
             try:
                 for remote_path in paths_to_download:
                     result = await obs.get_async(store, remote_path)
-                    data = await result.bytes_async()
+                    data = (await result.bytes_async()).to_bytes()
                     rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
                     await asyncio.to_thread(self._write_file, staging_dir / rel_path, data)
                 return await asyncio.to_thread(
-                    self._finalize_download, clean_id, local_dir, staging_dir, tokenizer_path is not None
+                    self._finalize_download,
+                    clean_id,
+                    local_dir,
+                    staging_dir,
+                    tokenizer_required=tokenizer_path is not None,
                 )
             except Exception:
                 await asyncio.to_thread(self._cleanup_dir, staging_dir)
@@ -238,18 +248,30 @@ class HubManager:
     ) -> Path:
         """Resolve a model ID to a local path without blocking the active asyncio event loop."""
         local_path = Path(model_id)
-        if local_path.exists() and local_path.is_dir():
+
+        def _check_local() -> tuple[bool, bool]:
+            return local_path.exists(), local_path.is_dir()
+
+        local_exists, local_is_dir = await asyncio.to_thread(_check_local)
+
+        if local_exists and local_is_dir:
             return local_path
 
-        if local_path.exists() and not local_path.is_dir():
+        if local_exists and not local_is_dir:
             msg = f"Model path '{model_id}' exists but is not a directory."
             if strict:
                 raise ValueError(msg)
             return local_path
 
         cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
-        if cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path):
-            self._ensure_safetensors(cached_path)
+
+        def _check_cached() -> bool:
+            return cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path)
+
+        cached_valid = await asyncio.to_thread(_check_cached)
+
+        if cached_valid:
+            await asyncio.to_thread(self._ensure_safetensors, cached_path)
             return cached_path
 
         if download_if_missing:

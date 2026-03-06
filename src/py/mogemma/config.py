@@ -104,10 +104,10 @@ class GenerationConfig:
 def _validate_architecture_overrides(overrides: dict[str, int | float] | None) -> None:
     if overrides is None:
         return
-    if not isinstance(overrides, dict):
-        raise ValueError(_INVALID_ARCH_OVERRIDES_MSG)
+    if not isinstance(overrides, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise TypeError(_INVALID_ARCH_OVERRIDES_MSG)
     for key, value in overrides.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError(_INVALID_ARCH_OVERRIDES_MSG)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(_INVALID_ARCH_OVERRIDES_MSG)
+        if not isinstance(key, str) or not key:  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(_INVALID_ARCH_OVERRIDES_MSG)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(_INVALID_ARCH_OVERRIDES_MSG)

@@ -10,14 +10,9 @@ from typing import Protocol, cast
 import numpy as np
 import numpy.typing as npt
 
-from .backends import (
-    DeviceSelection,
-    EmbeddingBackend,
-    GenerationBackend,
-    resolve_device_selection,
-    resolve_embedding_backend as _resolve_embedding_backend_impl,
-    resolve_generation_backend as _resolve_generation_backend_impl,
-)
+from .backends import DeviceSelection, EmbeddingBackend, GenerationBackend, resolve_device_selection
+from .backends import resolve_embedding_backend as _resolve_embedding_backend_impl
+from .backends import resolve_generation_backend as _resolve_generation_backend_impl
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
 from .loader import ModelLoader, auto_loader
@@ -83,6 +78,8 @@ _INSTRUCTION_END = "<end_of_turn>"
 
 
 class ModelVariant(str, Enum):
+    """Enumeration of supported model architectural variants."""
+
     STANDARD = "gemma_standard"
     NANO = "gemma_nano"
 
@@ -113,18 +110,51 @@ def _detect_model_variant(metadata: dict[str, tuple[int, tuple[int, ...], str]])
     return ModelVariant.STANDARD
 
 
-def _normalize_architecture_overrides(
-    overrides: dict[str, int | float] | None,
-) -> dict[str, int | float] | None:
+def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) -> dict[str, int | float] | None:
     if overrides is None:
         return None
     normalized: dict[str, int | float] = {}
     for key, value in overrides.items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):  # pyright: ignore[reportUnnecessaryIsInstance]
             msg = "architecture_overrides values must be numeric (int|float)"
-            raise ValueError(msg)
+            raise TypeError(msg)
         normalized[key] = value
     return normalized
+
+
+def _invoke_init_model_with_options(
+    _core: object,
+    metadata: dict[str, tuple[int, tuple[int, ...], str]],
+    overrides: dict[str, int | float],
+    descriptor: dict[str, object],
+) -> object:
+    init_model_with_options = getattr(_core, "init_model_with_options", None)
+    if callable(init_model_with_options):
+        return init_model_with_options(metadata, overrides, descriptor)
+    return None
+
+
+def _invoke_legacy_init_model(
+    _core: object,
+    metadata: dict[str, tuple[int, tuple[int, ...], str]],
+    overrides: dict[str, int | float] | None,
+    backend: GenerationBackend | EmbeddingBackend,
+) -> object:
+    if overrides is None:
+        return backend.init_model(metadata)
+
+    init_model_fn = getattr(_core, "init_model", None)
+    if not callable(init_model_fn):
+        msg = "Mojo core does not expose init_model(metadata, architecture_overrides)"
+        raise TypeError(msg)
+    try:
+        return init_model_fn(metadata, overrides)
+    except TypeError as exc:
+        msg = (
+            "Mojo core init_model does not accept architecture_overrides. "
+            "Rebuild/install a compatible mogemma._core extension."
+        )
+        raise RuntimeError(msg) from exc
 
 
 def _initialize_llm(
@@ -138,55 +168,36 @@ def _initialize_llm(
     if _core is None:
         raise RuntimeError(_core_unavailable_message(model_type))
 
+    metadata = loader.get_tensor_metadata()
+    variant = _detect_model_variant(metadata)
+    if variant is ModelVariant.NANO:
+        msg = "Unsupported model architecture 'gemma3n'. This runtime currently supports only standard Gemma 3."
+        raise ValueError(msg)
+
+    normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
+    descriptor = device_selection.as_runtime_descriptor()
+
     try:
-        metadata = loader.get_tensor_metadata()
-        variant = _detect_model_variant(metadata)
-        if variant is ModelVariant.NANO:
-            msg = "Unsupported model architecture 'gemma3n'. This runtime currently supports only standard Gemma 3."
-            raise ValueError(msg)
-
-        normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
-        runtime_device_descriptor = device_selection.as_runtime_descriptor()
-        init_model_with_options = getattr(_core, "init_model_with_options", None)
-        llm: object
-        if callable(init_model_with_options):
-            llm = init_model_with_options(
-                metadata,
-                normalized_overrides or {},
-                runtime_device_descriptor,
-            )
-        elif normalized_overrides is None:
-            llm = backend.init_model(metadata)
-        else:
-            init_model_fn = getattr(_core, "init_model", None)
-            if not callable(init_model_fn):
-                msg = "Mojo core does not expose init_model(metadata, architecture_overrides)"
-                raise RuntimeError(msg)
-            try:
-                llm = init_model_fn(metadata, normalized_overrides)
-            except TypeError as exc:
-                msg = (
-                    "Mojo core init_model does not accept architecture_overrides. "
-                    "Rebuild/install a compatible mogemma._core extension."
-                )
-                raise RuntimeError(msg) from exc
-
-        if isinstance(llm, dict):
-            llm.setdefault("device_selection", runtime_device_descriptor)
-            llm.setdefault("device_backend", device_selection.backend)
-            llm.setdefault("device_kind", device_selection.device_kind)
-            llm.setdefault("device_index", device_selection.device_index)
-            llm.setdefault("device_request", device_selection.requested)
-            llm.setdefault("device_availability_source", device_selection.availability_source)
-            llm.setdefault("device_strict", device_selection.strict)
-            if normalized_overrides:
-                llm.setdefault("architecture_overrides", normalized_overrides)
-        return llm
+        llm = _invoke_init_model_with_options(_core, metadata, normalized_overrides or {}, descriptor)
+        if llm is None:
+            llm = _invoke_legacy_init_model(_core, metadata, normalized_overrides, backend)
     except ValueError:
         raise
     except Exception as exc:
         msg = f"{model_type} model failed to initialize from '{loader.model_path}': {exc}"
         raise RuntimeError(msg) from exc
+
+    if isinstance(llm, dict):
+        llm.setdefault("device_selection", descriptor)
+        llm.setdefault("device_backend", device_selection.backend)
+        llm.setdefault("device_kind", device_selection.device_kind)
+        llm.setdefault("device_index", device_selection.device_index)
+        llm.setdefault("device_request", device_selection.requested)
+        llm.setdefault("device_availability_source", device_selection.availability_source)
+        llm.setdefault("device_strict", device_selection.strict)
+        if normalized_overrides:
+            llm.setdefault("architecture_overrides", normalized_overrides)
+    return llm
 
 
 def _resolve_generation_backend(device: str) -> GenerationBackend:
@@ -293,7 +304,7 @@ def _reset_llm_session_state(llm: object) -> None:
             continue
         try:
             np.asarray(cache).fill(0.0)
-        except Exception:
+        except (TypeError, ValueError, AttributeError, NotImplementedError):
             # Keep reset best-effort for backend-specific cache containers.
             continue
 
@@ -497,7 +508,7 @@ class SyncGemmaModel:
                 return
 
             decoded = tokenizer.decode([next_token])
-            if not isinstance(decoded, str):
+            if not isinstance(decoded, str):  # pyright: ignore[reportUnnecessaryIsInstance]
                 msg = "tokenizer.decode returned non-string output"
                 raise TypeError(msg)
             if not decoded:

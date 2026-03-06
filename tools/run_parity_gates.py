@@ -9,23 +9,19 @@ import json
 import platform
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Ensure we can import mogemma and tests
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 
 from mogemma import GenerationConfig, SyncGemmaModel
-from tests.parity_config import (
-    DETERMINISTIC_PROFILE,
-    PARITY_THRESHOLDS,
-    PERF_THRESHOLDS,
-    PROMPT_FIXTURES,
-)
+from tests.parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
 
 
-def get_system_metadata() -> Dict[str, Any]:
+def get_system_metadata() -> dict[str, Any]:
+    """Retrieve system hardware and OS metadata."""
     return {
         "os": platform.system(),
         "release": platform.release(),
@@ -34,7 +30,7 @@ def get_system_metadata() -> Dict[str, Any]:
     }
 
 
-def run_prompt_with_device(model_id: str, prompt_id: str, prompt_text: str, device: str) -> Dict[str, Any]:
+def run_prompt_with_device(model_id: str, prompt_text: str, device: str) -> dict[str, Any]:
     """Run generation on a specific device deterministically."""
     config = GenerationConfig(
         model_path=model_id,
@@ -43,18 +39,13 @@ def run_prompt_with_device(model_id: str, prompt_id: str, prompt_text: str, devi
         top_k=DETERMINISTIC_PROFILE.top_k,
         top_p=DETERMINISTIC_PROFILE.top_p,
     )
-    
+
     start_time = time.time()
     try:
         model = SyncGemmaModel(config)
-    except Exception as e:
-        return {
-            "device": device,
-            "status": "failed_init",
-            "error": str(e),
-            "time_s": time.time() - start_time,
-        }
-        
+    except RuntimeError as e:
+        return {"device": device, "status": "failed_init", "error": str(e), "time_s": time.time() - start_time}
+
     start_gen = time.time()
     try:
         output = model.generate(prompt_text)
@@ -64,27 +55,24 @@ def run_prompt_with_device(model_id: str, prompt_id: str, prompt_text: str, devi
             "status": "success",
             "output": output,
             "time_s": gen_time,
-            "tokens_generated": len(output.split()), # Naive token approx for basic reporting
+            "tokens_generated": len(output.split()),  # Naive token approx for basic reporting
         }
-    except Exception as e:
-        return {
-            "device": device,
-            "status": "failed_gen",
-            "error": str(e),
-            "time_s": time.time() - start_gen,
-        }
+    except RuntimeError as e:
+        return {"device": device, "status": "failed_gen", "error": str(e), "time_s": time.time() - start_gen}
 
-def main():
+
+def main() -> None:
+    """Run the parity gates checks."""
     parser = argparse.ArgumentParser(description="Mogemma Parity Gates Runner")
     parser.add_argument("--model", type=str, default="gemma3n-e2b-it", help="Nano model ID to test")
     parser.add_argument("--baseline", type=str, help="Path to baseline artifact JSON")
     parser.add_argument("--output", type=str, default="parity_artifact.json", help="Output JSON path")
     args = parser.parse_args()
 
-    print(f"--- Running Parity Gates on {args.model} ---")
-    
-    artifact: Dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat(),
+    sys.stdout.write(f"--- Running Parity Gates on {args.model} ---\n")
+
+    artifact: dict[str, Any] = {
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "model_id": args.model,
         "system": get_system_metadata(),
         "decode_config": {
@@ -99,23 +87,18 @@ def main():
             "throughput_improvement_ratio": PERF_THRESHOLDS.throughput_improvement_ratio,
         },
         "runs": {},
-        "overall_status": "pass"
+        "overall_status": "pass",
     }
 
     # Run the matrix
     for prompt_id, prompt_text in PROMPT_FIXTURES.items():
-        print(f"\nRunning '{prompt_id}' fixture...")
-        
-        cpu_result = run_prompt_with_device(args.model, prompt_id, prompt_text, "cpu")
-        gpu_result = run_prompt_with_device(args.model, prompt_id, prompt_text, "gpu")
-        
-        run_data = {
-            "prompt_text": prompt_text,
-            "cpu": cpu_result,
-            "gpu": gpu_result,
-            "status": "pass"
-        }
-        
+        sys.stdout.write(f"\nRunning '{prompt_id}' fixture...\n")
+
+        cpu_result = run_prompt_with_device(args.model, prompt_text, "cpu")
+        gpu_result = run_prompt_with_device(args.model, prompt_text, "gpu")
+
+        run_data = {"prompt_text": prompt_text, "cpu": cpu_result, "gpu": gpu_result, "status": "pass"}
+
         # Determine failure
         if cpu_result["status"] == "success" and gpu_result["status"] == "success":
             if PARITY_THRESHOLDS.exact_token_parity and cpu_result["output"] != gpu_result["output"]:
@@ -123,38 +106,39 @@ def main():
                 run_data["diff"] = {"expected": cpu_result["output"], "actual": gpu_result["output"]}
         elif gpu_result["status"] != "success":
             run_data["status"] = "fail_gpu_incomplete"
-            
+
         artifact["runs"][prompt_id] = run_data
-        
+
         if run_data["status"] != "pass":
             artifact["overall_status"] = "fail"
-            print(f"  -> FAILED: {run_data['status']}")
+            sys.stdout.write(f"  -> FAILED: {run_data['status']}\n")
         else:
-            print("  -> PASSED")
+            sys.stdout.write("  -> PASSED\n")
 
     # Document accepted drift bounds and waivers (Phase 3.3 requirement)
     artifact["policy"] = {
         "accepted_drift_bounds": "None for exact token parity",
         "baseline_waivers": ["gpu_unimplemented_until_chapter3_complete"],
-        "release_vs_smoke": "Smoke runs fast subset, release runs full suite"
+        "release_vs_smoke": "Smoke runs fast subset, release runs full suite",
     }
 
     output_path = Path(args.output)
     output_path.write_text(json.dumps(artifact, indent=2))
-    print(f"\nArtifact saved to {output_path}")
+    sys.stdout.write(f"\nArtifact saved to {output_path}\n")
 
-    # For CI: Return 0 even if GPU is incomplete during Phase 2/3, 
-    # to allow PRs to pass while GPU parity is built, but we will exit 1 
+    # For CI: Return 0 even if GPU is incomplete during Phase 2/3,
+    # to allow PRs to pass while GPU parity is built, but we will exit 1
     # if CPU baseline fails since that indicates a broader regression.
     # Wait, the prompt says "produce triage-ready diff output for failing runs".
     # I'll just exit 0 to not block CI while GPU is unimplemented, unless CPU fails.
     for run in artifact["runs"].values():
         if run["cpu"]["status"] != "success":
-            print(f"FATAL: CPU baseline failed. {run['cpu'].get('error')}")
+            sys.stdout.write(f"FATAL: CPU baseline failed. {run['cpu'].get('error')}\n")
             sys.exit(1)
-            
-    print("Run completed.")
+
+    sys.stdout.write("Run completed.\n")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

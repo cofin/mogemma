@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -33,17 +34,17 @@ def test_assert_semantic_quality_requires_paris_for_standard_model() -> None:
 def test_assert_semantic_quality_skips_non_standard_model() -> None:
     _assert_semantic_quality("gemma3n-e2b-it", "incoherent output is not gated here")
 
-def test_validate_llm_generation_exits_on_gpu_unavailable(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    import sys
-    from unittest.mock import MagicMock
-    
+
+def test_validate_llm_generation_exits_on_gpu_unavailable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     mock_model = MagicMock()
     mock_model.side_effect = RuntimeError("Requested device 'gpu' is unavailable on this host.")
     monkeypatch.setattr(_MODULE, "SyncGemmaModel", mock_model)
-    
+
     with pytest.raises(SystemExit) as exc_info:
         _MODULE.validate_llm_generation("gemma3-270m-it", device="gpu")
-        
+
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "Requested device 'gpu' is unavailable" in captured.out
