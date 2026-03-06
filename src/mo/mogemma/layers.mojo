@@ -1206,3 +1206,93 @@ fn forward_layer_gpu(
     
     for i in range(hidden_size):
         out_ptr.store(i, residual_ptr.load(i) + post_mlp_out_ptr.load(i))
+
+@always_inline
+fn forward_laurel_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: LaurelWeights,
+    hidden_size: Int,
+    bottleneck_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    pass
+
+@always_inline
+fn forward_per_layer_mapping_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    active_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: PerLayerMapWeights,
+    hidden_size: Int,
+    per_layer_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    pass
+
+@always_inline
+fn forward_altup_predict_gpu(
+    predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    streams_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: AltUpWeights,
+    hidden_size: Int,
+    num_modalities: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    pass
+
+@always_inline
+fn forward_altup_correct_gpu(
+    corrected_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    activated_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: AltUpWeights,
+    hidden_size: Int,
+    num_modalities: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    pass
+
+@always_inline
+fn forward_attention_nano_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: NanoLayerWeights,
+    pos: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    write_kv: Bool,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    pass
+
+@always_inline
+fn forward_nano_layer_gpu(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: NanoLayerWeights,
+    pos: Int,
+    layer_idx: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    per_layer_dim: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    write_kv: Bool,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    pass
