@@ -90,11 +90,12 @@ def _install_stubs() -> None:
     model_module.auto_loader = _fake_auto_loader  # type: ignore[attr-defined]
 
 
-def _environment_payload() -> dict[str, str]:
+def _environment_payload(backend: str) -> dict[str, str]:
     return {
         "python": platform.python_version(),
         "platform": platform.platform(),
         "processor": platform.processor() or "unknown",
+        "accelerator": "cuda" if backend == "gpu" else "none",
     }
 
 
@@ -118,9 +119,6 @@ def _run_generation(config: GenerationConfig, prompt: str, *, rounds: int, warmu
     p95_latency = float(np.percentile(latencies, 95)) if latencies else 0.0
     
     return {
-        "mode": "generation",
-        "rounds": rounds,
-        "warmup_rounds": warmup,
         "elapsed_s": elapsed,
         "p95_latency_s": p95_latency,
         "tokens": tokens,
@@ -136,8 +134,6 @@ def _run_embedding(config: EmbeddingConfig, texts: list[str], *, rounds: int) ->
     end = time.perf_counter()
     elapsed = end - start
     return {
-        "mode": "embedding",
-        "rounds": rounds,
         "elapsed_s": elapsed,
         "input_texts": len(texts),
         "calls_per_second": rounds / elapsed if elapsed > 0 else 0.0,
@@ -157,10 +153,13 @@ def _run_benchmark() -> dict[str, object]:
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--corpus", choices=["short", "medium", "long"], default="short")
     parser.add_argument("--real-model-path", type=str, default=None)
-    parser.add_argument("--backend", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--backend", choices=["cpu", "gpu"], default="cpu")
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--runner-class", type=str, default="standard-ci")
     parser.add_argument("--baseline-json", type=str, default=None)
     args = parser.parse_args()
 
+    is_synthetic = not bool(args.real_model_path)
     if args.real_model_path:
         model_root = Path(args.real_model_path)
     else:
@@ -171,42 +170,59 @@ def _run_benchmark() -> dict[str, object]:
 
     metrics: dict[str, object]
     if args.mode == "generation":
-        config = GenerationConfig(model_path=model_root, max_tokens=args.max_new_tokens)
+        config = GenerationConfig(model_path=model_root, max_tokens=args.max_new_tokens, device=args.device)
         prompt = _CORPORA[args.corpus]
         metrics = _run_generation(config, prompt, rounds=args.rounds, warmup=args.warmup)
     else:
-        config = EmbeddingConfig(model_path=model_root)
+        config = EmbeddingConfig(model_path=model_root, device=args.device)
         metrics = _run_embedding(
             config, texts=["Benchmark embedding input one", "Benchmark embedding input two"], rounds=args.rounds
         )
         
     payload = {
+        "schema_version": 2,
         "mode": args.mode,
+        "is_synthetic": is_synthetic,
         "model_path": str(model_root),
         "max_tokens": args.max_new_tokens,
         "corpus": args.corpus,
         "backend": args.backend,
-        "environment": _environment_payload(),
-        **metrics,
+        "device": args.device,
+        "runner_class": args.runner_class,
+        "warmup_rounds": args.warmup,
+        "measured_rounds": args.rounds,
+        "threshold_profile": "default",
+        "environment": _environment_payload(args.backend),
+        "metrics": metrics,
     }
     
     if args.baseline_json:
         with open(args.baseline_json, "r") as f:
             baseline = json.load(f)
-        tps = payload.get("tokens_per_second", 0)
-        base_tps = baseline.get("tokens_per_second", 0)
-        p95 = payload.get("p95_latency_s", 0)
-        base_p95 = baseline.get("p95_latency_s", 0)
+        
+        base_metrics = baseline.get("metrics", {})
         
         pass_gate = True
         reason = []
-        if args.corpus in ["medium", "long"] and tps < base_tps * 1.25:
-            pass_gate = False
-            reason.append(f"Throughput {tps:.2f} is not >= 1.25x baseline {base_tps:.2f}")
-        if args.corpus == "short" and p95 > base_p95 * 1.15:
-            pass_gate = False
-            reason.append(f"p95 latency {p95:.4f} regressed > 15% vs baseline {base_p95:.4f}")
+        if args.mode == "generation":
+            tps = metrics.get("tokens_per_second", 0)
+            base_tps = base_metrics.get("tokens_per_second", 0)
+            p95 = metrics.get("p95_latency_s", 0)
+            base_p95 = base_metrics.get("p95_latency_s", 0)
             
+            if args.corpus in ["medium", "long"] and tps < base_tps * 1.25:
+                pass_gate = False
+                reason.append(f"Throughput {tps:.2f} is not >= 1.25x baseline {base_tps:.2f}")
+            if args.corpus == "short" and p95 > base_p95 * 1.15:
+                pass_gate = False
+                reason.append(f"p95 latency {p95:.4f} regressed > 15% vs baseline {base_p95:.4f}")
+        else:
+            cps = metrics.get("calls_per_second", 0)
+            base_cps = base_metrics.get("calls_per_second", 0)
+            if cps < base_cps * 0.85:
+                pass_gate = False
+                reason.append(f"Calls per second {cps:.2f} regressed > 15% vs baseline {base_cps:.2f}")
+                
         payload["gate_passed"] = pass_gate
         payload["gate_reason"] = "; ".join(reason) if reason else "Pass"
         
