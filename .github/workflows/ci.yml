@@ -164,5 +164,14 @@ jobs:
       - name: Run tests
         run: uv run pytest src/py/tests
 
+      - name: Run parity gates
+        run: uv run python tools/run_parity_gates.py --model gemma3n-e2b-it
+
+      - name: Upload parity artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-artifact
+          path: parity_artifact.json
+
       - name: Run benchmark harness
         run: uv run python tools/benchmark.py --mode generation --rounds 20 --max-new-tokens 64
