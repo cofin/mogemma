@@ -13,6 +13,25 @@ This runbook defines the concrete evidence and execution flow for the first prod
 - Build tooling uses `uv` + `mojo` for compiling the shared library.
 - Linux aarch64 builds use QEMU emulation via `docker/setup-qemu-action`.
 
+## GPU Preflight and Deployment Checks
+- Preflight: Verify host GPU availability using `uv run python tools/validate.py --device gpu`.
+- Deployment verification: confirm successful backend init, and output indicates expected CUDA environment.
+
+## Fallback and Rollback Procedures
+- Auto CPU fallback: Occurs if CUDA libs are missing or `--device cpu` explicitly requested.
+- Manual rollback: Re-install previous `.whl` and restart runtime if CUDA inference segfaults or regresses quality beyond thresholds.
+- Rollback criteria: >15% performance regression without explanation, silent gibberish output, or init failure on known-good hardware.
+
+## Incident Triage
+- **Capability Mismatch:** Symptom: `Requested device 'gpu' is unavailable`. Action: verify driver/CUDA runtime matching wheel `+cu12` tag, fallback to CPU.
+- **Runtime Init Failure:** Symptom: Model metadata parsing or allocator crash. Action: Check driver OOM, escalate to core maintainers.
+- **Benchmark Regression:** Symptom: GPU TPS drops below 1.25x CPU TPS. Action: Check host thermal throttling; compare with deterministic CPU baseline.
+- **Model Download Failure:** Symptom: GCS or Hub timeout. Action: Check network, cache permissions, retry with manual HuggingFace CLI.
+
+## Owner/Escalation Tables
+- Core/Backend Failures: Escalate to Mojo runtime/CUDA experts.
+- API/Python Failures: Escalate to standard Python package maintainers.
+
 ## Pre-release evidence collection
 
 Run locally from a clean branch before opening a release:
