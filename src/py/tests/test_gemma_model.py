@@ -83,7 +83,7 @@ def test_generation_config_validation() -> None:
         GenerationConfig(model_path="dummy", temperature=-1.0)
     with pytest.raises(ValueError, match="top_p"):
         GenerationConfig(model_path="dummy", top_p=1.5)
-    with pytest.raises(ValueError, match="architecture_overrides"):
+    with pytest.raises(TypeError, match="architecture_overrides"):
         GenerationConfig(model_path="dummy", architecture_overrides={"head_dim": True})  # type: ignore[arg-type]
 
 

@@ -27,7 +27,7 @@ def test_format_instruction_prompt_keeps_existing_template() -> None:
 
 
 def test_assert_semantic_quality_requires_paris_for_standard_model() -> None:
-    with pytest.raises(ValueError, match="Paris"):
+    with pytest.raises(ValueError, match="Semantic validation failed"):
         _assert_semantic_quality("gemma3-270m-it", "The capital of France is Rome.")
 
 

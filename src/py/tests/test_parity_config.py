@@ -1,6 +1,6 @@
 """Tests for nano parity gate configurations."""
 
-from parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
+from .parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
 
 
 def test_deterministic_profile() -> None:

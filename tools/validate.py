@@ -21,9 +21,9 @@ NANO_MODEL_ID = "gemma3n-e2b-it"
 
 _INSTRUCTION_START = "<start_of_turn>"
 _INSTRUCTION_END = "<end_of_turn>\n"
-
-
 def _format_instruction_prompt(user_text: str) -> str:
+    if _INSTRUCTION_START in user_text:
+        return user_text
     return f"{_INSTRUCTION_START}user\n{user_text}{_INSTRUCTION_END}{_INSTRUCTION_START}model\n"
 
 
@@ -33,10 +33,12 @@ def _assert_semantic_quality(model_id: str, response: str) -> None:
         return
     clean_resp = response.strip().lower()
     min_len = 5
-    if len(clean_resp) < min_len or "capital of france" in clean_resp:
-        msg = f"Semantic validation failed. Output does not look like a valid answer. Received: {response!r}"
+    if len(clean_resp) < min_len or "paris" not in clean_resp:
+        msg = (
+            f"Semantic validation failed. Output does not look like a valid answer. "
+            f"Received: {response!r}"
+        )
         raise ValueError(msg)
-
 
 def validate_llm_generation(model_id: str, device: str = "cpu") -> None:
     """Validate text generation logic for a specific model ID."""

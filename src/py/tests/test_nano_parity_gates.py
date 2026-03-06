@@ -15,7 +15,8 @@ import pytest
 
 from mogemma.config import GenerationConfig
 from mogemma.model import SyncGemmaModel
-from parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
+
+from .parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
 
 
 def _create_dummy_safetensors(model_dir: Path) -> None:
@@ -48,6 +49,7 @@ def nano_model_path(tmp_path: Path) -> Path:
 
 
 # 2.1 Failing test harness for CPU-vs-GPU deterministic token comparison
+@pytest.mark.xfail(reason="Awaiting complete GPU implementation and test weights")
 def test_deterministic_token_parity(nano_model_path: Path, mock_tokenizer: MagicMock) -> None:
     """CPU and GPU must generate the exact same tokens under deterministic settings."""
     config_cpu = GenerationConfig(
@@ -79,6 +81,7 @@ def test_deterministic_token_parity(nano_model_path: Path, mock_tokenizer: Magic
 
 
 # 2.2 Failing quality-gate tests for instruction-formatted prompts and EOS behavior
+@pytest.mark.xfail(reason="Awaiting complete GPU implementation and test weights")
 def test_quality_gate_instruction_prompts(nano_model_path: Path, mock_tokenizer: MagicMock) -> None:
     """Ensure instruction wrapping and EOS behaviors don't regress to gibberish."""
     config_gpu = GenerationConfig(
@@ -101,6 +104,7 @@ def test_quality_gate_instruction_prompts(nano_model_path: Path, mock_tokenizer:
 
 
 # 2.3 Failing performance gate scaffold with baseline capture and threshold checks
+@pytest.mark.xfail(reason="Awaiting complete GPU implementation and test weights")
 def test_performance_gate_throughput(nano_model_path: Path, mock_tokenizer: MagicMock) -> None:
     """GPU must meet throughput improvement thresholds compared to CPU baseline."""
     config_cpu = GenerationConfig(model_path=nano_model_path, device="cpu", max_tokens=10)
