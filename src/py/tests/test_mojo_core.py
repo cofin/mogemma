@@ -58,6 +58,64 @@ def test_mojo_core_init_standard() -> None:
     assert llm.get("descriptor_build_count", 1) == 1
 
 
+def test_mojo_core_init_model_with_options_caches_runtime_device_descriptor() -> None:
+    if not hasattr(_core, "init_model_with_options"):
+        pytest.skip("init_model_with_options is unavailable in current compiled mogemma._core")
+
+    tensors = {
+        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.self_attn.k_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.v_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
+        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
+        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+    }
+    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
+
+    llm = _core.init_model_with_options(
+        metadata,
+        {"head_dim": 128, "rope_base": 1_000_000.0},
+        {
+            "requested": "gpu:2",
+            "backend": "gpu",
+            "device_kind": "gpu",
+            "device_index": 2,
+            "strict": True,
+            "availability_source": "override",
+        },
+    )
+
+    assert llm["architecture_overrides"] == {"head_dim": 128, "rope_base": 1_000_000.0}
+    assert llm["device_selection"] == {
+        "requested": "gpu:2",
+        "backend": "gpu",
+        "device_kind": "gpu",
+        "device_index": 2,
+        "strict": True,
+        "availability_source": "override",
+    }
+    assert llm["device_backend"] == "gpu"
+    assert llm["device_kind"] == "gpu"
+    assert llm["device_index"] == 2
+    assert llm["device_request"] == "gpu:2"
+    assert llm["device_availability_source"] == "override"
+    assert llm["device_strict"] is True
+
+
 def test_mojo_core_step_standard() -> None:
     tensors = {
         "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
@@ -88,6 +146,58 @@ def test_mojo_core_step_standard() -> None:
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
     assert llm.get("descriptor_build_count", 1) == 1
+    assert llm.get("step_backend") == "cpu"
+    assert llm.get("fallback_reason") == "requested"
+
+def test_mojo_core_step_standard_fallback() -> None:
+    if not hasattr(_core, "init_model_with_options"):
+        pytest.skip("init_model_with_options is unavailable")
+
+    tensors = {
+        "model.embed_tokens.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.norm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "lm_head.weight": np.zeros((_EXPECTED_VOCAB_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.input_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_attention_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.self_attn.q_proj.weight": np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.self_attn.k_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.v_proj.weight": np.zeros(
+            (_EXPECTED_HIDDEN_SIZE, _EXPECTED_HIDDEN_SIZE), dtype=np.float32
+        ),
+        "model.layers.0.self_attn.o_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 8), dtype=np.float32),
+        "model.layers.0.mlp.gate_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.up_proj.weight": np.zeros((16, _EXPECTED_HIDDEN_SIZE), dtype=np.float32),
+        "model.layers.0.mlp.down_proj.weight": np.zeros((_EXPECTED_HIDDEN_SIZE, 16), dtype=np.float32),
+        "model.layers.0.self_attn.q_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.self_attn.k_norm.weight": np.zeros((_EXPECTED_HEAD_DIM,), dtype=np.float32),
+        "model.layers.0.pre_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+        "model.layers.0.post_feedforward_layernorm.weight": np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32),
+    }
+    metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
+    llm = _core.init_model_with_options(
+        metadata,
+        {},
+        {
+            "backend": "cuda",
+            "device_kind": "gpu",
+            "requested": "cuda",
+            "strict": False,
+            "availability_source": "auto"
+        },
+    )
+
+    logits = _core.step(llm, 1, 0.0, 0, 0.0)
+    assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
+    assert llm.get("step_backend") == "cpu"
+    assert llm.get("fallback_reason") == "cuda_kernels_unimplemented"
+    assert llm.get("debug_launch_count") == 1
+    
+    # second token uses same latch
+    logits = _core.step(llm, 2, 0.0, 0, 0.0)
+    assert llm.get("step_backend") == "cpu"
+    assert llm.get("debug_launch_count") == 2
 
 
 def test_mojo_core_embeddings_standard_uses_local_rope_when_sequence_exceeds_runtime_window() -> None:

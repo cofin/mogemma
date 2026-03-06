@@ -20,9 +20,37 @@ class DeviceSelection:
     """Normalized device-selection result used by model init paths."""
 
     requested: str
-    effective_backend_id: str
-    effective_device: str
-    gpu_index: int | None
+    backend: str
+    device_kind: str
+    device_index: int | None
+    strict: bool
+    availability_source: str
+
+    @property
+    def effective_backend_id(self) -> str:
+        return self.backend
+
+    @property
+    def effective_device(self) -> str:
+        if self.device_kind == _CPU_BACKEND_ID:
+            return _CPU_BACKEND_ID
+        if self.device_index is None:
+            return _GPU_BACKEND_ID
+        return f"gpu:{self.device_index}"
+
+    @property
+    def gpu_index(self) -> int | None:
+        return self.device_index
+
+    def as_runtime_descriptor(self) -> dict[str, object]:
+        return {
+            "requested": self.requested,
+            "backend": self.backend,
+            "device_kind": self.device_kind,
+            "device_index": self.device_index,
+            "strict": self.strict,
+            "availability_source": self.availability_source,
+        }
 
 
 class CoreModuleContract(Protocol):
@@ -143,23 +171,28 @@ def resolve_device_selection(
 ) -> DeviceSelection:
     """Resolve requested device into a concrete backend selection."""
 
+    normalized = device.strip().lower() or "cpu"
     backend_id, gpu_index = parse_device_spec(device)
     if backend_id == _CPU_BACKEND_ID:
         return DeviceSelection(
-            requested=device,
-            effective_backend_id=_CPU_BACKEND_ID,
-            effective_device="cpu",
-            gpu_index=None,
+            requested=normalized,
+            backend=_CPU_BACKEND_ID,
+            device_kind=_CPU_BACKEND_ID,
+            device_index=None,
+            strict=False,
+            availability_source="cpu-default",
         )
 
     available = gpu_capability_available() if gpu_available is None else gpu_available
     requested_label = "gpu" if gpu_index is None else f"gpu:{gpu_index}"
     if available:
         return DeviceSelection(
-            requested=device,
-            effective_backend_id=_GPU_BACKEND_ID,
-            effective_device=requested_label,
-            gpu_index=gpu_index,
+            requested=normalized,
+            backend=_GPU_BACKEND_ID,
+            device_kind=_GPU_BACKEND_ID,
+            device_index=gpu_index,
+            strict=True,
+            availability_source="override" if gpu_available is not None else "env:MOGEMMA_GPU_AVAILABLE",
         )
     msg = f"Requested device '{requested_label}' is unavailable on this host."
     raise RuntimeError(msg)

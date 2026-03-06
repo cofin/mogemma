@@ -914,6 +914,33 @@ fn init_model_mojo(
     py_dict["pos"] = 0
     return py_dict
 
+fn _apply_runtime_init_options(
+    llm: PythonObject,
+    architecture_overrides_obj: PythonObject,
+    device_selection_obj: PythonObject,
+) raises:
+    var builtins = Python.import_module("builtins")
+
+    if Int(py=builtins.len(architecture_overrides_obj)) > 0:
+        llm["architecture_overrides"] = architecture_overrides_obj
+
+    llm["device_selection"] = device_selection_obj
+    llm["device_backend"] = device_selection_obj.get("backend")
+    llm["device_kind"] = device_selection_obj.get("device_kind")
+    llm["device_index"] = device_selection_obj.get("device_index")
+    llm["device_request"] = device_selection_obj.get("requested")
+    llm["device_availability_source"] = device_selection_obj.get("availability_source")
+    llm["device_strict"] = device_selection_obj.get("strict")
+
+fn init_model_with_options_mojo(
+    metadata_obj: PythonObject,
+    architecture_overrides_obj: PythonObject,
+    device_selection_obj: PythonObject,
+) raises -> PythonObject:
+    var llm = init_model_mojo(metadata_obj)
+    _apply_runtime_init_options(llm, architecture_overrides_obj, device_selection_obj)
+    return llm
+
 fn step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
@@ -983,24 +1010,46 @@ fn step_mojo(
             scratch_ptr
         )
     else:
-        _forward_step_standard_runtime(
-            out_logits_ptr,
-            token_id,
-            pos,
-            runtime_obj,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            intermediate_size,
-            vocab_size,
-            freqs_cos_ptr,
-            freqs_sin_ptr,
-            kv_cache_k_ptr,
-            kv_cache_v_ptr,
-            max_seq_len,
-            scratch_ptr
-        )
+        var step_backend = String(py=llm.get("step_backend", ""))
+        if step_backend == "":
+            var device_backend = String(py=llm.get("device_backend", "cpu"))
+            if device_backend == "cuda":
+                # Fallback for now since GPU kernels aren't fully implemented in Phase 1
+                if pos == 0:
+                    step_backend = "cpu"
+                    llm["fallback_reason"] = "cuda_kernels_unimplemented"
+                else:
+                    raise Error("CUDA fallback requested after cache mutation started (pos > 0)")
+            else:
+                step_backend = "cpu"
+                llm["fallback_reason"] = "requested"
+            llm["step_backend"] = step_backend
+
+        # Latch counters
+        var launch_counter = Int(py=llm.get("debug_launch_count", 0))
+        llm["debug_launch_count"] = launch_counter + 1
+
+        if step_backend == "cuda":
+            raise Error("CUDA backend not yet implemented for standard path")
+        else:
+            _forward_step_standard_runtime(
+                out_logits_ptr,
+                token_id,
+                pos,
+                runtime_obj,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                vocab_size,
+                freqs_cos_ptr,
+                freqs_sin_ptr,
+                kv_cache_k_ptr,
+                kv_cache_v_ptr,
+                max_seq_len,
+                scratch_ptr
+            )
     
     _ = scratch[0]
     llm["pos"] = pos + 1
@@ -1162,6 +1211,7 @@ fn PyInit__core() -> PythonObject:
     try:
         var b = PythonModuleBuilder("_core")
         b.def_function[init_model_mojo]("init_model")
+        b.def_function[init_model_with_options_mojo]("init_model_with_options")
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
         b.def_function[step_mojo]("step")
         return b.finalize()

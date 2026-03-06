@@ -156,7 +156,7 @@ dev = [
 build = ["bump-my-version>=0.31.1", "mojo>=0.26.1"]
 lint = ["mypy>=1.13.0", "pyright>=1.1.386", "ruff>=0.14.14"]
 test = [ 
-    "obstore>=0.2.08", 
+    "obstore>=0.2.08",
     "pytest>=9.0.2",
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.3.0",

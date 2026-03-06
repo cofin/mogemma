@@ -131,6 +131,7 @@ def _initialize_llm(
     loader: ModelLoader,
     backend: GenerationBackend | EmbeddingBackend,
     *,
+    device_selection: DeviceSelection,
     model_type: str,
     architecture_overrides: dict[str, int | float] | None = None,
 ) -> object:
@@ -145,21 +146,42 @@ def _initialize_llm(
             raise ValueError(msg)
 
         normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
-        if normalized_overrides is None:
-            return backend.init_model(metadata)
-
-        init_model_fn = getattr(_core, "init_model", None)
-        if not callable(init_model_fn):
-            msg = "Mojo core does not expose init_model(metadata, architecture_overrides)"
-            raise RuntimeError(msg)
-        try:
-            return init_model_fn(metadata, normalized_overrides)
-        except TypeError as exc:
-            msg = (
-                "Mojo core init_model does not accept architecture_overrides. "
-                "Rebuild/install a compatible mogemma._core extension."
+        runtime_device_descriptor = device_selection.as_runtime_descriptor()
+        init_model_with_options = getattr(_core, "init_model_with_options", None)
+        llm: object
+        if callable(init_model_with_options):
+            llm = init_model_with_options(
+                metadata,
+                normalized_overrides or {},
+                runtime_device_descriptor,
             )
-            raise RuntimeError(msg) from exc
+        elif normalized_overrides is None:
+            llm = backend.init_model(metadata)
+        else:
+            init_model_fn = getattr(_core, "init_model", None)
+            if not callable(init_model_fn):
+                msg = "Mojo core does not expose init_model(metadata, architecture_overrides)"
+                raise RuntimeError(msg)
+            try:
+                llm = init_model_fn(metadata, normalized_overrides)
+            except TypeError as exc:
+                msg = (
+                    "Mojo core init_model does not accept architecture_overrides. "
+                    "Rebuild/install a compatible mogemma._core extension."
+                )
+                raise RuntimeError(msg) from exc
+
+        if isinstance(llm, dict):
+            llm.setdefault("device_selection", runtime_device_descriptor)
+            llm.setdefault("device_backend", device_selection.backend)
+            llm.setdefault("device_kind", device_selection.device_kind)
+            llm.setdefault("device_index", device_selection.device_index)
+            llm.setdefault("device_request", device_selection.requested)
+            llm.setdefault("device_availability_source", device_selection.availability_source)
+            llm.setdefault("device_strict", device_selection.strict)
+            if normalized_overrides:
+                llm.setdefault("architecture_overrides", normalized_overrides)
+        return llm
     except ValueError:
         raise
     except Exception as exc:
@@ -293,10 +315,10 @@ class EmbeddingModel:
         self.config = config
         self._tokenizer = tokenizer
 
+        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
-        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         self._backend = _resolve_embedding_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
 
@@ -304,6 +326,7 @@ class EmbeddingModel:
         self._llm: object | None = _initialize_llm(
             self._loader,
             self._backend,
+            device_selection=self._device_selection,
             model_type="embedding",
             architecture_overrides=config.architecture_overrides,
         )
@@ -398,11 +421,11 @@ class SyncGemmaModel:
         self.config = config
         self._tokenizer = tokenizer
 
+        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path)
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
-        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         self._backend = _resolve_generation_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
 
@@ -410,6 +433,7 @@ class SyncGemmaModel:
         self._llm: object | None = _initialize_llm(
             self._loader,
             self._backend,
+            device_selection=self._device_selection,
             model_type="generation",
             architecture_overrides=config.architecture_overrides,
         )

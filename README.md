@@ -84,7 +84,33 @@ model = SyncGemmaModel(config)
 Device handling is deterministic:
 
 - `device="cpu"` always runs on CPU
+- explicit GPU requests never silently fall back to CPU
 - unavailable GPU requests raise an explicit error
+
+Current runtime status:
+
+- `cpu` is the only executable backend today
+- `gpu` / `gpu:N` are stabilized request forms for the upcoming GPU runtime work
+
+```python
+from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+
+generation = SyncGemmaModel(
+    GenerationConfig(
+        model_path="gemma3-1b-it",
+        device="cpu",
+    )
+)
+
+embeddings = EmbeddingModel(
+    EmbeddingConfig(
+        model_path="gemma3-1b-it",
+        device="cpu",
+    )
+)
+```
+
+Explicit GPU requests are validated strictly:
 
 ```python
 from mogemma import GenerationConfig, SyncGemmaModel

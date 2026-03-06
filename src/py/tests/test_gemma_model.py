@@ -529,7 +529,7 @@ def test_generation_model_uses_normalized_backend_descriptor(
 
     def fake_resolve_device_selection(device: str):
         seen["request"] = device
-        return model_module.DeviceSelection(device, "cpu", "cpu", None)
+        return model_module.DeviceSelection(device, "cpu", "cpu", None, False, "override")
 
     def fake_resolve_backend(device: str) -> BackendStub:
         seen["backend_device"] = device
@@ -550,6 +550,41 @@ def test_generation_model_uses_normalized_backend_descriptor(
     assert seen["request"] == "cpu"
     assert seen["backend_device"] == "cpu"
     assert model._device_selection.effective_backend_id == "cpu"  # noqa: SLF001
+
+
+def test_generation_model_caches_device_selection_in_runtime_state(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BackendStub:
+        backend_id = "cpu"
+
+        def init_model(self, metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> object:
+            del metadata
+            return {}
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    monkeypatch.setattr(model_module, "_core", object())
+    monkeypatch.setattr(
+        model_module,
+        "resolve_device_selection",
+        lambda device: model_module.DeviceSelection(device, "cpu", "cpu", None, False, "override"),
+    )
+    monkeypatch.setattr(model_module, "_resolve_generation_backend", lambda *_args, **_kwargs: BackendStub(), raising=False)
+
+    model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
+
+    assert isinstance(model._llm, dict)  # noqa: SLF001
+    assert model._llm["device_selection"] == {  # noqa: SLF001
+        "requested": "cpu",
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "device_index": None,
+        "strict": False,
+        "availability_source": "override",
+    }
 
 
 def test_generation_model_passes_architecture_overrides_to_core_init(
@@ -585,6 +620,59 @@ def test_generation_model_passes_architecture_overrides_to_core_init(
 
     assert model is not None
     assert core.seen_overrides == {"head_dim": 128, "rope_base": 1_000_000.0}
+
+
+def test_generation_model_prefers_init_model_with_options_when_available(
+    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class OptionsCore:
+        def __init__(self) -> None:
+            self.seen_overrides: dict[str, int | float] | None = None
+            self.seen_device_selection: dict[str, object] | None = None
+
+        def init_model(self, _: object) -> object:
+            raise AssertionError("legacy init_model path should not be used")
+
+        def init_model_with_options(
+            self,
+            metadata: dict[str, tuple[int, tuple[int, ...], str]],
+            architecture_overrides: dict[str, int | float],
+            device_selection: dict[str, object],
+        ) -> object:
+            del metadata
+            self.seen_overrides = architecture_overrides
+            self.seen_device_selection = device_selection
+            return {}
+
+        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
+            del llm, token_id, temp, top_k, top_p
+            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
+
+    core = OptionsCore()
+    monkeypatch.setattr(model_module, "_core", core)
+
+    model = SyncGemmaModel(
+        GenerationConfig(
+            model_path=Path(dummy_model_path),
+            architecture_overrides={"head_dim": 128, "rope_base": 1_000_000.0},
+            device="cpu",
+            max_tokens=1,
+        )
+    )
+
+    assert model is not None
+    assert core.seen_overrides == {"head_dim": 128, "rope_base": 1_000_000.0}
+    assert core.seen_device_selection == {
+        "requested": "cpu",
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "device_index": None,
+        "strict": False,
+        "availability_source": "cpu-default",
+    }
+    assert isinstance(model._llm, dict)  # noqa: SLF001
+    assert model._llm["architecture_overrides"] == {"head_dim": 128, "rope_base": 1_000_000.0}  # noqa: SLF001
+    assert model._llm["device_selection"] == core.seen_device_selection  # noqa: SLF001
 
 
 def test_generation_model_rejects_nano_metadata_variant(
