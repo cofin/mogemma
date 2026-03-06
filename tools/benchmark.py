@@ -98,19 +98,31 @@ def _environment_payload() -> dict[str, str]:
     }
 
 
-def _run_generation(config: GenerationConfig, prompt: str, *, rounds: int) -> dict[str, object]:
-    start = time.perf_counter()
+def _run_generation(config: GenerationConfig, prompt: str, *, rounds: int, warmup: int = 3) -> dict[str, object]:
     model = SyncGemmaModel(config)
+    # Warmup
+    for _ in range(warmup):
+        model.generate(prompt)
+    
+    latencies: list[float] = []
+    tokens = 0
     outputs: list[str] = []
     for _ in range(rounds):
+        start = time.perf_counter()
         outputs.append(model.generate(prompt))
-    end = time.perf_counter()
-    elapsed = end - start
-    tokens = sum(len(text) for text in outputs)
+        end = time.perf_counter()
+        latencies.append(end - start)
+        tokens += len(outputs[-1])
+
+    elapsed = sum(latencies)
+    p95_latency = float(np.percentile(latencies, 95)) if latencies else 0.0
+    
     return {
         "mode": "generation",
         "rounds": rounds,
+        "warmup_rounds": warmup,
         "elapsed_s": elapsed,
+        "p95_latency_s": p95_latency,
         "tokens": tokens,
         "tokens_per_second": tokens / elapsed if elapsed > 0 else 0.0,
     }
@@ -131,35 +143,74 @@ def _run_embedding(config: EmbeddingConfig, texts: list[str], *, rounds: int) ->
         "calls_per_second": rounds / elapsed if elapsed > 0 else 0.0,
     }
 
+_CORPORA = {
+    "short": "Summarize the history of AI in one sentence.",
+    "medium": "Explain the architecture of a transformer model and how self-attention works. Provide examples and describe the flow of tensors through the network." * 5,
+    "long": "Write a detailed novel about a programmer exploring a dystopian future where AI agents manage society." * 20
+}
 
 def _run_benchmark() -> dict[str, object]:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["generation", "embedding"], default="generation")
     parser.add_argument("--rounds", type=int, default=10)
+    parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--corpus", choices=["short", "medium", "long"], default="short")
+    parser.add_argument("--real-model-path", type=str, default=None)
+    parser.add_argument("--backend", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--baseline-json", type=str, default=None)
     args = parser.parse_args()
 
-    _install_stubs()
-    model_root = Path("benchmark-model")
-    model_root.mkdir(exist_ok=True)
-    (model_root / "tokenizer.model").touch(exist_ok=True)
+    if args.real_model_path:
+        model_root = Path(args.real_model_path)
+    else:
+        _install_stubs()
+        model_root = Path("benchmark-model")
+        model_root.mkdir(exist_ok=True)
+        (model_root / "tokenizer.model").touch(exist_ok=True)
 
     metrics: dict[str, object]
     if args.mode == "generation":
         config = GenerationConfig(model_path=model_root, max_tokens=args.max_new_tokens)
-        metrics = _run_generation(config, "Benchmark prompt for release parity.", rounds=args.rounds)
+        prompt = _CORPORA[args.corpus]
+        metrics = _run_generation(config, prompt, rounds=args.rounds, warmup=args.warmup)
     else:
         config = EmbeddingConfig(model_path=model_root)
         metrics = _run_embedding(
             config, texts=["Benchmark embedding input one", "Benchmark embedding input two"], rounds=args.rounds
         )
-    return {
+        
+    payload = {
         "mode": args.mode,
         "model_path": str(model_root),
         "max_tokens": args.max_new_tokens,
+        "corpus": args.corpus,
+        "backend": args.backend,
         "environment": _environment_payload(),
         **metrics,
     }
+    
+    if args.baseline_json:
+        with open(args.baseline_json, "r") as f:
+            baseline = json.load(f)
+        tps = payload.get("tokens_per_second", 0)
+        base_tps = baseline.get("tokens_per_second", 0)
+        p95 = payload.get("p95_latency_s", 0)
+        base_p95 = baseline.get("p95_latency_s", 0)
+        
+        pass_gate = True
+        reason = []
+        if args.corpus in ["medium", "long"] and tps < base_tps * 1.25:
+            pass_gate = False
+            reason.append(f"Throughput {tps:.2f} is not >= 1.25x baseline {base_tps:.2f}")
+        if args.corpus == "short" and p95 > base_p95 * 1.15:
+            pass_gate = False
+            reason.append(f"p95 latency {p95:.4f} regressed > 15% vs baseline {base_p95:.4f}")
+            
+        payload["gate_passed"] = pass_gate
+        payload["gate_reason"] = "; ".join(reason) if reason else "Pass"
+        
+    return payload
 
 
 def main() -> None:
