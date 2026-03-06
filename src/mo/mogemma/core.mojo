@@ -19,6 +19,7 @@ from mogemma.model import (
 from mogemma.layers import (
     forward_layer,
     forward_nano_layer,
+    forward_nano_layer_gpu,
     _collapse_altup_streams,
     _prepare_altup_streams,
     _rms_norm_nano_weighted,
@@ -1040,28 +1041,47 @@ fn step_mojo(
     if arch == "nano":
         var per_layer_dim = Int(py=llm["per_layer_dim"])
         if step_backend == "cuda":
-            raise Error("CUDA not supported for nano")
-
-        _forward_step_nano_runtime(
-            out_logits_ptr,
-            token_id,
-            pos,
-            runtime_obj,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            intermediate_size,
-            per_layer_dim,
-            vocab_size,
-            freqs_cos_ptr,
-            freqs_sin_ptr,
-            kv_cache_k_ptr,
-            kv_cache_v_ptr,
-            max_seq_len,
-            kv_share_start,
-            scratch_ptr
-        )
+            _forward_step_nano_gpu_runtime(
+                out_logits_ptr,
+                token_id,
+                pos,
+                runtime_obj,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                per_layer_dim,
+                vocab_size,
+                freqs_cos_ptr,
+                freqs_sin_ptr,
+                kv_cache_k_ptr,
+                kv_cache_v_ptr,
+                max_seq_len,
+                kv_share_start,
+                scratch_ptr
+            )
+        else:
+            _forward_step_nano_runtime(
+                out_logits_ptr,
+                token_id,
+                pos,
+                runtime_obj,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                per_layer_dim,
+                vocab_size,
+                freqs_cos_ptr,
+                freqs_sin_ptr,
+                kv_cache_k_ptr,
+                kv_cache_v_ptr,
+                max_seq_len,
+                kv_share_start,
+                scratch_ptr
+            )
     else:
         # Since we use CPU polyfills for GPU tests during Phase 1-3, we can just call the standard runtime
         # which will eventually dispatch to GPU kernels or CPU kernels based on the backend latch.
@@ -1238,6 +1258,205 @@ fn generate_embeddings_mojo(
     _ = input_ids[0]
     
     return _ensure_embedding_matrix(result_np, batch_size, hidden_size, np)
+
+fn _forward_nano_token_hidden_gpu_runtime(
+    out_hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    pos: Int,
+    runtime_layers: PythonObject,
+    num_layers: Int,
+    embed_tokens: TensorInfo,
+    norm: TensorInfo,
+    per_layer_embed: TensorInfo,
+    per_layer_projection: TensorInfo,
+    per_layer_norm: TensorInfo,
+    per_layer_table_layers: Int,
+    altup_projections: List[TensorInfo],
+    altup_unembeds: List[TensorInfo],
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    per_layer_dim: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    kv_share_start: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+) raises:
+    var first_layer = runtime_layers[0]
+    var num_modalities = _tensor_from_meta(first_layer[13]).shape_0
+
+    var current_streams_ptr = scratch_ptr
+    var next_streams_ptr = current_streams_ptr + num_modalities * hidden_size
+    var per_layer_inputs_ptr = next_streams_ptr + num_modalities * hidden_size
+    var layer_scratch_ptr = per_layer_inputs_ptr + num_layers * per_layer_dim
+    var collapse_scratch_ptr = layer_scratch_ptr + hidden_size * 72
+    var stream_init_scratch_ptr = layer_scratch_ptr + hidden_size * 68
+
+    var emb_scale = sqrt(Float32(hidden_size))
+    var emb_row_offset = token_id * hidden_size
+    for i in range(hidden_size):
+        current_streams_ptr.store(i, embed_tokens.ptr.load(emb_row_offset + i) * emb_scale)
+
+    _prepare_altup_streams(
+        current_streams_ptr,
+        current_streams_ptr,
+        altup_projections,
+        hidden_size,
+        num_modalities,
+        stream_init_scratch_ptr
+    )
+
+    _build_token_per_layer_inputs_runtime(
+        per_layer_inputs_ptr,
+        current_streams_ptr,
+        token_id,
+        per_layer_embed,
+        per_layer_projection,
+        per_layer_norm,
+        per_layer_table_layers,
+        num_layers,
+        hidden_size,
+        per_layer_dim,
+        layer_scratch_ptr
+    )
+
+    var last_full_kv_layer = kv_share_start - 1
+    while last_full_kv_layer >= 0 and ((last_full_kv_layer + 1) % 5) != 0:
+        last_full_kv_layer -= 1
+    var last_sliding_kv_layer = kv_share_start - 1
+    while last_sliding_kv_layer >= 0 and ((last_sliding_kv_layer + 1) % 5) == 0:
+        last_sliding_kv_layer -= 1
+
+    for l in range(num_layers):
+        var kv_layer_idx = l
+        var write_kv = True
+        if kv_share_start < num_layers and l >= kv_share_start:
+            write_kv = False
+            if ((l + 1) % 5) == 0 and last_full_kv_layer >= 0:
+                kv_layer_idx = last_full_kv_layer
+            elif last_sliding_kv_layer >= 0:
+                kv_layer_idx = last_sliding_kv_layer
+            else:
+                kv_layer_idx = kv_share_start - 1
+
+        var layer_kv_k_ptr = kv_cache_k_ptr + kv_layer_idx * max_seq_len * num_kv_heads * head_dim
+        var layer_kv_v_ptr = kv_cache_v_ptr + kv_layer_idx * max_seq_len * num_kv_heads * head_dim
+        var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
+        var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
+        var layer_per_input_ptr = per_layer_inputs_ptr + l * per_layer_dim
+        var layer_weights = _build_nano_layer_from_runtime_entry(runtime_layers[l])
+
+        forward_nano_layer_gpu(
+            next_streams_ptr,
+            current_streams_ptr,
+            layer_weights,
+            l,
+            layer_per_input_ptr,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            per_layer_dim,
+            token_freqs_cos_ptr,
+            token_freqs_sin_ptr,
+            layer_kv_k_ptr,
+            layer_kv_v_ptr,
+            max_seq_len,
+            num_modalities,
+            write_kv,
+            layer_scratch_ptr
+        )
+
+        for i in range(num_modalities * hidden_size):
+            current_streams_ptr.store(i, next_streams_ptr.load(i))
+
+    _collapse_altup_streams(
+        out_hidden_ptr,
+        current_streams_ptr,
+        altup_unembeds,
+        hidden_size,
+        num_modalities,
+        collapse_scratch_ptr
+    )
+    # Using CPU norm here for now, polyfill is fine
+    _rms_norm_nano_weighted(out_hidden_ptr, out_hidden_ptr, norm.ptr, hidden_size, 1e-6)
+
+fn _forward_step_nano_gpu_runtime(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    pos: Int,
+    runtime_obj: PythonObject,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    per_layer_dim: Int,
+    vocab_size: Int,
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    max_seq_len: Int,
+    kv_share_start: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+) raises:
+    var builtins = Python.import_module("builtins")
+    var runtime_layers = runtime_obj["layers"]
+    var num_layers = Int(py=builtins.len(runtime_layers))
+    if num_layers == 0:
+        raise Error("Invalid Nano runtime: no layers found")
+
+    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
+    var norm = _tensor_from_meta(runtime_obj["norm"])
+    var lm_head = _tensor_from_meta(runtime_obj["lm_head"])
+    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
+    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
+    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var per_layer_table_layers = per_layer_embed.shape_1
+    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
+    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
+
+    var hidden_ptr = scratch_ptr
+    var token_scratch_ptr = scratch_ptr + hidden_size
+    _forward_nano_token_hidden_gpu_runtime(
+        hidden_ptr,
+        token_id,
+        pos,
+        runtime_layers,
+        num_layers,
+        embed_tokens,
+        norm,
+        per_layer_embed,
+        per_layer_projection,
+        per_layer_norm,
+        per_layer_table_layers,
+        altup_projections,
+        altup_unembeds,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        intermediate_size,
+        per_layer_dim,
+        freqs_cos_ptr,
+        freqs_sin_ptr,
+        kv_cache_k_ptr,
+        kv_cache_v_ptr,
+        max_seq_len,
+        kv_share_start,
+        token_scratch_ptr
+    )
+    # CPU polyfill for matmul
+    from mogemma.ops_gpu import vec_mat_mul_gpu
+    vec_mat_mul_gpu(out_logits_ptr, hidden_ptr, lm_head.ptr, hidden_size, vocab_size)
 
 @export
 fn PyInit__core() -> PythonObject:
