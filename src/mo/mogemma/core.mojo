@@ -83,8 +83,8 @@ fn _get_tensor(metadata_obj: PythonObject, name: String) raises -> TensorInfo:
 
 
 @always_inline
-fn _kv_cache_len(num_layers: Int, max_seq_len: Int, num_kv_heads: Int, head_dim: Int) -> Int:
-    return num_layers * max_seq_len * num_kv_heads * head_dim
+fn _kv_cache_len(batch_size: Int, num_layers: Int, max_seq_len: Int, num_kv_heads: Int, head_dim: Int) -> Int:
+    return batch_size * num_layers * max_seq_len * num_kv_heads * head_dim
 
 
 @always_inline
@@ -583,6 +583,7 @@ fn _forward_sequence_nano_runtime(
     max_seq_len: Int,
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    batch_size: Int,
 ) raises:
     """Coordinates the sequential forward pass for a batch of tokens in the Nano architecture to generate embeddings.
 
@@ -751,6 +752,7 @@ fn _forward_sequence_standard_runtime(
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    batch_size: Int,
 ) raises:
     """Coordinates the sequential forward pass for a batch of tokens in the standard architecture to generate embeddings.
 
@@ -911,7 +913,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
 
     var max_seq_len = 8192  # default max seq len
 
-    var session_kv_cache_len = _kv_cache_len(num_layers, max_seq_len, num_kv_heads, head_dim)
+    var session_kv_cache_len = _kv_cache_len(1, num_layers, max_seq_len, num_kv_heads, head_dim)
     var k_cache: PythonObject
     var v_cache: PythonObject
 
@@ -1257,11 +1259,11 @@ fn generate_embeddings_mojo(
         freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_sin_local.unsafe_ptr()))
 
     # Allocations for intermediate state
-    var embedding_kv_cache_len = _kv_cache_len(num_layers, max_seq_len, num_kv_heads, head_dim)
+    var embedding_kv_cache_len = _kv_cache_len(batch_size, num_layers, max_seq_len, num_kv_heads, head_dim)
     var kv_cache_k = _allocate_transient_f32(embedding_kv_cache_len)
     var kv_cache_v = _allocate_transient_f32(embedding_kv_cache_len)
     var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
-    var scratch = _allocate_transient_f32(embedding_scratch_len)  # generous scratch space
+    var scratch = _allocate_transient_f32(batch_size * embedding_scratch_len)  # generous scratch space
     var emb_out = _allocate_transient_f32(batch_size * hidden_size)
     var input_ids = _allocate_transient_i32(max_seq_len)
 
@@ -1305,6 +1307,7 @@ fn generate_embeddings_mojo(
                 max_seq_len,
                 kv_share_start,
                 scratch_ptr,
+                batch_size,
             )
         else:
             _forward_sequence_standard_runtime(
@@ -1323,6 +1326,7 @@ fn generate_embeddings_mojo(
                 kv_cache_v_ptr,
                 max_seq_len,
                 scratch_ptr,
+                batch_size,
             )
 
     # Return as numpy array
