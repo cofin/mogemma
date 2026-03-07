@@ -25,9 +25,7 @@ def test_mojo_unit_tests(test_file: str) -> None:
     cmd = ["mojo", "-I", str(MO_TESTS_DIR.parent), str(test_path)]
     try:
         # Use -I src/mo to include the mogemma module.
-        result = subprocess.run(  # noqa: S603
-            cmd, capture_output=True, text=True, timeout=MOJO_TEST_TIMEOUT_SECONDS, check=False
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=MOJO_TEST_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""
         stderr = exc.stderr or ""

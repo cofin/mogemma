@@ -136,6 +136,7 @@ split-on-trailing-comma = false
   "D103",
   "D107",
   "S101",
+  "S603",
 ]
 
 [tool.mypy]
