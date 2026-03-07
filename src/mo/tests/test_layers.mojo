@@ -501,9 +501,9 @@ fn test_forward_layer_batched() raises:
         batch_size,
     )
 
-    # Basic shape check and execution check. 
+    # Basic shape check and execution check.
     # Not testing exact numerics because layer output is complex
-    assert_almost_equal(out[0], out[4], atol=1e-5) # batch elements should match
+    assert_almost_equal(out[0], out[4], atol=1e-5)  # batch elements should match
 
 
 fn test_forward_layer_gpu() raises:

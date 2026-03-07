@@ -83,7 +83,9 @@ fn forward_attention(
         for h in range(num_heads):
             var kv_h = h // heads_per_kv
             var q_head_ptr = b_q_ptr + h * head_dim
-            var scores_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size) + batch_size * q_size + h * max_seq_len
+            var scores_ptr = (
+                scratch_ptr + batch_size * (q_size + kv_size + kv_size) + batch_size * q_size + h * max_seq_len
+            )
 
             # Calculate scores for past tokens up to `pos`
             for t in range(pos + 1):
@@ -258,16 +260,30 @@ fn forward_layer(
 
     var post_attn_out_ptr = scratch_ptr + batch_size * hidden_size * 2
     for b in range(batch_size):
-        rms_norm(post_attn_out_ptr + b * hidden_size, attn_out_ptr + b * hidden_size, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+        rms_norm(
+            post_attn_out_ptr + b * hidden_size,
+            attn_out_ptr + b * hidden_size,
+            weights.post_attention_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
 
     var residual_ptr = scratch_ptr + batch_size * hidden_size * 3
     for b in range(batch_size):
         for i in range(hidden_size):
-            residual_ptr.store(b * hidden_size + i, x_ptr.load(b * hidden_size + i) + post_attn_out_ptr.load(b * hidden_size + i))
+            residual_ptr.store(
+                b * hidden_size + i, x_ptr.load(b * hidden_size + i) + post_attn_out_ptr.load(b * hidden_size + i)
+            )
 
     var norm_residual_ptr = scratch_ptr + batch_size * hidden_size * 4
     for b in range(batch_size):
-        rms_norm(norm_residual_ptr + b * hidden_size, residual_ptr + b * hidden_size, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
+        rms_norm(
+            norm_residual_ptr + b * hidden_size,
+            residual_ptr + b * hidden_size,
+            weights.pre_feedforward_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
 
     var mlp_out_ptr = scratch_ptr + batch_size * hidden_size * 5
     var mlp_scratch_ptr = scratch_ptr + batch_size * hidden_size * 6
@@ -275,11 +291,19 @@ fn forward_layer(
 
     var post_mlp_out_ptr = scratch_ptr + batch_size * hidden_size * 7
     for b in range(batch_size):
-        rms_norm(post_mlp_out_ptr + b * hidden_size, mlp_out_ptr + b * hidden_size, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+        rms_norm(
+            post_mlp_out_ptr + b * hidden_size,
+            mlp_out_ptr + b * hidden_size,
+            weights.post_feedforward_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
 
     for b in range(batch_size):
         for i in range(hidden_size):
-            out_ptr.store(b * hidden_size + i, residual_ptr.load(b * hidden_size + i) + post_mlp_out_ptr.load(b * hidden_size + i))
+            out_ptr.store(
+                b * hidden_size + i, residual_ptr.load(b * hidden_size + i) + post_mlp_out_ptr.load(b * hidden_size + i)
+            )
 
 
 @always_inline
@@ -858,88 +882,125 @@ fn forward_nano_layer(
 
     Performs AltUp prediction across modalities, runs the Laurel down/up projection on the active stream, computes Nano-specific attention and MLP (with potential activation sparsity), applies AltUp correction, and finally calculates the per-layer mapping delta to update the non-active modality streams.
     """
-    var batch_scratch_size = hidden_size * 64
+    # Re-layout memory for batched inner calls
+    var b_predictions = scratch_ptr  # [batch_size, num_modalities, hidden_size]
+    var b_active = b_predictions + batch_size * num_modalities * hidden_size  # [batch_size, hidden_size]
+    var b_active_norm = b_active + batch_size * hidden_size
+    var b_laurel = b_active_norm + batch_size * hidden_size
+    var b_attn = b_laurel + batch_size * hidden_size
+    var b_attn_norm = b_attn + batch_size * hidden_size
+    var b_attn_laurel = b_attn_norm + batch_size * hidden_size
+    var b_ffw_norm_in = b_attn_laurel + batch_size * hidden_size
+    var b_ffw = b_ffw_norm_in + batch_size * hidden_size
+    var b_ffw_norm = b_ffw + batch_size * hidden_size
+    var b_activated = b_ffw_norm + batch_size * hidden_size
+    var b_corrected = b_activated + batch_size * hidden_size  # [batch_size, num_modalities, hidden_size]
+
+    var temp_ptr = b_corrected + batch_size * num_modalities * hidden_size
+
+    # 1. AltUp Predict
     for b in range(batch_size):
         var b_in_streams_ptr = in_streams_ptr + b * (num_modalities * hidden_size)
-        var b_out_streams_ptr = out_streams_ptr + b * (num_modalities * hidden_size)
-        
-        var b_kv_cache_k_ptr = kv_cache_k_ptr + b * (max_seq_len * num_kv_heads * head_dim)
-        var b_kv_cache_v_ptr = kv_cache_v_ptr + b * (max_seq_len * num_kv_heads * head_dim)
-        
-        var b_scratch_ptr = scratch_ptr + b * batch_scratch_size
-
-        var predictions_ptr = b_scratch_ptr  # 0..4h
-        var corrected_ptr = predictions_ptr + num_modalities * hidden_size  # 4h..8h
-        var active_ptr = corrected_ptr + num_modalities * hidden_size  # 8h
-        var active_norm_ptr = active_ptr + hidden_size  # 9h
-        var laurel_ptr = active_norm_ptr + hidden_size  # 10h
-        var attn_ptr = laurel_ptr + hidden_size  # 11h
-        var attn_norm_ptr = attn_ptr + hidden_size  # 12h
-        var attn_laurel_ptr = attn_norm_ptr + hidden_size  # 13h
-        var ffw_norm_in_ptr = attn_laurel_ptr + hidden_size  # 14h
-        var ffw_ptr = ffw_norm_in_ptr + hidden_size  # 15h
-        var ffw_norm_ptr = ffw_ptr + hidden_size  # 16h
-        var activated_ptr = ffw_norm_ptr + hidden_size  # 17h
-        var first_prediction_ptr = activated_ptr + hidden_size  # 18h
-        var delta_ptr = first_prediction_ptr + hidden_size  # 19h
-        var altup_scratch_ptr = delta_ptr + hidden_size  # 20h
-        var attn_scratch_ptr = b_scratch_ptr + hidden_size * 24
-        var laurel_scratch_ptr = b_scratch_ptr + hidden_size * 40
-        var ffw_scratch_ptr = b_scratch_ptr + hidden_size * 44
-        var plm_scratch_ptr = b_scratch_ptr + hidden_size * 48
-
-        forward_altup_predict(
-            predictions_ptr, b_in_streams_ptr, weights.altup, hidden_size, num_modalities, altup_scratch_ptr
-        )
-
-        # Active stream (index 0) runs attention/MLP path
+        var predictions_ptr = b_predictions + b * (num_modalities * hidden_size)
+        forward_altup_predict(predictions_ptr, b_in_streams_ptr, weights.altup, hidden_size, num_modalities, temp_ptr)
+        # Extract active stream (index 0)
+        var active_ptr = b_active + b * hidden_size
         for i in range(hidden_size):
             active_ptr.store(i, predictions_ptr.load(i))
 
-        _rms_norm_nano_weighted(active_norm_ptr, active_ptr, weights.base.input_layernorm.ptr, hidden_size, 1e-6)
-        forward_laurel(
-            laurel_ptr, active_norm_ptr, weights.laurel, hidden_size, weights.laurel.down_proj.shape_0, laurel_scratch_ptr
-        )
-
-        forward_attention_nano(
-            attn_ptr,
-            active_norm_ptr,
-            weights.base,
-            pos,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            freqs_cos_ptr,
-            freqs_sin_ptr,
-            b_kv_cache_k_ptr,
-            b_kv_cache_v_ptr,
-            max_seq_len,
-            write_kv,
-            attn_scratch_ptr,
-        )
-
-        _rms_norm_nano_weighted(attn_norm_ptr, attn_ptr, weights.base.post_attention_layernorm.ptr, hidden_size, 1e-6)
-        var inv_sqrt2: Float32 = 0.7071067811865475
-        for i in range(hidden_size):
-            attn_laurel_ptr.store(i, (active_ptr.load(i) + attn_norm_ptr.load(i) + laurel_ptr.load(i)) * inv_sqrt2)
-
+    # 2. RMSNorm
+    for b in range(batch_size):
         _rms_norm_nano_weighted(
-            ffw_norm_in_ptr, attn_laurel_ptr, weights.base.pre_feedforward_layernorm.ptr, hidden_size, 1e-6
+            b_active_norm + b * hidden_size,
+            b_active + b * hidden_size,
+            weights.base.input_layernorm.ptr,
+            hidden_size,
+            1e-6,
         )
-        forward_mlp_nano(ffw_ptr, ffw_norm_in_ptr, weights.base, hidden_size, intermediate_size, layer_idx, ffw_scratch_ptr)
-        _rms_norm_nano_weighted(ffw_norm_ptr, ffw_ptr, weights.base.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+
+    # 3. Laurel
+    forward_laurel(
+        b_laurel, b_active_norm, weights.laurel, hidden_size, weights.laurel.down_proj.shape_0, temp_ptr, batch_size
+    )
+
+    # 4. Attention
+    forward_attention_nano(
+        b_attn,
+        b_active_norm,
+        weights.base,
+        pos,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        freqs_cos_ptr,
+        freqs_sin_ptr,
+        kv_cache_k_ptr,
+        kv_cache_v_ptr,
+        max_seq_len,
+        write_kv,
+        temp_ptr,
+        batch_size,
+    )
+
+    # 5. Post-Attn Norm & Add
+    var inv_sqrt2: Float32 = 0.7071067811865475
+    for b in range(batch_size):
+        _rms_norm_nano_weighted(
+            b_attn_norm + b * hidden_size,
+            b_attn + b * hidden_size,
+            weights.base.post_attention_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
         for i in range(hidden_size):
-            activated_ptr.store(i, attn_laurel_ptr.load(i) + ffw_norm_ptr.load(i))
-
-        forward_altup_correct(
-            corrected_ptr, predictions_ptr, activated_ptr, weights.altup, hidden_size, num_modalities, altup_scratch_ptr
+            b_attn_laurel.store(
+                b * hidden_size + i,
+                (
+                    b_active.load(b * hidden_size + i)
+                    + b_attn_norm.load(b * hidden_size + i)
+                    + b_laurel.load(b * hidden_size + i)
+                )
+                * inv_sqrt2,
+            )
+        _rms_norm_nano_weighted(
+            b_ffw_norm_in + b * hidden_size,
+            b_attn_laurel + b * hidden_size,
+            weights.base.pre_feedforward_layernorm.ptr,
+            hidden_size,
+            1e-6,
         )
 
-        # Active corrected prediction is scaled by correct_output_scale
+    # 6. MLP
+    forward_mlp_nano(
+        b_ffw, b_ffw_norm_in, weights.base, hidden_size, intermediate_size, layer_idx, temp_ptr, batch_size
+    )
+
+    # 7. Post-MLP Norm & Add & Correct
+    for b in range(batch_size):
+        _rms_norm_nano_weighted(
+            b_ffw_norm + b * hidden_size,
+            b_ffw + b * hidden_size,
+            weights.base.post_feedforward_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
+
+        var activated_ptr = b_activated + b * hidden_size
+        for i in range(hidden_size):
+            activated_ptr.store(i, b_attn_laurel.load(b * hidden_size + i) + b_ffw_norm.load(b * hidden_size + i))
+
+        var corrected_ptr = b_corrected + b * (num_modalities * hidden_size)
+        var predictions_ptr = b_predictions + b * (num_modalities * hidden_size)
+        forward_altup_correct(
+            corrected_ptr, predictions_ptr, activated_ptr, weights.altup, hidden_size, num_modalities, temp_ptr
+        )
+
+        var first_prediction_ptr = temp_ptr
         for i in range(hidden_size):
             first_prediction_ptr.store(i, corrected_ptr.load(i) * weights.altup.output_scale.ptr.load(i))
 
+        var delta_ptr = temp_ptr + hidden_size
         forward_per_layer_mapping(
             delta_ptr,
             first_prediction_ptr,
@@ -947,10 +1008,10 @@ fn forward_nano_layer(
             weights.per_layer_map,
             hidden_size,
             per_layer_dim,
-            plm_scratch_ptr,
+            temp_ptr + hidden_size * 2,
         )
 
-        # stream 0 unchanged; non-active streams receive per-layer delta
+        var b_out_streams_ptr = out_streams_ptr + b * (num_modalities * hidden_size)
         for i in range(hidden_size):
             b_out_streams_ptr.store(i, corrected_ptr.load(i))
         for m in range(1, num_modalities):
