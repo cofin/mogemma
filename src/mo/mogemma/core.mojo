@@ -948,6 +948,10 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
 
 
 fn init_model_mojo(metadata_obj: PythonObject) raises -> PythonObject:
+    """Initializes the Mojo inference engine by constructing the model runtime from Python metadata.
+    
+    Allocates the KV cache, RoPE positional encodings, and scratch memory spaces for the session.
+    """
     return _init_model_impl_mojo(metadata_obj, "cpu")
 
 
@@ -975,6 +979,10 @@ fn init_model_with_options_mojo(
     architecture_overrides_obj: PythonObject,
     device_selection_obj: PythonObject,
 ) raises -> PythonObject:
+    """Initializes the model runtime with explicit device selection and architecture overrides.
+    
+    Builds the appropriate (Nano or Standard) runtime dictionary, allocates required memory, and applies any specified configuration overrides.
+    """
     var backend = String(py=device_selection_obj.get("backend", "cpu"))
     var llm = _init_model_impl_mojo(metadata_obj, backend)
     _apply_runtime_init_options(llm, architecture_overrides_obj, device_selection_obj)
@@ -988,6 +996,10 @@ fn step_mojo(
     top_k_obj: PythonObject,
     top_p_obj: PythonObject,
 ) raises -> PythonObject:
+    """Performs a single forward pass step for autoregressive text generation.
+    
+    Reads the current generation position, selects the CPU or GPU backend path, dispatches the token through the appropriate Standard or Nano layers, updates internal state/KV cache, and returns the next token logits.
+    """
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
 
@@ -1145,6 +1157,10 @@ fn generate_embeddings_mojo(
     llm: PythonObject,
     input_array: PythonObject,
 ) raises -> PythonObject:
+    """Generates mean-pooled embeddings for a batch of input token sequences.
+    
+    Iterates over the sequences, processing them through the initialized runtime model to produce sequence-level continuous vector representations.
+    """
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
 
