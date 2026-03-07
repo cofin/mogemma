@@ -68,6 +68,7 @@ fn main() raises:
     test_forward_attention()
     test_forward_attention_with_qk_norms()
     test_forward_layer()
+    test_forward_layer_batched()
     print("test_layers.mojo CPU passed!")
 
     test_forward_mlp_gpu()
@@ -427,6 +428,82 @@ fn test_forward_attention_gpu() raises:
     _ = freqs_sin[0]
     _ = kv_cache_k[0]
     _ = kv_cache_v[0]
+
+
+fn test_forward_layer_batched() raises:
+    # Set up
+    var batch_size = 2
+    var hidden_size = 4
+    var intermediate_size = 4
+    var num_heads = 2
+    var num_kv_heads = 1
+    var head_dim = 2
+    var max_seq_len = 10
+    var pos = 0
+
+    var weights = LayerWeights()
+    var input_layernorm = alloc_ones(hidden_size)
+    var post_attention_layernorm = alloc_ones(hidden_size)
+    var q_proj = alloc_ones(num_heads * head_dim * hidden_size)
+    var k_proj = alloc_ones(num_kv_heads * head_dim * hidden_size)
+    var v_proj = alloc_ones(num_kv_heads * head_dim * hidden_size)
+    var o_proj = alloc_ones(hidden_size * num_heads * head_dim)
+    var gate_proj = alloc_ones(intermediate_size * hidden_size)
+    var up_proj = alloc_ones(intermediate_size * hidden_size)
+    var down_proj = alloc_ones(hidden_size * intermediate_size)
+
+    weights.input_layernorm = TensorInfo(Int(input_layernorm.unsafe_ptr()), hidden_size, 1)
+    weights.post_attention_layernorm = TensorInfo(Int(post_attention_layernorm.unsafe_ptr()), hidden_size, 1)
+    weights.q_proj = TensorInfo(Int(q_proj.unsafe_ptr()), num_heads * head_dim, hidden_size)
+    weights.k_proj = TensorInfo(Int(k_proj.unsafe_ptr()), num_kv_heads * head_dim, hidden_size)
+    weights.v_proj = TensorInfo(Int(v_proj.unsafe_ptr()), num_kv_heads * head_dim, hidden_size)
+    weights.o_proj = TensorInfo(Int(o_proj.unsafe_ptr()), hidden_size, num_heads * head_dim)
+    weights.gate_proj = TensorInfo(Int(gate_proj.unsafe_ptr()), intermediate_size, hidden_size)
+    weights.up_proj = TensorInfo(Int(up_proj.unsafe_ptr()), intermediate_size, hidden_size)
+    weights.down_proj = TensorInfo(Int(down_proj.unsafe_ptr()), hidden_size, intermediate_size)
+
+    var x = alloc_ones(batch_size * hidden_size)
+    var out = alloc_zeros(batch_size * hidden_size)
+    var scratch = alloc_zeros(batch_size * hidden_size * 20)  # plenty
+
+    var freqs_cos = alloc_zeros(head_dim)
+    freqs_cos[0] = 1.0
+    var freqs_sin = alloc_zeros(head_dim)
+    freqs_sin[0] = 0.0
+
+    var kv_cache_k = alloc_zeros(batch_size * max_seq_len * num_kv_heads * head_dim)
+    var kv_cache_v = alloc_zeros(batch_size * max_seq_len * num_kv_heads * head_dim)
+
+    var x_ptr = get_ptr(x)
+    var out_ptr = get_ptr(out)
+    var scratch_ptr = get_ptr(scratch)
+    var freqs_cos_ptr = get_ptr(freqs_cos)
+    var freqs_sin_ptr = get_ptr(freqs_sin)
+    var kv_cache_k_ptr = get_ptr(kv_cache_k)
+    var kv_cache_v_ptr = get_ptr(kv_cache_v)
+
+    forward_layer(
+        out_ptr,
+        x_ptr,
+        weights,
+        pos,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        intermediate_size,
+        freqs_cos_ptr,
+        freqs_sin_ptr,
+        kv_cache_k_ptr,
+        kv_cache_v_ptr,
+        max_seq_len,
+        scratch_ptr,
+        batch_size,
+    )
+
+    # Basic shape check and execution check. 
+    # Not testing exact numerics because layer output is complex
+    assert_almost_equal(out[0], out[4], atol=1e-5) # batch elements should match
 
 
 fn test_forward_layer_gpu() raises:
