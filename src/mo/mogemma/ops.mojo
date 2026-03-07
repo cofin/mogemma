@@ -11,6 +11,10 @@ fn geglu[
     up_ptr: UnsafePointer[Float32, MutExternalOrigin],
     size: Int,
 ):
+    """Applies the GEGLU activation function element-wise.
+    
+    Reads from the gate and up tensors, computes the GELU of the gate, multiplies it by the up value, and writes the result to the output tensor.
+    """
     var i = 0
     var sqrt_2: Float32 = 1.4142135623730951
     while i <= size - nelts:
@@ -40,6 +44,10 @@ fn rope_rotate[
     sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
     head_dim: Int,
 ):
+    """Applies Rotary Positional Embedding (RoPE) to an attention head vector in place.
+    
+    Rotates the input vector's values using the provided cosine and sine frequency tensors.
+    """
     # Applies RoPE to a vector of length `head_dim`
     # Assumes half-and-half rotation where x = [x1, x2]
     # rotated(x) = [x1 * cos - x2 * sin, x2 * cos + x1 * sin]
@@ -78,6 +86,10 @@ fn vec_mat_mul[
     in_dim: Int,
     out_dim: Int,
 ):
+    """Performs a vector-matrix multiplication.
+    
+    Multiplies the input vector by a transposed weight matrix and writes the resulting vector to the output tensor.
+    """
     for o in range(out_dim):
         var acc: Float32 = 0.0
         var i = 0
@@ -108,6 +120,10 @@ fn rms_norm[
     size: Int,
     eps: Float32 = 1e-6,
 ):
+    """Applies Root Mean Square (RMS) Normalization.
+    
+    Normalizes the input vector and scales it using the provided weight tensor, storing the result in the output tensor.
+    """
     var sum_sq: Float32 = 0.0
     var i = 0
     while i <= size - nelts:
@@ -142,6 +158,10 @@ fn rms_norm[
 
 @always_inline
 fn softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int):
+    """Applies the softmax operation to a vector in place.
+    
+    Transforms the input values into a normalized probability distribution.
+    """
     # Find max
     var max_val: Float32 = -1e9
     var i = 0
