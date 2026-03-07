@@ -183,31 +183,39 @@ fn _apply_nano_activation_sparsity(
 
 @always_inline
 fn forward_mlp_nano(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
     hidden_size: Int,
     intermediate_size: Int,
     layer_idx: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+    batch_size: Int = 1,
 ):
     """Computes the feed-forward network (MLP) for a Nano layer.
 
     Similar to the standard MLP but conditionally applies activation sparsity to the gate projection before the GEGLU activation.
     """
     var gate_ptr = scratch_ptr
-    var up_ptr = scratch_ptr + intermediate_size
-    var geglu_out_ptr = scratch_ptr + intermediate_size * 2
+    var up_ptr = scratch_ptr + batch_size * intermediate_size
+    var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    vec_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, hidden_size, intermediate_size)
+    mat_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, batch_size, hidden_size, intermediate_size)
     # Gemma3n defaults: first 10 layers use 0.95 activation sparsity, rest dense.
     if layer_idx < 10:
-        _apply_nano_activation_sparsity(gate_ptr, intermediate_size, 0.95)
-    vec_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, hidden_size, intermediate_size)
+        for b in range(batch_size):
+            _apply_nano_activation_sparsity(gate_ptr + b * intermediate_size, intermediate_size, 0.95)
+    mat_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, batch_size, hidden_size, intermediate_size)
 
-    geglu(geglu_out_ptr, gate_ptr, up_ptr, intermediate_size)
+    for b in range(batch_size):
+        geglu(
+            geglu_out_ptr + b * intermediate_size,
+            gate_ptr + b * intermediate_size,
+            up_ptr + b * intermediate_size,
+            intermediate_size,
+        )
 
-    vec_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, intermediate_size, hidden_size)
+    mat_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, batch_size, intermediate_size, hidden_size)
 
 
 @always_inline
@@ -499,8 +507,8 @@ fn _rms_norm_nano_unit(
 
 @always_inline
 fn forward_attention_nano(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
     pos: Int,
     hidden_size: Int,
@@ -509,11 +517,12 @@ fn forward_attention_nano(
     head_dim: Int,
     freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
     freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     write_kv: Bool,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    batch_size: Int = 1,
 ):
     """Computes Multi-Head/Grouped-Query Attention tailored for the Gemma Nano architecture.
 
@@ -522,60 +531,71 @@ fn forward_attention_nano(
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
-    var k_ptr = scratch_ptr + q_size
-    var v_ptr = scratch_ptr + q_size + kv_size
+    var k_ptr = scratch_ptr + batch_size * q_size
+    var v_ptr = scratch_ptr + batch_size * (q_size + kv_size)
 
-    vec_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, hidden_size, q_size)
-    # Gemma3n attention uses weighted RMSNorm on q/k and unweighted RMSNorm on v.
-    for h in range(num_heads):
-        _rms_norm_nano_weighted(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
-
-    for h in range(num_heads):
-        rope_rotate(q_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
-
+    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, batch_size, hidden_size, q_size)
     if write_kv:
-        vec_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, hidden_size, kv_size)
-        vec_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, hidden_size, kv_size)
-        for h in range(num_kv_heads):
-            _rms_norm_nano_weighted(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
-            _rms_norm_nano_unit(v_ptr + h * head_dim, v_ptr + h * head_dim, head_dim, 1e-6)
-            rope_rotate(k_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
+        mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, batch_size, hidden_size, kv_size)
+        mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, batch_size, hidden_size, kv_size)
 
-        var kv_offset = pos * kv_size
-        for i in range(kv_size):
-            kv_cache_k_ptr.store(kv_offset + i, k_ptr.load(i))
-            kv_cache_v_ptr.store(kv_offset + i, v_ptr.load(i))
+    for b in range(batch_size):
+        var b_q_ptr = q_ptr + b * q_size
+        var b_k_ptr = k_ptr + b * kv_size
+        var b_v_ptr = v_ptr + b * kv_size
 
-    var heads_per_kv = num_heads // num_kv_heads
-    var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
+        var b_kv_cache_k_ptr = kv_cache_k_ptr + b * (max_seq_len * kv_size)
+        var b_kv_cache_v_ptr = kv_cache_v_ptr + b * (max_seq_len * kv_size)
 
-    # Gemma3n sets attention scaling to 1.0.
-    for h in range(num_heads):
-        var kv_h = h // heads_per_kv
-        var q_head_ptr = q_ptr + h * head_dim
-        var scores_ptr = attn_out_ptr + num_heads * head_dim
+        # Gemma3n attention uses weighted RMSNorm on q/k and unweighted RMSNorm on v.
+        for h in range(num_heads):
+            _rms_norm_nano_weighted(b_q_ptr + h * head_dim, b_q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
 
-        for t in range(pos + 1):
-            var k_head_ptr = kv_cache_k_ptr + t * kv_size + kv_h * head_dim
-            var score: Float32 = 0.0
+        for h in range(num_heads):
+            rope_rotate(b_q_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
+
+        if write_kv:
+            for h in range(num_kv_heads):
+                _rms_norm_nano_weighted(b_k_ptr + h * head_dim, b_k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+                _rms_norm_nano_unit(b_v_ptr + h * head_dim, b_v_ptr + h * head_dim, head_dim, 1e-6)
+                rope_rotate(b_k_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
+
+            var kv_offset = pos * kv_size
+            for i in range(kv_size):
+                b_kv_cache_k_ptr.store(kv_offset + i, b_k_ptr.load(i))
+                b_kv_cache_v_ptr.store(kv_offset + i, b_v_ptr.load(i))
+
+        var heads_per_kv = num_heads // num_kv_heads
+        var attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size) + b * q_size
+
+        # Gemma3n sets attention scaling to 1.0.
+        for h in range(num_heads):
+            var kv_h = h // heads_per_kv
+            var q_head_ptr = b_q_ptr + h * head_dim
+            var scores_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size) + batch_size * q_size + h * max_seq_len
+
+            for t in range(pos + 1):
+                var k_head_ptr = b_kv_cache_k_ptr + t * kv_size + kv_h * head_dim
+                var score: Float32 = 0.0
+                for d in range(head_dim):
+                    score += q_head_ptr.load(d) * k_head_ptr.load(d)
+                scores_ptr.store(t, score)
+
+            softmax(scores_ptr, pos + 1)
+
+            var out_head_ptr = attn_out_ptr + h * head_dim
             for d in range(head_dim):
-                score += q_head_ptr.load(d) * k_head_ptr.load(d)
-            scores_ptr.store(t, score)
+                out_head_ptr.store(d, 0.0)
 
-        softmax(scores_ptr, pos + 1)
+            for t in range(pos + 1):
+                var v_head_ptr = b_kv_cache_v_ptr + t * kv_size + kv_h * head_dim
+                var prob = scores_ptr.load(t)
+                for d in range(head_dim):
+                    var acc = out_head_ptr.load(d)
+                    out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
 
-        var out_head_ptr = attn_out_ptr + h * head_dim
-        for d in range(head_dim):
-            out_head_ptr.store(d, 0.0)
-
-        for t in range(pos + 1):
-            var v_head_ptr = kv_cache_v_ptr + t * kv_size + kv_h * head_dim
-            var prob = scores_ptr.load(t)
-            for d in range(head_dim):
-                var acc = out_head_ptr.load(d)
-                out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
-
-    vec_mat_mul(out_ptr, attn_out_ptr, weights.o_proj.ptr, q_size, hidden_size)
+    var batched_attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size)
+    mat_mat_mul(out_ptr, batched_attn_out_ptr, weights.o_proj.ptr, batch_size, q_size, hidden_size)
 
 
 @always_inline
@@ -610,27 +630,29 @@ fn forward_per_layer_mapping(
 
 @always_inline
 fn forward_laurel(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LaurelWeights,
     hidden_size: Int,
     bottleneck_dim: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+    batch_size: Int = 1,
 ):
     """Executes the Laurel projection step for the Nano architecture.
 
     Applies a down-projection and up-projection through a bottleneck dimension, normalizes the result, and adds it to the residual stream.
     """
     var down_ptr = scratch_ptr
-    var up_ptr = scratch_ptr + bottleneck_dim
-    var norm_up_ptr = up_ptr + hidden_size
+    var up_ptr = scratch_ptr + batch_size * bottleneck_dim
+    var norm_up_ptr = up_ptr + batch_size * hidden_size
 
     # laurel(hidden) = hidden + rms_norm(up(down(hidden)))
-    vec_mat_mul(down_ptr, hidden_ptr, weights.down_proj.ptr, hidden_size, bottleneck_dim)
-    vec_mat_mul(up_ptr, down_ptr, weights.up_proj.ptr, bottleneck_dim, hidden_size)
-    _rms_norm_nano_weighted(norm_up_ptr, up_ptr, weights.norm.ptr, hidden_size, 1e-6)
-    for i in range(hidden_size):
-        out_ptr.store(i, hidden_ptr.load(i) + norm_up_ptr.load(i))
+    mat_mat_mul(down_ptr, hidden_ptr, weights.down_proj.ptr, batch_size, hidden_size, bottleneck_dim)
+    mat_mat_mul(up_ptr, down_ptr, weights.up_proj.ptr, batch_size, bottleneck_dim, hidden_size)
+    for b in range(batch_size):
+        _rms_norm_nano_weighted(norm_up_ptr + b * hidden_size, up_ptr + b * hidden_size, weights.norm.ptr, hidden_size, 1e-6)
+        for i in range(hidden_size):
+            out_ptr.store(b * hidden_size + i, hidden_ptr.load(b * hidden_size + i) + norm_up_ptr.load(b * hidden_size + i))
 
 
 @always_inline
@@ -745,34 +767,38 @@ fn _vector_magnitude(vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: I
 
 @always_inline
 fn _prepare_altup_streams(
-    out_streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
-    base_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, num_modalities, hidden_size]
+    base_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     altup_projections: List[TensorInfo],
     hidden_size: Int,
     num_modalities: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+    batch_size: Int = 1,
 ):
     """Initializes the multi-modality streams from the base embedding for the Nano architecture.
 
     The first stream is the base embedding. Subsequent streams are created via projections and scaled to match the magnitude of the base stream.
     """
-    # stream 0 = base stream
-    for d in range(hidden_size):
-        out_streams_ptr.store(d, base_ptr.load(d))
-
-    var target_mag = _vector_magnitude(base_ptr, hidden_size)
-    var proj_ptr = scratch_ptr
-
-    # streams 1..N are projected and magnitude-matched
-    for i in range(num_modalities - 1):
-        vec_mat_mul(proj_ptr, base_ptr, altup_projections[i].ptr, hidden_size, hidden_size)
-        var proj_mag = _vector_magnitude(proj_ptr, hidden_size)
-        var safe_proj_mag = proj_mag
-        if safe_proj_mag < 1e-6:
-            safe_proj_mag = 1e-6
-        var scale = target_mag / safe_proj_mag
+    for b in range(batch_size):
+        var b_out_streams_ptr = out_streams_ptr + b * num_modalities * hidden_size
+        var b_base_ptr = base_ptr + b * hidden_size
+        # stream 0 = base stream
         for d in range(hidden_size):
-            out_streams_ptr.store((i + 1) * hidden_size + d, proj_ptr.load(d) * scale)
+            b_out_streams_ptr.store(d, b_base_ptr.load(d))
+
+        var target_mag = _vector_magnitude(b_base_ptr, hidden_size)
+        var b_proj_ptr = scratch_ptr + b * hidden_size
+
+        # streams 1..N are projected and magnitude-matched
+        for i in range(num_modalities - 1):
+            vec_mat_mul(b_proj_ptr, b_base_ptr, altup_projections[i].ptr, hidden_size, hidden_size)
+            var proj_mag = _vector_magnitude(b_proj_ptr, hidden_size)
+            var safe_proj_mag = proj_mag
+            if safe_proj_mag < 1e-6:
+                safe_proj_mag = 1e-6
+            var scale = target_mag / safe_proj_mag
+            for d in range(hidden_size):
+                b_out_streams_ptr.store((i + 1) * hidden_size + d, b_proj_ptr.load(d) * scale)
 
 
 @always_inline
@@ -820,38 +846,43 @@ fn _build_token_per_layer_inputs(
 
 @always_inline
 fn _collapse_altup_streams(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, num_modalities, hidden_size]
     altup_unembeds: List[TensorInfo],
     hidden_size: Int,
     num_modalities: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+    batch_size: Int = 1,
 ):
     """Collapses the multi-modality streams back into a single hidden state representation.
 
     Applies unembed projections to the non-active streams, matches their magnitudes, and computes the mean across all streams.
     """
-    var tmp_ptr = scratch_ptr
-    var acc_ptr = scratch_ptr + hidden_size
+    for b in range(batch_size):
+        var b_out_ptr = out_ptr + b * hidden_size
+        var b_streams_ptr = streams_ptr + b * num_modalities * hidden_size
+        
+        var b_tmp_ptr = scratch_ptr + b * hidden_size * 2
+        var b_acc_ptr = scratch_ptr + b * hidden_size * 2 + hidden_size
 
-    var target_mag = _vector_magnitude(streams_ptr, hidden_size)
-    for d in range(hidden_size):
-        acc_ptr.store(d, streams_ptr.load(d))
-
-    for m in range(1, num_modalities):
-        var stream_ptr = streams_ptr + m * hidden_size
-        vec_mat_mul(tmp_ptr, stream_ptr, altup_unembeds[m - 1].ptr, hidden_size, hidden_size)
-        var new_mag = _vector_magnitude(tmp_ptr, hidden_size)
-        var safe_new_mag = new_mag
-        if safe_new_mag < 1e-6:
-            safe_new_mag = 1e-6
-        var scale = target_mag / safe_new_mag
+        var target_mag = _vector_magnitude(b_streams_ptr, hidden_size)
         for d in range(hidden_size):
-            acc_ptr.store(d, acc_ptr.load(d) + tmp_ptr.load(d) * scale)
+            b_acc_ptr.store(d, b_streams_ptr.load(d))
 
-    var inv_modalities = 1.0 / Float32(num_modalities)
-    for d in range(hidden_size):
-        out_ptr.store(d, acc_ptr.load(d) * inv_modalities)
+        for m in range(1, num_modalities):
+            var stream_ptr = b_streams_ptr + m * hidden_size
+            vec_mat_mul(b_tmp_ptr, stream_ptr, altup_unembeds[m - 1].ptr, hidden_size, hidden_size)
+            var new_mag = _vector_magnitude(b_tmp_ptr, hidden_size)
+            var safe_new_mag = new_mag
+            if safe_new_mag < 1e-6:
+                safe_new_mag = 1e-6
+            var scale = target_mag / safe_new_mag
+            for d in range(hidden_size):
+                b_acc_ptr.store(d, b_acc_ptr.load(d) + b_tmp_ptr.load(d) * scale)
+
+        var inv_modalities = 1.0 / Float32(num_modalities)
+        for d in range(hidden_size):
+            b_out_ptr.store(d, b_acc_ptr.load(d) * inv_modalities)
 
 
 @always_inline

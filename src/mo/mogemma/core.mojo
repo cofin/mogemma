@@ -332,9 +332,9 @@ fn _build_nano_layer_from_runtime_entry(entry: PythonObject) raises -> NanoLayer
 
 
 fn _build_token_per_layer_inputs_runtime(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_layers, per_layer_dim]
-    base_stream_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    token_id: Int,
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, num_layers, per_layer_dim]
+    base_stream_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, num_modalities, hidden_size]
+    token_ids_ptr: UnsafePointer[Int32, MutExternalOrigin],
     per_layer_embed: TensorInfo,
     per_layer_projection: TensorInfo,
     per_layer_norm: TensorInfo,
@@ -343,36 +343,42 @@ fn _build_token_per_layer_inputs_runtime(
     hidden_size: Int,
     per_layer_dim: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    batch_size: Int = 1,
+    num_modalities: Int = 1,
 ):
-    var proj_ptr = scratch_ptr
-    var proj_norm_ptr = scratch_ptr + per_layer_dim
-
     var projection_scale = 1.0 / sqrt(Float32(hidden_size))
     var per_layer_input_scale: Float32 = 0.7071067811865475
     var token_embed_scale = sqrt(Float32(per_layer_dim))
 
-    for l in range(num_layers):
-        for p in range(per_layer_dim):
-            var acc: Float32 = 0.0
-            for d in range(hidden_size):
-                var w_idx = d * per_layer_table_layers * per_layer_dim + l * per_layer_dim + p
-                acc += base_stream_ptr.load(d) * per_layer_projection.ptr.load(w_idx)
-            proj_ptr.store(p, acc * projection_scale)
+    for b in range(batch_size):
+        var b_base_stream = base_stream_ptr + b * num_modalities * hidden_size
+        var b_scratch = scratch_ptr + b * per_layer_dim * 2
+        var proj_ptr = b_scratch
+        var proj_norm_ptr = b_scratch + per_layer_dim
+        var token_id = Int(token_ids_ptr.load(b))
 
-        _rms_norm_nano_weighted(proj_norm_ptr, proj_ptr, per_layer_norm.ptr, per_layer_dim, 1e-6)
+        for l in range(num_layers):
+            for p in range(per_layer_dim):
+                var acc: Float32 = 0.0
+                for d in range(hidden_size):
+                    var w_idx = d * per_layer_table_layers * per_layer_dim + l * per_layer_dim + p
+                    acc += b_base_stream.load(d) * per_layer_projection.ptr.load(w_idx)
+                proj_ptr.store(p, acc * projection_scale)
 
-        var embed_base = per_layer_embed.ptr + token_id * per_layer_table_layers * per_layer_dim + l * per_layer_dim
-        var out_base = out_ptr + l * per_layer_dim
-        for p in range(per_layer_dim):
-            var token_embed = embed_base.load(p) * token_embed_scale
-            out_base.store(p, (proj_norm_ptr.load(p) + token_embed) * per_layer_input_scale)
+            _rms_norm_nano_weighted(proj_norm_ptr, proj_ptr, per_layer_norm.ptr, per_layer_dim, 1e-6)
+
+            var embed_base = per_layer_embed.ptr + token_id * per_layer_table_layers * per_layer_dim + l * per_layer_dim
+            var b_l_out_base = out_ptr + l * batch_size * per_layer_dim + b * per_layer_dim
+            for p in range(per_layer_dim):
+                var token_embed = embed_base.load(p) * token_embed_scale
+                b_l_out_base.store(p, (proj_norm_ptr.load(p) + token_embed) * per_layer_input_scale)
 
 
 fn _forward_nano_token_hidden_runtime(
     out_hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_ids_ptr: UnsafePointer[Int32, MutExternalOrigin],
     pos: Int,
-    runtime_layers: PythonObject,
+    runtime_layers: List[NanoLayerWeights],
     num_layers: Int,
     embed_tokens: TensorInfo,
     norm: TensorInfo,
@@ -397,8 +403,7 @@ fn _forward_nano_token_hidden_runtime(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
     batch_size: Int = 1,
 ) raises:
-    var first_layer = runtime_layers[0]
-    var num_modalities = _tensor_from_meta(first_layer[13]).shape_0
+    var num_modalities = runtime_layers[0].altup.router.shape_0
 
     var current_streams_ptr = scratch_ptr
     var next_streams_ptr = current_streams_ptr + batch_size * num_modalities * hidden_size
@@ -534,29 +539,31 @@ fn _forward_step_nano_runtime(
 
     Orchestrates the AltUp state initialization, sequential Nano layer execution, and final projection to vocabulary logits.
     """
-    var builtins = Python.import_module("builtins")
-    var runtime_layers = runtime_obj["layers"]
-    var num_layers = Int(py=builtins.len(runtime_layers))
+    var num_layers = len(model.layers)
     if num_layers == 0:
         raise Error("Invalid Nano runtime: no layers found")
 
-    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    var norm = _tensor_from_meta(runtime_obj["norm"])
-    var lm_head = _tensor_from_meta(runtime_obj["lm_head"])
-    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
-    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
-    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var embed_tokens = model.embed_tokens
+    var norm = model.norm
+    var lm_head = model.lm_head
+    var per_layer_embed = model.per_layer_embed
+    var per_layer_projection = model.per_layer_projection
+    var per_layer_norm = model.per_layer_norm
     var per_layer_table_layers = per_layer_embed.shape_1
-    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
-    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
+    var altup_projections = model.altup_projections.copy()
+    var altup_unembeds = model.altup_unembeds.copy()
 
     var hidden_ptr = scratch_ptr
     var token_scratch_ptr = scratch_ptr + hidden_size
+    
+    var token_id_buf = List[Int32](length=1, fill=Int32(token_id))
+    var token_id_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(token_id_buf.unsafe_ptr()))
+
     _forward_nano_token_hidden_runtime(
         hidden_ptr,
-        token_id,
+        token_id_ptr,
         pos,
-        runtime_layers,
+        model.layers,
         num_layers,
         embed_tokens,
         norm,
@@ -579,7 +586,9 @@ fn _forward_step_nano_runtime(
         max_seq_len,
         kv_share_start,
         token_scratch_ptr,
+        1,
     )
+    _ = token_id_buf
     vec_mat_mul(out_logits_ptr, hidden_ptr, lm_head.ptr, hidden_size, vocab_size)
 
 
@@ -608,25 +617,31 @@ fn _forward_sequence_nano_runtime(
     Passes each token sequentially through the Nano layer stack and aggregates the final hidden states using mean pooling to produce the sequence embedding.
     """
     var builtins = Python.import_module("builtins")
-    var num_layers = len(model.layers)
+    var runtime_layers = runtime_obj["layers"]
+    var num_layers = Int(py=builtins.len(runtime_layers))
     if num_layers == 0:
         raise Error("Invalid Nano runtime: no layers found")
 
-    var embed_tokens = model.embed_tokens
-    var norm = model.norm
-    var per_layer_embed = model.per_layer_embed
-    var per_layer_projection = model.per_layer_projection
-    var per_layer_norm = model.per_layer_norm
+    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
+    var norm = _tensor_from_meta(runtime_obj["norm"])
+    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
+    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
+    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
     var per_layer_table_layers = per_layer_embed.shape_1
-    var altup_projections = model.altup_projections
-    var altup_unembeds = model.altup_unembeds
+    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
+    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
 
     var emb_acc_ptr = scratch_ptr
     var token_hidden_ptr = scratch_ptr + batch_size * hidden_size
-    var token_ids_buffer_ptr = UnsafePointer[Int32].alloc(batch_size)
+    var token_ids_buffer = List[Int32](length=batch_size, fill=0)
+    var token_ids_buffer_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(token_ids_buffer.unsafe_ptr()))
     var token_scratch_ptr = scratch_ptr + batch_size * hidden_size * 2
     for i in range(batch_size * hidden_size):
         emb_acc_ptr.store(i, 0.0)
+
+    var typed_layers = List[NanoLayerWeights]()
+    for i in range(num_layers):
+        typed_layers.append(_build_nano_layer_from_runtime_entry(runtime_layers[i]))
 
     for t in range(seq_len):
         for b in range(batch_size):
@@ -636,7 +651,7 @@ fn _forward_sequence_nano_runtime(
             token_hidden_ptr,
             token_ids_buffer_ptr,
             t,
-            runtime_layers,
+            typed_layers,
             num_layers,
             embed_tokens,
             norm,
@@ -664,7 +679,7 @@ fn _forward_sequence_nano_runtime(
         for i in range(batch_size * hidden_size):
             emb_acc_ptr.store(i, emb_acc_ptr.load(i) + token_hidden_ptr.load(i))
 
-    token_ids_buffer_ptr.free()
+    _ = token_ids_buffer
 
     var scale = 1.0 / Float32(seq_len)
     for i in range(batch_size * hidden_size):
@@ -733,7 +748,7 @@ fn _forward_step_standard_runtime(
 
         var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
         var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
-        var layer_weights = layers[l]
+        var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
 
         forward_layer(
             next_state,
@@ -810,7 +825,7 @@ fn _forward_sequence_standard_runtime(
 
             var token_freqs_cos_ptr = freqs_cos_ptr + t * head_dim
             var token_freqs_sin_ptr = freqs_sin_ptr + t * head_dim
-            var layer_weights = layers[l]
+            var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
 
             forward_layer(
                 next_state,
@@ -1386,7 +1401,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
     out_hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     pos: Int,
-    runtime_layers: PythonObject,
+    runtime_layers: List[NanoLayerWeights],
     num_layers: Int,
     embed_tokens: TensorInfo,
     norm: TensorInfo,
@@ -1410,8 +1425,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
-    var first_layer = runtime_layers[0]
-    var num_modalities = _tensor_from_meta(first_layer[13]).shape_0
+    var num_modalities = runtime_layers[0].altup.router.shape_0
 
     var current_streams_ptr = scratch_ptr
     var next_streams_ptr = current_streams_ptr + num_modalities * hidden_size
@@ -1434,10 +1448,12 @@ fn _forward_nano_token_hidden_gpu_runtime(
         stream_init_scratch_ptr,
     )
 
+    var token_id_buf = List[Int32](length=1, fill=Int32(token_id))
+    var token_id_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(token_id_buf.unsafe_ptr()))
     _build_token_per_layer_inputs_runtime(
         per_layer_inputs_ptr,
         current_streams_ptr,
-        token_id,
+        token_id_ptr,
         per_layer_embed,
         per_layer_projection,
         per_layer_norm,
@@ -1447,6 +1463,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
         per_layer_dim,
         layer_scratch_ptr,
     )
+    _ = token_id_buf
 
     var last_full_kv_layer = kv_share_start - 1
     while last_full_kv_layer >= 0 and ((last_full_kv_layer + 1) % 5) != 0:
@@ -1527,21 +1544,19 @@ fn _forward_step_nano_gpu_runtime(
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
-    var builtins = Python.import_module("builtins")
-    var runtime_layers = runtime_obj["layers"]
-    var num_layers = Int(py=builtins.len(runtime_layers))
+    var num_layers = len(model.layers)
     if num_layers == 0:
         raise Error("Invalid Nano runtime: no layers found")
 
-    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    var norm = _tensor_from_meta(runtime_obj["norm"])
-    var lm_head = _tensor_from_meta(runtime_obj["lm_head"])
-    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
-    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
-    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var embed_tokens = model.embed_tokens
+    var norm = model.norm
+    var lm_head = model.lm_head
+    var per_layer_embed = model.per_layer_embed
+    var per_layer_projection = model.per_layer_projection
+    var per_layer_norm = model.per_layer_norm
     var per_layer_table_layers = per_layer_embed.shape_1
-    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
-    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
+    var altup_projections = model.altup_projections.copy()
+    var altup_unembeds = model.altup_unembeds.copy()
 
     var hidden_ptr = scratch_ptr
     var token_scratch_ptr = scratch_ptr + hidden_size
@@ -1549,7 +1564,7 @@ fn _forward_step_nano_gpu_runtime(
         hidden_ptr,
         token_id,
         pos,
-        runtime_layers,
+        model.layers,
         num_layers,
         embed_tokens,
         norm,
