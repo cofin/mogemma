@@ -16,21 +16,25 @@ from mogemma.ops_gpu import vec_mat_mul_gpu, rope_rotate_gpu, softmax_gpu, rms_n
 
 @always_inline
 fn forward_attention(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     pos: Int,  # current token index in sequence
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
     head_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # for this pos
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # for this pos
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim] for this pos
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim] for this pos
     kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temporary memory
 ):
+    """Computes Multi-Head/Grouped-Query Attention for a single token at the given position.
+    
+    This function projects the input hidden state into Query, Key, and Value tensors, applies RoPE to Q and K, updates the KV cache, computes attention scores across all heads, applies softmax, computes the weighted sum of Values, and projects the result back to the hidden size.
+    """
     # 1. Project Q, K, V
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
@@ -101,13 +105,17 @@ fn forward_attention(
 
 @always_inline
 fn forward_mlp(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     hidden_size: Int,
     intermediate_size: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the feed-forward network (MLP) block for a standard transformer layer.
+    
+    Projects the input hidden state to an intermediate size through gate and up projections, applies the GEGLU activation function, and then down-projects back to the hidden size.
+    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -177,8 +185,8 @@ fn forward_mlp_nano(
 
 @always_inline
 fn forward_layer(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     pos: Int,
     hidden_size: Int,
@@ -186,13 +194,17 @@ fn forward_layer(
     num_kv_heads: Int,
     head_dim: Int,
     intermediate_size: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
+    """Executes a single standard transformer layer (Attention + MLP) with residual connections and layer normalization.
+    
+    Applies RMSNorm before Attention, adds the Attention output to the residual stream, applies RMSNorm again before the MLP block, and finally adds the MLP output to the residual stream.
+    """
     var norm_x_ptr = scratch_ptr
     var attn_out_ptr = scratch_ptr + hidden_size
     var attn_scratch_ptr = scratch_ptr + hidden_size * 2
@@ -256,6 +268,10 @@ fn forward_step(
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes a single autoregressive generation step for the standard Gemma model.
+    
+    Takes a single token ID, embeds it, passes it through all transformer layers while updating the KV cache, applies the final layer normalization, and projects the final hidden state to logits over the vocabulary.
+    """
     var num_layers = len(model.layers)
     var current_state = scratch_ptr
     var next_state = scratch_ptr + hidden_size
@@ -323,6 +339,10 @@ fn forward_sequence(
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Processes a full sequence of tokens to produce a mean-pooled embedding.
+    
+    Passes each token through the model iteratively, updating the KV cache at each step, and aggregates the final normalized hidden states to produce a single sequence-level embedding vector.
+    """
     var num_layers = len(model.layers)
     var current_state = scratch_ptr
     var next_state = scratch_ptr + hidden_size
@@ -422,22 +442,26 @@ fn _rms_norm_nano_unit(
 
 @always_inline
 fn forward_attention_nano(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     pos: Int,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
     head_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     write_kv: Bool,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
+    """Computes Multi-Head/Grouped-Query Attention tailored for the Gemma Nano architecture.
+    
+    Includes specific logic for conditional KV cache writing (for KV sharing), uses weighted RMSNorm for Query/Key and unit RMSNorm for Value, and adjusts attention scaling according to Nano requirements.
+    """
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -755,15 +779,19 @@ fn forward_nano_layer(
     head_dim: Int,
     intermediate_size: Int,
     per_layer_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     num_modalities: Int,
     write_kv: Bool,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
+    """Executes a single Gemma Nano layer, coordinating the AltUp, Laurel, Attention, and MLP components.
+    
+    Performs AltUp prediction across modalities, runs the Laurel down/up projection on the active stream, computes Nano-specific attention and MLP (with potential activation sparsity), applies AltUp correction, and finally calculates the per-layer mapping delta to update the non-active modality streams.
+    """
     var predictions_ptr = scratch_ptr  # 0..4h
     var corrected_ptr = predictions_ptr + num_modalities * hidden_size  # 4h..8h
     var active_ptr = corrected_ptr + num_modalities * hidden_size  # 8h
