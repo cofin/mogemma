@@ -512,6 +512,10 @@ fn _forward_step_nano_runtime(
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
+    """Coordinates the forward pass for a single token in the Nano architecture.
+
+    Orchestrates the AltUp state initialization, sequential Nano layer execution, and final projection to vocabulary logits.
+    """
     var builtins = Python.import_module("builtins")
     var runtime_layers = runtime_obj["layers"]
     var num_layers = Int(py=builtins.len(runtime_layers))
@@ -580,6 +584,10 @@ fn _forward_sequence_nano_runtime(
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
+    """Coordinates the sequential forward pass for a batch of tokens in the Nano architecture to generate embeddings.
+
+    Passes each token sequentially through the Nano layer stack and aggregates the final hidden states using mean pooling to produce the sequence embedding.
+    """
     var builtins = Python.import_module("builtins")
     var num_layers = len(model.layers)
     if num_layers == 0:
@@ -674,6 +682,10 @@ fn _forward_step_standard_runtime(
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
+    """Coordinates the forward pass for a single token in the standard model architecture.
+
+    Extracts token embeddings and sequentially applies each transformer layer, updating the KV cache and computing the final logits.
+    """
     var builtins = Python.import_module("builtins")
     var layers = runtime_obj["layers"]
     var num_layers = Int(py=builtins.len(layers))
@@ -740,6 +752,10 @@ fn _forward_sequence_standard_runtime(
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
+    """Coordinates the sequential forward pass for a batch of tokens in the standard architecture to generate embeddings.
+
+    Passes each token through the transformer layers and aggregates the final hidden states using mean pooling to produce the sequence embedding.
+    """
     var builtins = Python.import_module("builtins")
     var layers = runtime_obj["layers"]
     var num_layers = Int(py=builtins.len(layers))
@@ -825,6 +841,10 @@ fn _detect_nano_kv_share_start(model_weights: NanoModelWeights) -> Int:
 
 
 fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) raises -> PythonObject:
+    """Internal implementation for initializing the model runtime.
+
+    Detects the model architecture, extracts and constructs the necessary tensor pointers from Python metadata, and allocates the required KV cache, RoPE caches, and scratch buffers for inference.
+    """
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
 
@@ -865,7 +885,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
         if per_layer_dim <= 0:
             raise Error("Invalid Nano model weights: per_layer_map gate dim must be > 0")
         py_dict["kv_share_start"] = _detect_nano_kv_share_start(model_weights)
-        
+
         var ptr = alloc[NanoModelWeights](1)
         ptr.init_pointee_move(model_weights^)
         py_dict["_descriptor_ptr"] = Int(ptr)
@@ -956,7 +976,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
 
 fn init_model_mojo(metadata_obj: PythonObject) raises -> PythonObject:
     """Initializes the Mojo inference engine by constructing the model runtime from Python metadata.
-    
+
     Allocates the KV cache, RoPE positional encodings, and scratch memory spaces for the session.
     """
     return _init_model_impl_mojo(metadata_obj, "cpu")
@@ -987,7 +1007,7 @@ fn init_model_with_options_mojo(
     device_selection_obj: PythonObject,
 ) raises -> PythonObject:
     """Initializes the model runtime with explicit device selection and architecture overrides.
-    
+
     Builds the appropriate (Nano or Standard) runtime dictionary, allocates required memory, and applies any specified configuration overrides.
     """
     var backend = String(py=device_selection_obj.get("backend", "cpu"))
@@ -1004,7 +1024,7 @@ fn step_mojo(
     top_p_obj: PythonObject,
 ) raises -> PythonObject:
     """Performs a single forward pass step for autoregressive text generation.
-    
+
     Reads the current generation position, selects the CPU or GPU backend path, dispatches the token through the appropriate Standard or Nano layers, updates internal state/KV cache, and returns the next token logits.
     """
     var np = Python.import_module("numpy")
@@ -1020,8 +1040,12 @@ fn step_mojo(
     var token_id = Int(py=token_id_obj)
 
     var runtime_obj = llm["runtime"]
-    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
-    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
+    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
+    )
+    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
+    )
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
@@ -1167,7 +1191,7 @@ fn generate_embeddings_mojo(
     input_array: PythonObject,
 ) raises -> PythonObject:
     """Generates mean-pooled embeddings for a batch of input token sequences.
-    
+
     Iterates over the sequences, processing them through the initialized runtime model to produce sequence-level continuous vector representations.
     """
     var np = Python.import_module("numpy")
@@ -1187,8 +1211,12 @@ fn generate_embeddings_mojo(
         raise Error("inputs must contain at least one token")
 
     var runtime_obj = llm["runtime"]
-    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
-    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
+    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
+    )
+    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
+    )
     var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
@@ -1529,7 +1557,12 @@ fn PyInit__core() -> PythonObject:
     except e:
         abort(String("failed to create Python module: ", e))
 
+
 fn free_model_mojo(llm: PythonObject) raises:
+    """Frees the unmanaged memory allocated for the Mojo model descriptor.
+
+    Reads the architecture type and raw pointer address from the runtime dictionary, casts it to the correct pointer type, and frees it to prevent memory leaks.
+    """
     var arch = String(py=llm["arch"])
     var ptr_int = Int(py=llm.get("_descriptor_ptr", 0))
     if ptr_int == 0:
