@@ -3,16 +3,31 @@ from memory import UnsafePointer
 from collections import List
 
 from mogemma.model import LaurelWeights, PerLayerMapWeights, AltUpWeights, TensorInfo, NanoLayerWeights
-from mogemma.layers import forward_laurel, forward_per_layer_mapping, forward_altup_predict, forward_altup_correct, forward_nano_layer, forward_laurel_gpu, forward_per_layer_mapping_gpu, forward_altup_predict_gpu, forward_altup_correct_gpu, forward_nano_layer_gpu
+from mogemma.layers import (
+    forward_laurel,
+    forward_per_layer_mapping,
+    forward_altup_predict,
+    forward_altup_correct,
+    forward_nano_layer,
+    forward_laurel_gpu,
+    forward_per_layer_mapping_gpu,
+    forward_altup_predict_gpu,
+    forward_altup_correct_gpu,
+    forward_nano_layer_gpu,
+)
+
 
 fn alloc_zeros(size: Int) -> List[Float32]:
     return List[Float32](length=size, fill=0.0)
 
+
 fn alloc_ones(size: Int) -> List[Float32]:
     return List[Float32](length=size, fill=1.0)
 
+
 fn get_ptr(lst: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(lst.unsafe_ptr()))
+
 
 fn test_forward_laurel() raises:
     var hidden_size = 4
@@ -98,7 +113,9 @@ fn test_forward_altup_predict_and_correct() raises:
 
     weights.router = TensorInfo(Int(router.unsafe_ptr()), num_modalities, hidden_size)
     weights.router_norm = TensorInfo(Int(router_norm.unsafe_ptr()), hidden_size, 1)
-    weights.prediction_coefs = TensorInfo(Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities)
+    weights.prediction_coefs = TensorInfo(
+        Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities
+    )
     weights.correction_coefs = TensorInfo(Int(correction_coefs.unsafe_ptr()), num_modalities, num_modalities)
     weights.output_scale = TensorInfo(Int(output_scale.unsafe_ptr()), hidden_size, 0)
 
@@ -186,7 +203,9 @@ fn test_forward_nano_layer() raises:
     var output_scale = alloc_ones(hidden_size)
     weights.altup.router = TensorInfo(Int(router.unsafe_ptr()), num_modalities, hidden_size)
     weights.altup.router_norm = TensorInfo(Int(router_norm.unsafe_ptr()), hidden_size, 1)
-    weights.altup.prediction_coefs = TensorInfo(Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities)
+    weights.altup.prediction_coefs = TensorInfo(
+        Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities
+    )
     weights.altup.correction_coefs = TensorInfo(Int(correction_coefs.unsafe_ptr()), num_modalities, num_modalities)
     weights.altup.output_scale = TensorInfo(Int(output_scale.unsafe_ptr()), hidden_size, 0)
 
@@ -269,7 +288,7 @@ fn main() raises:
         gpu_passed = True
     except e:
         print("GPU tests failed (expected during RED phase):", String(e))
-    
+
     if gpu_passed:
         print("Mojo GPU nano layer tests passed!")
     else:
@@ -359,7 +378,9 @@ fn test_forward_altup_predict_and_correct_gpu() raises:
 
     weights.router = TensorInfo(Int(router.unsafe_ptr()), num_modalities, hidden_size)
     weights.router_norm = TensorInfo(Int(router_norm.unsafe_ptr()), hidden_size, 1)
-    weights.prediction_coefs = TensorInfo(Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities)
+    weights.prediction_coefs = TensorInfo(
+        Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities
+    )
     weights.correction_coefs = TensorInfo(Int(correction_coefs.unsafe_ptr()), num_modalities, num_modalities)
     weights.output_scale = TensorInfo(Int(output_scale.unsafe_ptr()), hidden_size, 0)
 
@@ -416,7 +437,7 @@ fn test_forward_nano_layer_gpu() raises:
 
     var weights = NanoLayerWeights()
     var base_layer_weights = LayerWeights()
-    
+
     var input_layernorm = alloc_ones(hidden_size)
     var post_attention_layernorm = alloc_ones(hidden_size)
     var q_proj = alloc_ones(num_heads * head_dim * hidden_size)
@@ -444,7 +465,7 @@ fn test_forward_nano_layer_gpu() raises:
     base_layer_weights.k_norm = TensorInfo(Int(k_norm.unsafe_ptr()), head_dim, 0)
 
     weights.base = base_layer_weights
-    
+
     var pl_weights = PerLayerMapWeights()
     var pl_gate = alloc_ones(per_layer_dim * hidden_size)
     var pl_projection = alloc_ones(hidden_size * per_layer_dim)
@@ -503,6 +524,7 @@ fn test_forward_nano_layer_gpu() raises:
     _ = out_streams[0]
     _ = scratch[0]
 
+
 fn test_forward_mlp_nano_sparsity() raises:
     var hidden_size = 4
     var intermediate_size = 4
@@ -530,7 +552,7 @@ fn test_forward_mlp_nano_sparsity() raises:
     var scratch = alloc_zeros(intermediate_size * 4)
 
     forward_mlp_nano(get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, 0, get_ptr(scratch))
-    
+
     var out_dense = alloc_zeros(hidden_size)
     forward_mlp_nano(get_ptr(out_dense), get_ptr(x), weights, hidden_size, intermediate_size, 15, get_ptr(scratch))
 
@@ -541,6 +563,7 @@ fn test_forward_mlp_nano_sparsity() raises:
     _ = out[0]
     _ = out_dense[0]
     _ = scratch[0]
+
 
 fn test_forward_mlp_nano_sparsity_gpu() raises:
     var hidden_size = 4
@@ -569,7 +592,7 @@ fn test_forward_mlp_nano_sparsity_gpu() raises:
     var scratch = alloc_zeros(intermediate_size * 4)
 
     forward_mlp_nano_gpu(get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, 0, get_ptr(scratch))
-    
+
     var out_dense = alloc_zeros(hidden_size)
     forward_mlp_nano_gpu(get_ptr(out_dense), get_ptr(x), weights, hidden_size, intermediate_size, 15, get_ptr(scratch))
 

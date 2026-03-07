@@ -3,7 +3,12 @@ from memory import UnsafePointer
 from collections import List
 
 from mogemma.model import AltUpWeights, TensorInfo
-from mogemma.layers import forward_altup_predict, forward_altup_correct, forward_altup_predict_gpu, forward_altup_correct_gpu
+from mogemma.layers import (
+    forward_altup_predict,
+    forward_altup_correct,
+    forward_altup_predict_gpu,
+    forward_altup_correct_gpu,
+)
 
 
 fn alloc_zeros(size: Int) -> List[Float32]:
@@ -31,7 +36,9 @@ fn test_forward_altup_predict_correct_identity_contract() raises:
 
     weights.router = TensorInfo(Int(router.unsafe_ptr()), num_modalities, hidden_size)
     weights.router_norm = TensorInfo(Int(router_norm.unsafe_ptr()), hidden_size, 1)
-    weights.prediction_coefs = TensorInfo(Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities)
+    weights.prediction_coefs = TensorInfo(
+        Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities
+    )
     weights.correction_coefs = TensorInfo(Int(correction_coefs.unsafe_ptr()), num_modalities, num_modalities)
     weights.output_scale = TensorInfo(Int(output_scale.unsafe_ptr()), hidden_size, 0)
 
@@ -86,7 +93,7 @@ fn main() raises:
         gpu_passed = True
     except e:
         print("GPU tests failed (expected during RED phase):", String(e))
-    
+
     if gpu_passed:
         print("Mojo GPU AltUp tests passed!")
     else:
@@ -106,7 +113,9 @@ fn test_forward_altup_predict_correct_identity_contract_gpu() raises:
 
     weights.router = TensorInfo(Int(router.unsafe_ptr()), num_modalities, hidden_size)
     weights.router_norm = TensorInfo(Int(router_norm.unsafe_ptr()), hidden_size, 1)
-    weights.prediction_coefs = TensorInfo(Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities)
+    weights.prediction_coefs = TensorInfo(
+        Int(prediction_coefs.unsafe_ptr()), num_modalities, num_modalities * num_modalities
+    )
     weights.correction_coefs = TensorInfo(Int(correction_coefs.unsafe_ptr()), num_modalities, num_modalities)
     weights.output_scale = TensorInfo(Int(output_scale.unsafe_ptr()), hidden_size, 0)
 

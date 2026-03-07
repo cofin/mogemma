@@ -73,7 +73,7 @@ lint: ## Lint and format code (Python, Mojo)
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
 	@uv run pyright src/py/mogemma
 	@echo "${INFO} Formatting Mojo..."
-	# @mojo format src/mo
+	@uv run mojo format --line-length 120 src/mo
 	@echo "${OK} Lint complete"
 
 .PHONY: check-release

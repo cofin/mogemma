@@ -26,12 +26,14 @@ from mogemma.layers import (
 )
 from mogemma.ops import rms_norm, vec_mat_mul
 
+
 fn _detect_architecture(metadata_obj: PythonObject) raises -> String:
     var builtins = Python.import_module("builtins")
     # Gemma 3 Nano has AltUp router weights
     if builtins.bool(metadata_obj.__contains__("model.layers.0.altup.router.weight")):
         return "nano"
     return "standard"
+
 
 fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var logits = np.asarray(logits_obj, dtype=np.float32)
@@ -43,7 +45,9 @@ fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> Pyt
     return logits
 
 
-fn _ensure_embedding_matrix(embeddings_obj: PythonObject, expected_rows: Int, expected_cols: Int, np: PythonObject) raises -> PythonObject:
+fn _ensure_embedding_matrix(
+    embeddings_obj: PythonObject, expected_rows: Int, expected_cols: Int, np: PythonObject
+) raises -> PythonObject:
     var embeddings = np.asarray(embeddings_obj, dtype=np.float32)
     var builtins = Python.import_module("builtins")
     if Int(py=builtins.len(embeddings.shape)) != 2:
@@ -73,35 +77,44 @@ fn _tensor_from_meta(meta_obj: PythonObject) raises -> TensorInfo:
 
     return TensorInfo(ptr_int, s0, s1)
 
+
 fn _get_tensor(metadata_obj: PythonObject, name: String) raises -> TensorInfo:
     return _tensor_from_meta(metadata_obj.get(name))
+
 
 @always_inline
 fn _kv_cache_len(num_layers: Int, max_seq_len: Int, num_kv_heads: Int, head_dim: Int) -> Int:
     return num_layers * max_seq_len * num_kv_heads * head_dim
 
+
 @always_inline
 fn _rope_cache_len(max_seq_len: Int, head_dim: Int) -> Int:
     return max_seq_len * head_dim
+
 
 @always_inline
 fn _step_scratch_len(hidden_size: Int) -> Int:
     return hidden_size * 160
 
+
 @always_inline
 fn _embedding_scratch_len(hidden_size: Int) -> Int:
     return hidden_size * 180
 
+
 fn _allocate_session_f32(np: PythonObject, length: Int) raises -> PythonObject:
     return np.zeros(length, dtype=np.float32)
+
 
 fn _allocate_transient_f32(length: Int) -> List[Float32]:
     var values = List[Float32](length=length, fill=0.0)
     return values^
 
+
 fn _allocate_transient_i32(length: Int) -> List[Int32]:
     var values = List[Int32](length=length, fill=0)
     return values^
+
 
 fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
@@ -137,6 +150,7 @@ fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
 
     runtime["layers"] = layers
     return runtime
+
 
 fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
@@ -199,6 +213,7 @@ fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     runtime["layers"] = layers
     return runtime
 
+
 fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
     var m = ModelWeights()
 
@@ -227,6 +242,7 @@ fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
         m.layers.append(layer^)
 
     return m^
+
 
 fn _build_nano_model_from_runtime(runtime_obj: PythonObject) raises -> NanoModelWeights:
     var m = NanoModelWeights()
@@ -316,8 +332,8 @@ fn _build_nano_layer_from_runtime_entry(entry: PythonObject) raises -> NanoLayer
 
 
 fn _build_token_per_layer_inputs_runtime(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_layers, per_layer_dim]
-    base_stream_ptr: UnsafePointer[Float32, MutExternalOrigin], # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_layers, per_layer_dim]
+    base_stream_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     token_id: Int,
     per_layer_embed: TensorInfo,
     per_layer_projection: TensorInfo,
@@ -326,7 +342,7 @@ fn _build_token_per_layer_inputs_runtime(
     num_layers: Int,
     hidden_size: Int,
     per_layer_dim: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
     var proj_ptr = scratch_ptr
     var proj_norm_ptr = scratch_ptr + per_layer_dim
@@ -378,7 +394,7 @@ fn _forward_nano_token_hidden_runtime(
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
     kv_share_start: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var first_layer = runtime_layers[0]
     var num_modalities = _tensor_from_meta(first_layer[13]).shape_0
@@ -401,7 +417,7 @@ fn _forward_nano_token_hidden_runtime(
         altup_projections,
         hidden_size,
         num_modalities,
-        stream_init_scratch_ptr
+        stream_init_scratch_ptr,
     )
 
     _build_token_per_layer_inputs_runtime(
@@ -415,7 +431,7 @@ fn _forward_nano_token_hidden_runtime(
         num_layers,
         hidden_size,
         per_layer_dim,
-        layer_scratch_ptr
+        layer_scratch_ptr,
     )
 
     var last_full_kv_layer = kv_share_start - 1
@@ -464,19 +480,14 @@ fn _forward_nano_token_hidden_runtime(
             max_seq_len,
             num_modalities,
             write_kv,
-            layer_scratch_ptr
+            layer_scratch_ptr,
         )
 
         for i in range(num_modalities * hidden_size):
             current_streams_ptr.store(i, next_streams_ptr.load(i))
 
     _collapse_altup_streams(
-        out_hidden_ptr,
-        current_streams_ptr,
-        altup_unembeds,
-        hidden_size,
-        num_modalities,
-        collapse_scratch_ptr
+        out_hidden_ptr, current_streams_ptr, altup_unembeds, hidden_size, num_modalities, collapse_scratch_ptr
     )
     _rms_norm_nano_weighted(out_hidden_ptr, out_hidden_ptr, norm.ptr, hidden_size, 1e-6)
 
@@ -499,7 +510,7 @@ fn _forward_step_nano_runtime(
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
     kv_share_start: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var builtins = Python.import_module("builtins")
     var runtime_layers = runtime_obj["layers"]
@@ -545,7 +556,7 @@ fn _forward_step_nano_runtime(
         kv_cache_v_ptr,
         max_seq_len,
         kv_share_start,
-        token_scratch_ptr
+        token_scratch_ptr,
     )
     vec_mat_mul(out_logits_ptr, hidden_ptr, lm_head.ptr, hidden_size, vocab_size)
 
@@ -567,7 +578,7 @@ fn _forward_sequence_nano_runtime(
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
     kv_share_start: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var builtins = Python.import_module("builtins")
     var runtime_layers = runtime_obj["layers"]
@@ -618,7 +629,7 @@ fn _forward_sequence_nano_runtime(
             kv_cache_v_ptr,
             max_seq_len,
             kv_share_start,
-            token_scratch_ptr
+            token_scratch_ptr,
         )
         for i in range(hidden_size):
             emb_acc_ptr.store(i, emb_acc_ptr.load(i) + token_hidden_ptr.load(i))
@@ -662,7 +673,7 @@ fn _forward_step_standard_runtime(
     kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var builtins = Python.import_module("builtins")
     var layers = runtime_obj["layers"]
@@ -703,7 +714,7 @@ fn _forward_step_standard_runtime(
             layer_kv_k_ptr,
             layer_kv_v_ptr,
             max_seq_len,
-            layer_scratch
+            layer_scratch,
         )
 
         for i in range(hidden_size):
@@ -728,7 +739,7 @@ fn _forward_sequence_standard_runtime(
     kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var builtins = Python.import_module("builtins")
     var layers = runtime_obj["layers"]
@@ -773,7 +784,7 @@ fn _forward_sequence_standard_runtime(
                 layer_kv_k_ptr,
                 layer_kv_v_ptr,
                 max_seq_len,
-                layer_scratch
+                layer_scratch,
             )
 
             for i in range(hidden_size):
@@ -787,6 +798,7 @@ fn _forward_sequence_standard_runtime(
     for i in range(hidden_size):
         out_emb_ptr.store(i, emb_acc.load(i) * scale)
 
+
 @always_inline
 fn _tensor_is_effectively_zero(t: TensorInfo, eps: Float32 = 1e-8) -> Bool:
     if t.ptr == UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
@@ -797,6 +809,7 @@ fn _tensor_is_effectively_zero(t: TensorInfo, eps: Float32 = 1e-8) -> Bool:
         if v > eps or v < -eps:
             return False
     return True
+
 
 fn _detect_nano_kv_share_start(model_weights: NanoModelWeights) -> Int:
     var num_layers = len(model_weights.layers)
@@ -811,31 +824,29 @@ fn _detect_nano_kv_share_start(model_weights: NanoModelWeights) -> Int:
             return i
     return num_layers
 
-fn _init_model_impl_mojo(
-    metadata_obj: PythonObject,
-    device_backend: String
-) raises -> PythonObject:
+
+fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) raises -> PythonObject:
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
-    
+
     var py_dict = Python.dict()
     py_dict["engine"] = "Mojo Pure Inference Engine"
-    
+
     var arch = _detect_architecture(metadata_obj)
     py_dict["arch"] = arch
     var runtime_obj: PythonObject
-    
+
     var num_layers: Int
     var head_dim: Int
     var num_heads: Int
     var num_kv_heads: Int
     var hidden_size: Int
     var intermediate_size: Int
-    
+
     var per_layer_dim: Int = 0
     var vocab_size: Int
     var nano_model_build_count = 0
-    
+
     if arch == "nano":
         runtime_obj = _build_nano_runtime(metadata_obj)
         var model_weights = _build_nano_model_from_runtime(runtime_obj)
@@ -870,13 +881,13 @@ fn _init_model_impl_mojo(
         intermediate_size = model_weights.layers[0].gate_proj.shape_0
         vocab_size = model_weights.lm_head.shape_0
         py_dict["kv_share_start"] = num_layers
-    
-    var max_seq_len = 8192 # default max seq len
-    
+
+    var max_seq_len = 8192  # default max seq len
+
     var session_kv_cache_len = _kv_cache_len(num_layers, max_seq_len, num_kv_heads, head_dim)
     var k_cache: PythonObject
     var v_cache: PythonObject
-    
+
     if device_backend == "cuda":
         # Opaque dummy handle for GPU residency. We use Numpy internally for Phase 1-3 testing to avoid segfaults.
         var k_np = _allocate_session_f32(np, session_kv_cache_len)
@@ -892,19 +903,23 @@ fn _init_model_impl_mojo(
     var rope_cache_len = _rope_cache_len(max_seq_len, head_dim)
     var freqs_cos = _allocate_session_f32(np, rope_cache_len)
     var freqs_sin = _allocate_session_f32(np, rope_cache_len)
-    
-    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
-    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
-    
+
+    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0])
+    )
+    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0])
+    )
+
     var base: Float32 = 10000.0
     for t in range(max_seq_len):
         for d in range(head_dim // 2):
             var exp = Float32(d * 2) / Float32(head_dim)
-            var inv_freq = 1.0 / (base ** exp)
+            var inv_freq = 1.0 / (base**exp)
             var freq = Float32(t) * inv_freq
             freqs_cos_ptr.store(t * head_dim + d, cos(freq))
             freqs_sin_ptr.store(t * head_dim + d, sin(freq))
-            
+
     var step_scratch_len = _step_scratch_len(hidden_size)
     var step_scratch_obj = _allocate_session_f32(np, step_scratch_len)
 
@@ -931,10 +946,10 @@ fn _init_model_impl_mojo(
     py_dict["pos"] = 0
     return py_dict
 
-fn init_model_mojo(
-    metadata_obj: PythonObject
-) raises -> PythonObject:
+
+fn init_model_mojo(metadata_obj: PythonObject) raises -> PythonObject:
     return _init_model_impl_mojo(metadata_obj, "cpu")
+
 
 fn _apply_runtime_init_options(
     llm: PythonObject,
@@ -954,6 +969,7 @@ fn _apply_runtime_init_options(
     llm["device_availability_source"] = device_selection_obj.get("availability_source")
     llm["device_strict"] = device_selection_obj.get("strict")
 
+
 fn init_model_with_options_mojo(
     metadata_obj: PythonObject,
     architecture_overrides_obj: PythonObject,
@@ -964,6 +980,7 @@ fn init_model_with_options_mojo(
     _apply_runtime_init_options(llm, architecture_overrides_obj, device_selection_obj)
     return llm
 
+
 fn step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
@@ -973,16 +990,16 @@ fn step_mojo(
 ) raises -> PythonObject:
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
-    
+
     var pos = Int(py=llm["pos"])
     var max_seq_len = Int(py=llm["max_seq_len"])
     var arch = String(py=llm["arch"])
-    
+
     if pos >= max_seq_len:
         raise Error("Sequence length exceeded")
-        
+
     var token_id = Int(py=token_id_obj)
-    
+
     var runtime_obj = llm["runtime"]
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
@@ -991,7 +1008,7 @@ fn step_mojo(
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     var kv_share_start = Int(py=llm["kv_share_start"])
-    
+
     var step_backend = String(py=llm.get("step_backend", ""))
     if step_backend == "":
         var device_backend = String(py=llm.get("device_backend", "cpu"))
@@ -1011,33 +1028,47 @@ fn step_mojo(
     var v_cache = llm["v_cache"]
     var freqs_cos = llm["freqs_cos"]
     var freqs_sin = llm["freqs_sin"]
-    
-    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0]))
-    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0]))
-    
+
+    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0])
+    )
+    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0])
+    )
+
     var step_scratch_len = Int(py=llm["step_scratch_len"])
     var scratch_obj = llm["step_scratch"]
     var scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    
+
     var kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    
+
     if step_backend == "cuda":
         kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache))
         kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache))
         # scratch_obj is a numpy array for scaffolding
-        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0]))
+        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
+            unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0])
+        )
     else:
         # standard numpy cache
-        kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache.__array_interface__["data"][0]))
-        kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache.__array_interface__["data"][0]))
-        
+        kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](
+            unsafe_from_address=Int(py=k_cache.__array_interface__["data"][0])
+        )
+        kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](
+            unsafe_from_address=Int(py=v_cache.__array_interface__["data"][0])
+        )
+
         # for cpu, scratch_obj is a numpy array
-        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0]))
-        
+        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
+            unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0])
+        )
+
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
-    var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0]))
-    
+    var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0])
+    )
+
     if arch == "nano":
         var per_layer_dim = Int(py=llm["per_layer_dim"])
         if step_backend == "cuda":
@@ -1059,7 +1090,7 @@ fn step_mojo(
                 kv_cache_v_ptr,
                 max_seq_len,
                 kv_share_start,
-                scratch_ptr
+                scratch_ptr,
             )
         else:
             _forward_step_nano_runtime(
@@ -1080,7 +1111,7 @@ fn step_mojo(
                 kv_cache_v_ptr,
                 max_seq_len,
                 kv_share_start,
-                scratch_ptr
+                scratch_ptr,
             )
     else:
         # Since we use CPU polyfills for GPU tests during Phase 1-3, we can just call the standard runtime
@@ -1102,12 +1133,13 @@ fn step_mojo(
             kv_cache_k_ptr,
             kv_cache_v_ptr,
             max_seq_len,
-            scratch_ptr
+            scratch_ptr,
         )
-    
+
     llm["pos"] = pos + 1
-    
+
     return _ensure_step_logits(out_logits, np)
+
 
 fn generate_embeddings_mojo(
     llm: PythonObject,
@@ -1125,10 +1157,10 @@ fn generate_embeddings_mojo(
         var sl = Int(py=builtins.len(input_array[b]))
         if sl > max_seq_len:
             max_seq_len = sl
-            
+
     if max_seq_len == 0:
         raise Error("inputs must contain at least one token")
-    
+
     var runtime_obj = llm["runtime"]
     var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
@@ -1162,19 +1194,19 @@ fn generate_embeddings_mojo(
         for t in range(max_seq_len):
             for d in range(head_dim // 2):
                 var exp = Float32(d * 2) / Float32(head_dim)
-                var inv_freq = 1.0 / (base ** exp)
+                var inv_freq = 1.0 / (base**exp)
                 var freq = Float32(t) * inv_freq
                 freqs_cos_local[t * head_dim + d] = cos(freq)
                 freqs_sin_local[t * head_dim + d] = sin(freq)
         freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_cos_local.unsafe_ptr()))
         freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(freqs_sin_local.unsafe_ptr()))
-            
+
     # Allocations for intermediate state
     var embedding_kv_cache_len = _kv_cache_len(num_layers, max_seq_len, num_kv_heads, head_dim)
     var kv_cache_k = _allocate_transient_f32(embedding_kv_cache_len)
     var kv_cache_v = _allocate_transient_f32(embedding_kv_cache_len)
     var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
-    var scratch = _allocate_transient_f32(embedding_scratch_len) # generous scratch space
+    var scratch = _allocate_transient_f32(embedding_scratch_len)  # generous scratch space
     var emb_out = _allocate_transient_f32(batch_size * hidden_size)
     var input_ids = _allocate_transient_i32(max_seq_len)
 
@@ -1184,19 +1216,19 @@ fn generate_embeddings_mojo(
     var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
     var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(emb_out.unsafe_ptr()))
     var input_ids_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(input_ids.unsafe_ptr()))
-    
+
     # Process each sequence in the batch
     for b in range(batch_size):
         var seq_list = input_array[b]
         var seq_len = Int(py=builtins.len(seq_list))
-        
+
         # Extract input_ids for this batch
         for t in range(seq_len):
             var token_py = seq_list[t]
             input_ids[t] = Int32(Int(py=token_py))
-            
+
         var seq_out_ptr = emb_out_ptr + b * hidden_size
-        
+
         if arch == "nano":
             var per_layer_dim = Int(py=llm["per_layer_dim"])
 
@@ -1217,7 +1249,7 @@ fn generate_embeddings_mojo(
                 kv_cache_v_ptr,
                 max_seq_len,
                 kv_share_start,
-                scratch_ptr
+                scratch_ptr,
             )
         else:
             _forward_sequence_standard_runtime(
@@ -1235,9 +1267,9 @@ fn generate_embeddings_mojo(
                 kv_cache_k_ptr,
                 kv_cache_v_ptr,
                 max_seq_len,
-                scratch_ptr
+                scratch_ptr,
             )
-        
+
     # Return as numpy array
     var result_np = np.zeros(Python.tuple(batch_size, hidden_size), dtype=np.float32)
     # Copy from emb_out back to numpy
@@ -1245,7 +1277,7 @@ fn generate_embeddings_mojo(
         for i in range(hidden_size):
             var val = emb_out[b * hidden_size + i]
             result_np[b][i] = val
-            
+
     # We must ensure refs to Mojo lists are kept alive till here.
     if len(freqs_cos_local) > 0:
         _ = freqs_cos_local[0]
@@ -1256,8 +1288,9 @@ fn generate_embeddings_mojo(
     _ = scratch[0]
     _ = emb_out[0]
     _ = input_ids[0]
-    
+
     return _ensure_embedding_matrix(result_np, batch_size, hidden_size, np)
+
 
 fn _forward_nano_token_hidden_gpu_runtime(
     out_hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -1285,7 +1318,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
     kv_share_start: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var first_layer = runtime_layers[0]
     var num_modalities = _tensor_from_meta(first_layer[13]).shape_0
@@ -1308,7 +1341,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
         altup_projections,
         hidden_size,
         num_modalities,
-        stream_init_scratch_ptr
+        stream_init_scratch_ptr,
     )
 
     _build_token_per_layer_inputs_runtime(
@@ -1322,7 +1355,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
         num_layers,
         hidden_size,
         per_layer_dim,
-        layer_scratch_ptr
+        layer_scratch_ptr,
     )
 
     var last_full_kv_layer = kv_share_start - 1
@@ -1371,22 +1404,18 @@ fn _forward_nano_token_hidden_gpu_runtime(
             max_seq_len,
             num_modalities,
             write_kv,
-            layer_scratch_ptr
+            layer_scratch_ptr,
         )
 
         for i in range(num_modalities * hidden_size):
             current_streams_ptr.store(i, next_streams_ptr.load(i))
 
     _collapse_altup_streams(
-        out_hidden_ptr,
-        current_streams_ptr,
-        altup_unembeds,
-        hidden_size,
-        num_modalities,
-        collapse_scratch_ptr
+        out_hidden_ptr, current_streams_ptr, altup_unembeds, hidden_size, num_modalities, collapse_scratch_ptr
     )
     # Using CPU norm here for now, polyfill is fine
     _rms_norm_nano_weighted(out_hidden_ptr, out_hidden_ptr, norm.ptr, hidden_size, 1e-6)
+
 
 fn _forward_step_nano_gpu_runtime(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -1406,7 +1435,7 @@ fn _forward_step_nano_gpu_runtime(
     kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
     max_seq_len: Int,
     kv_share_start: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var builtins = Python.import_module("builtins")
     var runtime_layers = runtime_obj["layers"]
@@ -1452,11 +1481,13 @@ fn _forward_step_nano_gpu_runtime(
         kv_cache_v_ptr,
         max_seq_len,
         kv_share_start,
-        token_scratch_ptr
+        token_scratch_ptr,
     )
     # CPU polyfill for matmul
     from mogemma.ops_gpu import vec_mat_mul_gpu
+
     vec_mat_mul_gpu(out_logits_ptr, hidden_ptr, lm_head.ptr, hidden_size, vocab_size)
+
 
 @export
 fn PyInit__core() -> PythonObject:

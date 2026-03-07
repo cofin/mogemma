@@ -28,6 +28,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src/py
 
+      - name: Mojo format check
+        run: uv run mojo format --line-length 120 src/mo && git diff --exit-code
+
   mypy:
     runs-on: ubuntu-latest
     steps:
@@ -177,6 +180,9 @@ jobs:
 
       - name: Ruff format check
         run: uv run ruff format --check src/py
+
+      - name: Mojo format check
+        run: uv run mojo format --line-length 120 src/mo && git diff --exit-code
 
       - name: Run mypy
         run: uv run mypy
