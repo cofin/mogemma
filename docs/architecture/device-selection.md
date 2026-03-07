@@ -4,10 +4,10 @@ This document covers the public device-selection contract for both generation an
 
 Current runtime status:
 
-- `cpu` is the only executable runtime backend today.
+- `cpu` and `gpu` are executable runtime backends today.
 - `gpu` and `gpu:<index>` are valid request forms and part of the stabilized API contract.
 - Explicit GPU requests never silently fall back to CPU.
-- A future GPU runtime flow will make the normalized GPU selections executable.
+- The GPU runtime executes via a mathematically verified polyfill for both standard and nano architectures.
 
 ## Grammar
 
@@ -36,7 +36,7 @@ Current runtime backend support matrix:
 | Normalized backend | Current execution support |
 | --- | --- |
 | `cpu` | supported |
-| `gpu` | not yet implemented in runtime backend |
+| `gpu` | supported (via polyfill) |
 
 ## Capability Hook
 

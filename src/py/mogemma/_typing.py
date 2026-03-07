@@ -26,7 +26,9 @@ except ModuleNotFoundError:
     _SPProcessorImpl = None
 
 try:
-    from opentelemetry import trace as _trace  # type: ignore[import-not-found] # pyright: ignore[reportMissingImports]
+    from opentelemetry import (
+        trace as _trace,  # type: ignore[import-not-found,attr-defined] # pyright: ignore[reportMissingImports]
+    )
 except ModuleNotFoundError:
     trace = None
 else:

@@ -4,14 +4,13 @@ These tests define the quality and correctness gates for GPU nano parity.
 They are expected to fail initially as the GPU parity path is incomplete.
 """
 
-import json
-import struct
 import time
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 from safetensors.numpy import save_file
 
@@ -23,7 +22,7 @@ from .parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESH
 
 def _create_dummy_safetensors(model_dir: Path) -> None:
     model_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create minimal Nano tensors to avoid validation failures in Mojo engine
     hidden_size = 32
     head_dim = 16
@@ -35,9 +34,10 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
     intermediate_size = 64
     num_modalities = 4
     per_layer_dim = 16
-    
+
     rng = np.random.default_rng(42)
-    def make_tensor(shape):
+
+    def make_tensor(shape: tuple[int, ...]) -> npt.NDArray[np.float32]:
         return rng.normal(size=shape).astype(np.float32)
 
     tensors = {
@@ -48,11 +48,11 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
         "model.per_layer_embed.projection.weight": make_tensor((hidden_size, 1, per_layer_dim)),
         "model.per_layer_embed.norm.weight": make_tensor((per_layer_dim,)),
     }
-    
+
     for i in range(3):
         tensors[f"model.altup.projection.{i}.weight"] = make_tensor((hidden_size, hidden_size))
         tensors[f"model.altup.unembed.{i}.weight"] = make_tensor((hidden_size, hidden_size))
-        
+
     pfx = "model.layers.0"
     tensors.update({
         f"{pfx}.input_layernorm.weight": make_tensor((hidden_size,)),
@@ -80,7 +80,7 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
         f"{pfx}.per_layer_map.projection.weight": make_tensor((hidden_size, per_layer_dim)),
         f"{pfx}.per_layer_map.norm.weight": make_tensor((hidden_size,)),
     })
-    
+
     save_file(tensors, model_dir / "model.safetensors")
     (model_dir / "tokenizer.model").touch()
 
@@ -92,7 +92,7 @@ def mock_tokenizer() -> Iterator[MagicMock]:
         encoded_mock = MagicMock()
         encoded_mock.ids = [1, 2, 3]
         tokenizer.encode.return_value = encoded_mock
-        tokenizer.decode.side_effect = lambda tokens, **kwargs: str(tokens[0]) if tokens else ""
+        tokenizer.decode.side_effect = lambda tokens, **_kwargs: str(tokens[0]) if tokens else ""
         tokenizer.token_to_id.return_value = 999
         mock.return_value = tokenizer
         yield tokenizer
@@ -107,7 +107,9 @@ def nano_model_path(tmp_path: Path) -> Path:
 
 
 # 2.1 Failing test harness for CPU-vs-GPU deterministic token comparison
-def test_deterministic_token_parity(nano_model_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deterministic_token_parity(
+    nano_model_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """CPU and GPU must generate the exact same tokens under deterministic settings."""
     monkeypatch.setenv("MOGEMMA_GPU_AVAILABLE", "1")
     config_cpu = GenerationConfig(
@@ -139,7 +141,9 @@ def test_deterministic_token_parity(nano_model_path: Path, mock_tokenizer: Magic
 
 
 # 2.2 Failing quality-gate tests for instruction-formatted prompts and EOS behavior
-def test_quality_gate_instruction_prompts(nano_model_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quality_gate_instruction_prompts(
+    nano_model_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ensure instruction wrapping and EOS behaviors don't regress to gibberish."""
     monkeypatch.setenv("MOGEMMA_GPU_AVAILABLE", "1")
     config_gpu = GenerationConfig(
@@ -162,7 +166,9 @@ def test_quality_gate_instruction_prompts(nano_model_path: Path, mock_tokenizer:
 
 
 # 2.3 Failing performance gate scaffold with baseline capture and threshold checks
-def test_performance_gate_throughput(nano_model_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_performance_gate_throughput(
+    nano_model_path: Path, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GPU must meet throughput improvement thresholds compared to CPU baseline."""
     monkeypatch.setenv("MOGEMMA_GPU_AVAILABLE", "1")
     config_cpu = GenerationConfig(model_path=nano_model_path, device="cpu", max_tokens=10)

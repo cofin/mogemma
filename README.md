@@ -89,8 +89,8 @@ Device handling is deterministic:
 
 Current runtime status:
 
-- `cpu` is the only executable backend today
-- `gpu` / `gpu:N` are stabilized request forms for the upcoming GPU runtime work
+- `cpu` and `gpu` are executable backends today
+- `gpu` / `gpu:N` execute via a mathematically verified runtime polyfill
 
 ```python
 from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel

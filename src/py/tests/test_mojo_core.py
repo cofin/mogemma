@@ -1064,7 +1064,7 @@ def test_mojo_core_step_nano_cpu_gpu_parity() -> None:
 
     logits_cpu_1 = _core.step(llm_cpu, 1, 0.0, 0, 0.0)
     logits_gpu_1 = _core.step(llm_gpu, 1, 0.0, 0, 0.0)
-    
+
     # Deterministic parity checkpoint to prevent Nano math regressions
     expected_logits = np.full(_EXPECTED_VOCAB_SIZE, 0.03999991, dtype=np.float32)
     np.testing.assert_allclose(logits_cpu_1, expected_logits, atol=1e-6)

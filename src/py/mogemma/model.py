@@ -169,7 +169,6 @@ def _initialize_llm(
         raise RuntimeError(_core_unavailable_message(model_type))
 
     metadata = loader.get_tensor_metadata()
-    variant = _detect_model_variant(metadata)
 
     normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
     descriptor = device_selection.as_runtime_descriptor()
