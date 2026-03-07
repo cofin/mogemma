@@ -5,7 +5,7 @@ import numpy.typing as npt
 import pytest
 
 from mogemma.backends import (
-    CPUCoreBackend,
+    CoreBackend,
     parse_device_spec,
     resolve_backend_id,
     resolve_device_selection,
@@ -64,7 +64,7 @@ def test_resolve_generation_backend_uses_cpu_core_adapter() -> None:
 
     backend = resolve_generation_backend(device="cpu", core_module=core)
 
-    assert isinstance(backend, CPUCoreBackend)
+    assert isinstance(backend, CoreBackend)
     llm = backend.init_model({"weight": (1, (2, 3), "f32")})
     logits = backend.step(llm, 7, 0.0, 1, 1.0)
 
@@ -78,7 +78,7 @@ def test_resolve_embedding_backend_uses_cpu_core_adapter() -> None:
 
     backend = resolve_embedding_backend(device="cpu", core_module=core)
 
-    assert isinstance(backend, CPUCoreBackend)
+    assert isinstance(backend, CoreBackend)
     llm = backend.init_model({"weight": (1, (2, 3), "f32")})
     embeddings = backend.generate_embeddings(llm, [[1, 2, 3]])
 

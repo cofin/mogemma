@@ -170,9 +170,6 @@ def _initialize_llm(
 
     metadata = loader.get_tensor_metadata()
     variant = _detect_model_variant(metadata)
-    if variant is ModelVariant.NANO:
-        msg = "Unsupported model architecture 'gemma3n'. This runtime currently supports only standard Gemma 3."
-        raise ValueError(msg)
 
     normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
     descriptor = device_selection.as_runtime_descriptor()

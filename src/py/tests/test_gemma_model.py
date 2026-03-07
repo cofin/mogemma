@@ -688,33 +688,6 @@ def test_generation_model_prefers_init_model_with_options_when_available(
     assert model._llm["device_selection"] == core.seen_device_selection
 
 
-def test_generation_model_rejects_nano_metadata_variant(
-    dummy_model_path: str, mock_tokenizer: MagicMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class CoreStub:
-        def init_model(self, _: object) -> object:
-            return object()
-
-        def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.NDArray[np.float32]:
-            del llm, token_id, temp, top_k, top_p
-            return np.array([5.0, 0.0, 0.0], dtype=np.float32)
-
-    class LoaderStub:
-        def __init__(self, model_path: Path) -> None:
-            self.model_path = model_path
-
-        def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
-            return {"model.layers.0.per_layer_map.gate.weight": (1, (32, 32), "float32")}
-
-    resolved_path = Path(dummy_model_path)
-    monkeypatch.setattr(model_module, "_core", CoreStub())
-    monkeypatch.setattr(model_module, "_resolve_model_path", lambda _: resolved_path)
-    monkeypatch.setattr(model_module, "auto_loader", lambda _: LoaderStub(resolved_path))
-
-    with pytest.raises(ValueError, match="Unsupported model architecture 'gemma3n'"):
-        SyncGemmaModel(GenerationConfig(model_path=resolved_path))
-
-
 def test_generation_backend_parity_reporting(
     dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub
 ) -> None:

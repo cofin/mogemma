@@ -103,14 +103,13 @@ class EmbeddingBackend(Protocol):
         ...
 
 
-class CPUCoreBackend:
-    """Wrapper mapping to the standard generic CPU backend implementation."""
+class CoreBackend:
+    """Wrapper mapping to the standard generic core backend implementation."""
 
-    backend_id = _CPU_BACKEND_ID
-
-    def __init__(self, core_module: CoreModuleContract) -> None:
-        """Initialize the CPU core backend wrapper."""
+    def __init__(self, core_module: CoreModuleContract, backend_id: str = _CPU_BACKEND_ID) -> None:
+        """Initialize the core backend wrapper."""
         self._core = core_module
+        self.backend_id = backend_id
 
     def init_model(self, metadata: TensorMetadata) -> object:
         """Initialize the model context inside the core backend."""
@@ -206,21 +205,15 @@ def resolve_device_selection(device: str, *, gpu_available: bool | None = None) 
 def resolve_generation_backend(*, device: str, core_module: object) -> GenerationBackend:
     """Resolve the active generation backend implementation."""
     backend_id = resolve_backend_id(device)
-    if backend_id != _CPU_BACKEND_ID:
-        msg = f"Unsupported backend '{device}' (resolved as '{backend_id}'). Currently available runtime backend: cpu"
-        raise ValueError(msg)
     _validate_core_module(core_module, required=("init_model", "step"))
-    return CPUCoreBackend(cast("CoreModuleContract", core_module))
+    return CoreBackend(cast("CoreModuleContract", core_module), backend_id)
 
 
 def resolve_embedding_backend(*, device: str, core_module: object) -> EmbeddingBackend:
     """Resolve the active embedding backend implementation."""
     backend_id = resolve_backend_id(device)
-    if backend_id != _CPU_BACKEND_ID:
-        msg = f"Unsupported backend '{device}' (resolved as '{backend_id}'). Currently available runtime backend: cpu"
-        raise ValueError(msg)
     _validate_core_module(core_module, required=("init_model", "generate_embeddings"))
-    return CPUCoreBackend(cast("CoreModuleContract", core_module))
+    return CoreBackend(cast("CoreModuleContract", core_module), backend_id)
 
 
 def _validate_core_module(core_module: object, *, required: tuple[str, ...]) -> None:
