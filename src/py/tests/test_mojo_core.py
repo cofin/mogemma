@@ -1017,7 +1017,6 @@ def test_mojo_core_step_nano_cpu_gpu_parity() -> None:
             (_EXPECTED_HIDDEN_SIZE, _EXPECTED_PER_LAYER_DIM_SMALL), dtype=np.float32
         )
         tensors[f"{pfx}.per_layer_map.norm.weight"] = np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
-
         tensors[f"{pfx}.input_layernorm.weight"] = np.zeros((_EXPECTED_HIDDEN_SIZE,), dtype=np.float32)
         tensors[f"{pfx}.self_attn.q_proj.weight"] = np.zeros((8, _EXPECTED_HIDDEN_SIZE), dtype=np.float32)
         tensors[f"{pfx}.self_attn.k_proj.weight"] = np.zeros(
@@ -1065,6 +1064,10 @@ def test_mojo_core_step_nano_cpu_gpu_parity() -> None:
 
     logits_cpu_1 = _core.step(llm_cpu, 1, 0.0, 0, 0.0)
     logits_gpu_1 = _core.step(llm_gpu, 1, 0.0, 0, 0.0)
+    
+    # Deterministic parity checkpoint to prevent Nano math regressions
+    expected_logits = np.full(_EXPECTED_VOCAB_SIZE, 0.03999991, dtype=np.float32)
+    np.testing.assert_allclose(logits_cpu_1, expected_logits, atol=1e-6)
 
     np.testing.assert_allclose(logits_cpu_1, logits_gpu_1, atol=1e-6, rtol=1e-5)
 

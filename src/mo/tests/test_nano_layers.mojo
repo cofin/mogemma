@@ -2,7 +2,7 @@ from testing import assert_true, assert_almost_equal
 from memory import UnsafePointer
 from collections import List
 
-from mogemma.model import LaurelWeights, PerLayerMapWeights, AltUpWeights, TensorInfo, NanoLayerWeights
+from mogemma.model import LaurelWeights, PerLayerMapWeights, AltUpWeights, TensorInfo, NanoLayerWeights, LayerWeights
 from mogemma.layers import (
     forward_laurel,
     forward_per_layer_mapping,
@@ -14,6 +14,8 @@ from mogemma.layers import (
     forward_altup_predict_gpu,
     forward_altup_correct_gpu,
     forward_nano_layer_gpu,
+    forward_mlp_nano,
+    forward_mlp_nano_gpu,
 )
 
 
@@ -265,6 +267,8 @@ fn test_forward_nano_layer() raises:
             non_zero = True
             break
     assert_true(non_zero, "forward_nano_layer output should be non-zero")
+    print("CPU layer out_streams[0]:", out_streams[0])
+    print("CPU layer out_streams[hidden_size]:", out_streams[hidden_size])
 
     _ = out_streams[0]
     _ = scratch[0]
@@ -447,9 +451,6 @@ fn test_forward_nano_layer_gpu() raises:
     var gate_proj = alloc_ones(intermediate_size * hidden_size)
     var up_proj = alloc_ones(intermediate_size * hidden_size)
     var down_proj = alloc_ones(hidden_size * intermediate_size)
-    var v_norm = alloc_ones(head_dim)
-    var q_norm = alloc_ones(head_dim)
-    var k_norm = alloc_ones(head_dim)
 
     base_layer_weights.input_layernorm = TensorInfo(Int(input_layernorm.unsafe_ptr()), hidden_size, 1)
     base_layer_weights.post_attention_layernorm = TensorInfo(Int(post_attention_layernorm.unsafe_ptr()), hidden_size, 1)
@@ -460,11 +461,8 @@ fn test_forward_nano_layer_gpu() raises:
     base_layer_weights.gate_proj = TensorInfo(Int(gate_proj.unsafe_ptr()), intermediate_size, hidden_size)
     base_layer_weights.up_proj = TensorInfo(Int(up_proj.unsafe_ptr()), intermediate_size, hidden_size)
     base_layer_weights.down_proj = TensorInfo(Int(down_proj.unsafe_ptr()), hidden_size, intermediate_size)
-    base_layer_weights.v_norm = TensorInfo(Int(v_norm.unsafe_ptr()), head_dim, 0)
-    base_layer_weights.q_norm = TensorInfo(Int(q_norm.unsafe_ptr()), head_dim, 0)
-    base_layer_weights.k_norm = TensorInfo(Int(k_norm.unsafe_ptr()), head_dim, 0)
 
-    weights.base = base_layer_weights
+    weights.base = base_layer_weights^
 
     var pl_weights = PerLayerMapWeights()
     var pl_gate = alloc_ones(per_layer_dim * hidden_size)
@@ -473,7 +471,7 @@ fn test_forward_nano_layer_gpu() raises:
     pl_weights.gate = TensorInfo(Int(pl_gate.unsafe_ptr()), per_layer_dim, hidden_size)
     pl_weights.projection = TensorInfo(Int(pl_projection.unsafe_ptr()), hidden_size, per_layer_dim)
     pl_weights.norm = TensorInfo(Int(pl_norm.unsafe_ptr()), hidden_size, 1)
-    weights.per_layer_map = pl_weights
+    weights.per_layer_map = pl_weights^
 
     var num_modalities = 1
     var out_streams = alloc_zeros(num_modalities * hidden_size)
@@ -495,9 +493,9 @@ fn test_forward_nano_layer_gpu() raises:
     forward_nano_layer_gpu(
         get_ptr(out_streams),
         get_ptr(x),
-        get_ptr(per_layer_input),
         weights,
         pos,
+        get_ptr(per_layer_input),
         layer_idx,
         hidden_size,
         num_heads,
@@ -510,6 +508,7 @@ fn test_forward_nano_layer_gpu() raises:
         get_ptr(kv_cache_k),
         get_ptr(kv_cache_v),
         max_seq_len,
+        num_modalities,
         True,
         get_ptr(scratch),
     )
@@ -520,6 +519,8 @@ fn test_forward_nano_layer_gpu() raises:
             non_zero = True
             break
     assert_true(non_zero, "forward_nano_layer_gpu output should be non-zero")
+    print("GPU layer out_streams[0]:", out_streams[0])
+    print("GPU layer out_streams[hidden_size]:", out_streams[hidden_size])
 
     _ = out_streams[0]
     _ = scratch[0]
