@@ -12,7 +12,7 @@ fn geglu[
     size: Int,
 ):
     """Applies the GEGLU activation function element-wise.
-    
+
     Reads from the gate and up tensors, computes the GELU of the gate, multiplies it by the up value, and writes the result to the output tensor.
     """
     var i = 0
@@ -45,7 +45,7 @@ fn rope_rotate[
     head_dim: Int,
 ):
     """Applies Rotary Positional Embedding (RoPE) to an attention head vector in place.
-    
+
     Rotates the input vector's values using the provided cosine and sine frequency tensors.
     """
     # Applies RoPE to a vector of length `head_dim`
@@ -87,7 +87,7 @@ fn vec_mat_mul[
     out_dim: Int,
 ):
     """Performs a vector-matrix multiplication.
-    
+
     Multiplies the input vector by a transposed weight matrix and writes the resulting vector to the output tensor.
     """
     for o in range(out_dim):
@@ -121,7 +121,7 @@ fn rms_norm[
     eps: Float32 = 1e-6,
 ):
     """Applies Root Mean Square (RMS) Normalization.
-    
+
     Normalizes the input vector and scales it using the provided weight tensor, storing the result in the output tensor.
     """
     var sum_sq: Float32 = 0.0
@@ -159,7 +159,7 @@ fn rms_norm[
 @always_inline
 fn softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int):
     """Applies the softmax operation to a vector in place.
-    
+
     Transforms the input values into a normalized probability distribution.
     """
     # Find max

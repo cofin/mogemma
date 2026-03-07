@@ -10,7 +10,7 @@ fn geglu_gpu(
     size: Int,
 ):
     """Applies the GEGLU activation function element-wise on the GPU.
-    
+
     Reads from the gate and up tensors, processes the activation, and writes the result to the output tensor.
     """
     # Polyfill with CPU implementation until PTX/Max GPU integration
@@ -25,7 +25,7 @@ fn rope_rotate_gpu(
     head_dim: Int,
 ):
     """Applies Rotary Positional Embedding (RoPE) to an attention head vector in place on the GPU.
-    
+
     Rotates the input vector using the provided cosine and sine frequency tensors.
     """
     # Polyfill
@@ -41,7 +41,7 @@ fn vec_mat_mul_gpu(
     out_dim: Int,
 ):
     """Performs a vector-matrix multiplication on the GPU.
-    
+
     Multiplies the input vector by the weight matrix and writes the result to the output tensor.
     """
     # Polyfill
@@ -57,7 +57,7 @@ fn rms_norm_gpu(
     eps: Float32 = 1e-6,
 ):
     """Applies Root Mean Square (RMS) Normalization on the GPU.
-    
+
     Normalizes the input vector and applies scaling weights, writing to the output tensor.
     """
     # Polyfill
@@ -67,7 +67,7 @@ fn rms_norm_gpu(
 @always_inline
 fn softmax_gpu(vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int):
     """Applies the softmax operation to a vector in place on the GPU.
-    
+
     Transforms the input values into a probability distribution.
     """
     # Polyfill

@@ -32,7 +32,7 @@ fn forward_attention(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temporary memory
 ):
     """Computes Multi-Head/Grouped-Query Attention for a single token at the given position.
-    
+
     This function projects the input hidden state into Query, Key, and Value tensors, applies RoPE to Q and K, updates the KV cache, computes attention scores across all heads, applies softmax, computes the weighted sum of Values, and projects the result back to the hidden size.
     """
     # 1. Project Q, K, V
@@ -113,7 +113,7 @@ fn forward_mlp(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
     """Computes the feed-forward network (MLP) block for a standard transformer layer.
-    
+
     Projects the input hidden state to an intermediate size through gate and up projections, applies the GEGLU activation function, and then down-projects back to the hidden size.
     """
     var gate_ptr = scratch_ptr
@@ -130,10 +130,14 @@ fn forward_mlp(
 
 @always_inline
 fn _apply_nano_activation_sparsity(
-    gate_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    gate_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
     size: Int,
     sparsity: Float32,
 ):
+    """Applies activation sparsity to the Nano MLP gate projection.
+
+    Zeroes out gate values that fall below a dynamically computed sparsity threshold based on the tensor's mean and standard deviation.
+    """
     if sparsity <= 0.0:
         return
 
@@ -160,14 +164,18 @@ fn _apply_nano_activation_sparsity(
 
 @always_inline
 fn forward_mlp_nano(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     hidden_size: Int,
     intermediate_size: Int,
     layer_idx: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the feed-forward network (MLP) for a Nano layer.
+
+    Similar to the standard MLP but conditionally applies activation sparsity to the gate projection before the GEGLU activation.
+    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -202,7 +210,7 @@ fn forward_layer(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
     """Executes a single standard transformer layer (Attention + MLP) with residual connections and layer normalization.
-    
+
     Applies RMSNorm before Attention, adds the Attention output to the residual stream, applies RMSNorm again before the MLP block, and finally adds the MLP output to the residual stream.
     """
     var norm_x_ptr = scratch_ptr
@@ -269,7 +277,7 @@ fn forward_step(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
     """Executes a single autoregressive generation step for the standard Gemma model.
-    
+
     Takes a single token ID, embeds it, passes it through all transformer layers while updating the KV cache, applies the final layer normalization, and projects the final hidden state to logits over the vocabulary.
     """
     var num_layers = len(model.layers)
@@ -340,7 +348,7 @@ fn forward_sequence(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
     """Processes a full sequence of tokens to produce a mean-pooled embedding.
-    
+
     Passes each token through the model iteratively, updating the KV cache at each step, and aggregates the final normalized hidden states to produce a single sequence-level embedding vector.
     """
     var num_layers = len(model.layers)
@@ -459,7 +467,7 @@ fn forward_attention_nano(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
     """Computes Multi-Head/Grouped-Query Attention tailored for the Gemma Nano architecture.
-    
+
     Includes specific logic for conditional KV cache writing (for KV sharing), uses weighted RMSNorm for Query/Key and unit RMSNorm for Value, and adjusts attention scaling according to Nano requirements.
     """
     var q_size = num_heads * head_dim
@@ -524,13 +532,17 @@ fn forward_attention_nano(
 @always_inline
 fn forward_per_layer_mapping(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size] delta to add to non-active streams
-    active_ptr: UnsafePointer[Float32, MutExternalOrigin],  # active corrected prediction
+    active_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size] active corrected prediction
     per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [per_layer_dim]
     weights: PerLayerMapWeights,
     hidden_size: Int,
     per_layer_dim: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Applies the per-layer mapping delta for the Nano AltUp architecture.
+
+    Projects the active prediction to the per-layer dimension, applies a GEGLU activation modulated by the per-layer input, and projects back to the hidden size to produce the delta for non-active streams.
+    """
     var gate_out_ptr = scratch_ptr
     var proj_out_ptr = scratch_ptr + per_layer_dim
 
@@ -549,13 +561,17 @@ fn forward_per_layer_mapping(
 
 @always_inline
 fn forward_laurel(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LaurelWeights,
     hidden_size: Int,
     bottleneck_dim: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the Laurel projection step for the Nano architecture.
+
+    Applies a down-projection and up-projection through a bottleneck dimension, normalizes the result, and adds it to the residual stream.
+    """
     var down_ptr = scratch_ptr
     var up_ptr = scratch_ptr + bottleneck_dim
     var norm_up_ptr = up_ptr + hidden_size
@@ -575,8 +591,12 @@ fn _compute_router_modalities(
     weights: AltUpWeights,
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the router modality probabilities for the AltUp mechanism.
+
+    Normalizes the active stream and projects it through the router weights to determine the weighting of each modality.
+    """
     var router_in_ptr = scratch_ptr
     _rms_norm_nano_weighted(router_in_ptr, active_ptr, weights.router_norm.ptr, hidden_size, 1e-6)
 
@@ -596,8 +616,12 @@ fn forward_altup_predict(
     weights: AltUpWeights,
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the AltUp prediction phase.
+
+    Computes router modalities based on the active stream and mixes all input streams according to the prediction coefficients to generate predicted streams.
+    """
     var modalities_ptr = scratch_ptr  # [num_modalities]
     var coef_ptr = modalities_ptr + num_modalities  # [num_modalities, num_modalities]
     var router_scratch_ptr = coef_ptr + num_modalities * num_modalities
@@ -628,12 +652,16 @@ fn forward_altup_predict(
 fn forward_altup_correct(
     out_corrected_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
     predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
-    activated_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    activated_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size] active stream
     weights: AltUpWeights,
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the AltUp correction phase.
+
+    Calculates the innovation (difference between the activated stream and its prediction) and applies it across all modalities using the correction coefficients.
+    """
     var modalities_ptr = scratch_ptr  # [num_modalities]
     var corr_ptr = modalities_ptr + num_modalities  # [num_modalities]
     var router_scratch_ptr = corr_ptr + num_modalities
@@ -673,8 +701,12 @@ fn _prepare_altup_streams(
     altup_projections: List[TensorInfo],
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Initializes the multi-modality streams from the base embedding for the Nano architecture.
+
+    The first stream is the base embedding. Subsequent streams are created via projections and scaled to match the magnitude of the base stream.
+    """
     # stream 0 = base stream
     for d in range(hidden_size):
         out_streams_ptr.store(d, base_ptr.load(d))
@@ -703,8 +735,12 @@ fn _build_token_per_layer_inputs(
     num_layers: Int,
     hidden_size: Int,
     per_layer_dim: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Constructs the per-layer input embeddings for a token in the Nano architecture.
+
+    Projects the base stream, normalizes it, and adds the token-specific per-layer embedding for every layer.
+    """
     var proj_ptr = scratch_ptr
     var proj_norm_ptr = scratch_ptr + per_layer_dim
 
@@ -740,8 +776,12 @@ fn _collapse_altup_streams(
     altup_unembeds: List[TensorInfo],
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Collapses the multi-modality streams back into a single hidden state representation.
+
+    Applies unembed projections to the non-active streams, matches their magnitudes, and computes the mean across all streams.
+    """
     var tmp_ptr = scratch_ptr
     var acc_ptr = scratch_ptr + hidden_size
 
@@ -789,7 +829,7 @@ fn forward_nano_layer(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
     """Executes a single Gemma Nano layer, coordinating the AltUp, Laurel, Attention, and MLP components.
-    
+
     Performs AltUp prediction across modalities, runs the Laurel down/up projection on the active stream, computes Nano-specific attention and MLP (with potential activation sparsity), applies AltUp correction, and finally calculates the per-layer mapping delta to update the non-active modality streams.
     """
     var predictions_ptr = scratch_ptr  # 0..4h
@@ -895,15 +935,19 @@ fn _forward_nano_token_hidden(
     head_dim: Int,
     intermediate_size: Int,
     per_layer_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_layers, max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_layers, max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     num_modalities: Int,
     kv_share_start: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the full forward pass for a single token through all Nano layers to produce the final hidden state.
+
+    Handles stream preparation, KV sharing logic across layers, passes the multi-stream state through each layer, and finally collapses the streams.
+    """
     var num_layers = len(model.layers)
     var current_streams_ptr = scratch_ptr
     var next_streams_ptr = current_streams_ptr + num_modalities * hidden_size
@@ -1017,6 +1061,10 @@ fn forward_nano_step(
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes a single autoregressive generation step for the Gemma Nano model.
+
+    Produces the final token hidden state and projects it to logits over the vocabulary.
+    """
     var num_modalities = model.layers[0].altup.router.shape_0
     var hidden_ptr = scratch_ptr
     var token_scratch_ptr = scratch_ptr + hidden_size
@@ -1065,6 +1113,10 @@ fn forward_nano_sequence(
     kv_share_start: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Processes a sequence of tokens through the Nano model to produce a mean-pooled embedding.
+
+    Passes each token through the model and aggregates the final hidden states into a single vector.
+    """
     var emb_acc = scratch_ptr
     var token_hidden_ptr = scratch_ptr + hidden_size
     var token_scratch_ptr = scratch_ptr + hidden_size * 2
@@ -1107,21 +1159,25 @@ fn forward_nano_sequence(
 
 @always_inline
 fn forward_attention_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     pos: Int,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
     head_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes Multi-Head/Grouped-Query Attention for the standard model on the GPU.
+
+    See `forward_attention` for functional details.
+    """
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -1183,13 +1239,17 @@ fn forward_attention_gpu(
 
 @always_inline
 fn forward_mlp_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     hidden_size: Int,
     intermediate_size: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the feed-forward network (MLP) for the standard model on the GPU.
+
+    See `forward_mlp` for functional details.
+    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -1204,8 +1264,8 @@ fn forward_mlp_gpu(
 
 @always_inline
 fn forward_layer_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     pos: Int,
     hidden_size: Int,
@@ -1213,13 +1273,17 @@ fn forward_layer_gpu(
     num_kv_heads: Int,
     head_dim: Int,
     intermediate_size: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes a single standard transformer layer on the GPU.
+
+    See `forward_layer` for functional details.
+    """
     var norm_x_ptr = scratch_ptr
     var attn_out_ptr = scratch_ptr + hidden_size
     var attn_scratch_ptr = scratch_ptr + hidden_size * 2
@@ -1266,13 +1330,17 @@ fn forward_layer_gpu(
 
 @always_inline
 fn forward_laurel_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LaurelWeights,
     hidden_size: Int,
     bottleneck_dim: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the Laurel projection step for the Nano architecture on the GPU.
+
+    See `forward_laurel` for functional details.
+    """
     var down_ptr = scratch_ptr
     var up_ptr = scratch_ptr + bottleneck_dim
     var norm_up_ptr = up_ptr + hidden_size
@@ -1286,12 +1354,16 @@ fn forward_laurel_gpu(
 
 @always_inline
 fn _rms_norm_nano_weighted_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    weight_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
+    weight_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
     size: Int,
     eps: Float32 = 1e-6,
 ):
+    """Applies weighted RMSNorm on the GPU.
+
+    Normalizes the input vector and scales it by the weight vector.
+    """
     var sum_sq: Float32 = 0.0
     for i in range(size):
         var v = x_ptr.load(i)
@@ -1303,11 +1375,15 @@ fn _rms_norm_nano_weighted_gpu(
 
 @always_inline
 fn _rms_norm_nano_unit_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
     size: Int,
     eps: Float32 = 1e-6,
 ):
+    """Applies unit (unweighted) RMSNorm on the GPU.
+
+    Normalizes the input vector without scaling weights.
+    """
     var sum_sq: Float32 = 0.0
     for i in range(size):
         var v = x_ptr.load(i)
@@ -1319,22 +1395,26 @@ fn _rms_norm_nano_unit_gpu(
 
 @always_inline
 fn forward_attention_nano_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: NanoLayerWeights,
     pos: Int,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
     head_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     write_kv: Bool,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes Multi-Head/Grouped-Query Attention for the Nano model on the GPU.
+
+    See `forward_attention_nano` for functional details.
+    """
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -1396,14 +1476,18 @@ fn forward_attention_nano_gpu(
 
 @always_inline
 fn forward_per_layer_mapping_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    active_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    active_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [per_layer_dim]
     weights: PerLayerMapWeights,
     hidden_size: Int,
     per_layer_dim: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Applies the per-layer mapping delta for the Nano AltUp architecture on the GPU.
+
+    See `forward_per_layer_mapping` for functional details.
+    """
     var gate_out_ptr = scratch_ptr
     var proj_out_ptr = scratch_ptr + per_layer_dim
 
@@ -1420,13 +1504,17 @@ fn forward_per_layer_mapping_gpu(
 
 @always_inline
 fn _compute_router_modalities_gpu(
-    out_modalities_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    active_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_modalities_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities]
+    active_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: AltUpWeights,
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the router modality probabilities for the AltUp mechanism on the GPU.
+
+    See `_compute_router_modalities` for functional details.
+    """
     var router_in_ptr = scratch_ptr
     _rms_norm_nano_weighted_gpu(router_in_ptr, active_ptr, weights.router_norm.ptr, hidden_size, 1e-6)
 
@@ -1441,13 +1529,17 @@ fn _compute_router_modalities_gpu(
 
 @always_inline
 fn forward_altup_predict_gpu(
-    out_predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    streams_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
+    streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
     weights: AltUpWeights,
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the AltUp prediction phase on the GPU.
+
+    See `forward_altup_predict` for functional details.
+    """
     var modalities_ptr = scratch_ptr
     var coef_ptr = modalities_ptr + num_modalities
     var router_scratch_ptr = coef_ptr + num_modalities * num_modalities
@@ -1475,14 +1567,18 @@ fn forward_altup_predict_gpu(
 
 @always_inline
 fn forward_altup_correct_gpu(
-    out_corrected_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    activated_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_corrected_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
+    predictions_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
+    activated_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size] active stream
     weights: AltUpWeights,
     hidden_size: Int,
     num_modalities: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the AltUp correction phase on the GPU.
+
+    See `forward_altup_correct` for functional details.
+    """
     var modalities_ptr = scratch_ptr
     var corr_ptr = modalities_ptr + num_modalities
     var router_scratch_ptr = corr_ptr + num_modalities
@@ -1506,10 +1602,14 @@ fn forward_altup_correct_gpu(
 
 @always_inline
 fn _apply_nano_activation_sparsity_gpu(
-    gate_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    gate_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [size]
     size: Int,
     sparsity: Float32,
 ):
+    """Applies activation sparsity to the Nano MLP gate projection on the GPU.
+
+    See `_apply_nano_activation_sparsity` for functional details.
+    """
     if sparsity <= 0.0:
         return
 
@@ -1535,14 +1635,18 @@ fn _apply_nano_activation_sparsity_gpu(
 
 @always_inline
 fn forward_mlp_nano_gpu(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     hidden_size: Int,
     intermediate_size: Int,
     layer_idx: Int,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the feed-forward network (MLP) for a Nano layer on the GPU.
+
+    See `forward_mlp_nano` for functional details.
+    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -1559,11 +1663,11 @@ fn forward_mlp_nano_gpu(
 
 @always_inline
 fn forward_nano_layer_gpu(
-    out_streams_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    in_streams_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
+    in_streams_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_modalities, hidden_size]
     weights: NanoLayerWeights,
     layer_idx: Int,
-    per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    per_layer_input_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [per_layer_dim]
     pos: Int,
     hidden_size: Int,
     num_heads: Int,
@@ -1571,15 +1675,19 @@ fn forward_nano_layer_gpu(
     head_dim: Int,
     intermediate_size: Int,
     per_layer_dim: Int,
-    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     num_modalities: Int,
     write_kv: Bool,
-    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes a single Gemma Nano layer on the GPU.
+
+    See `forward_nano_layer` for functional details.
+    """
     var predictions_ptr = scratch_ptr  # 0..4h
     var corrected_ptr = predictions_ptr + num_modalities * hidden_size  # 4h..8h
     var active_ptr = corrected_ptr + num_modalities * hidden_size  # 8h

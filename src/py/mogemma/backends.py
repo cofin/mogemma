@@ -66,6 +66,10 @@ class CoreModuleContract(Protocol):
         """Initialize a backend model session from tensor metadata."""
         ...
 
+    def free_model(self, llm: object) -> None:
+        """Free memory allocated by the backend."""
+        ...
+
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Run one token step and return logits."""
         ...
@@ -84,6 +88,10 @@ class GenerationBackend(Protocol):
         """Initialize backend runtime state from tensor metadata."""
         ...
 
+    def free_model(self, llm: object) -> None:
+        """Free memory allocated by the backend."""
+        ...
+
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Run one autoregressive step and return logits."""
         ...
@@ -96,6 +104,10 @@ class EmbeddingBackend(Protocol):
 
     def init_model(self, metadata: TensorMetadata) -> object:
         """Initialize backend runtime state from tensor metadata."""
+        ...
+
+    def free_model(self, llm: object) -> None:
+        """Free memory allocated by the backend."""
         ...
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
