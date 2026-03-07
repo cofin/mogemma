@@ -159,6 +159,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--corpus", choices=["short", "medium", "long"], default="short")
+    parser.add_argument("--batch-size", type=int, default=2, help="Number of inputs to pass to the embedding model")
     parser.add_argument("--real-model-path", type=str, default=None)
     parser.add_argument("--backend", choices=["cpu", "gpu"], default="cpu")
     parser.add_argument("--device", type=str, default="cpu")
@@ -186,8 +187,9 @@ def _run_benchmark() -> dict[str, object]:
         metrics = _run_generation(config, prompt, rounds=args.rounds, warmup=args.warmup)
     else:
         config = EmbeddingConfig(model_path=model_root, device=args.device)
+        texts = [f"Benchmark embedding input {i}" for i in range(args.batch_size)]
         metrics = _run_embedding(
-            config, texts=["Benchmark embedding input one", "Benchmark embedding input two"], rounds=args.rounds
+            config, texts=texts, rounds=args.rounds
         )
 
     payload = {

@@ -116,3 +116,19 @@ Use this template when assembling release evidence:
 - Generation regression gate: `12%` throughput drop.
 - Embedding regression gate: `15%` throughput drop.
 - Manual trigger condition: rerun baseline for changes in core Mojo or tokenizer/tokenization path.
+
+## Batched Memory Layout Evidence (2026-03-07)
+
+Commands executed:
+
+1. `uv run python tools/benchmark.py --mode embedding --rounds 10 --batch-size 8`
+
+Captured metrics for batched inference (mock stub backend):
+
+- Embedding (Batch Size 8):
+  - `calls_per_second`: `~29000`
+  - `elapsed_s`: `~0.00034`
+  - `rounds`: `10`
+  - `input_texts`: `8`
+
+*Note: True latency characteristics will become apparent on the real weights via `mat_mat_mul` parallelization.*
