@@ -115,6 +115,11 @@ class CoreBackend:
         """Initialize the model context inside the core backend."""
         return self._core.init_model(metadata)
 
+    def free_model(self, llm: object) -> None:
+        """Free any unmanaged memory held by the backend."""
+        if hasattr(self._core, "free_model"):
+            self._core.free_model(llm)
+
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Step the LLM context to decode the next token logits."""
         return self._core.step(llm, token_id, temp, top_k, top_p)

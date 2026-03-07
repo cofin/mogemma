@@ -1,7 +1,7 @@
 from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
-from memory import UnsafePointer
+from memory import UnsafePointer, alloc
 from math import cos, sin, sqrt
 from collections import List
 
@@ -458,7 +458,7 @@ fn _forward_nano_token_hidden_runtime(
         var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
         var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
         var layer_per_input_ptr = per_layer_inputs_ptr + l * per_layer_dim
-        var layer_weights = _build_nano_layer_from_runtime_entry(runtime_layers[l])
+        var layer_weights = runtime_layers[l]
 
         forward_nano_layer(
             next_streams_ptr,
@@ -496,7 +496,7 @@ fn _forward_step_nano_runtime(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     pos: Int,
-    runtime_obj: PythonObject,
+    model: NanoModelWeights,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
@@ -581,19 +581,18 @@ fn _forward_sequence_nano_runtime(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ) raises:
     var builtins = Python.import_module("builtins")
-    var runtime_layers = runtime_obj["layers"]
-    var num_layers = Int(py=builtins.len(runtime_layers))
+    var num_layers = len(model.layers)
     if num_layers == 0:
         raise Error("Invalid Nano runtime: no layers found")
 
-    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    var norm = _tensor_from_meta(runtime_obj["norm"])
-    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
-    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
-    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var embed_tokens = model.embed_tokens
+    var norm = model.norm
+    var per_layer_embed = model.per_layer_embed
+    var per_layer_projection = model.per_layer_projection
+    var per_layer_norm = model.per_layer_norm
     var per_layer_table_layers = per_layer_embed.shape_1
-    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
-    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
+    var altup_projections = model.altup_projections
+    var altup_unembeds = model.altup_unembeds
 
     var emb_acc_ptr = scratch_ptr
     var token_hidden_ptr = scratch_ptr + hidden_size
@@ -697,7 +696,7 @@ fn _forward_step_standard_runtime(
 
         var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
         var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
-        var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
+        var layer_weights = layers[l]
 
         forward_layer(
             next_state,
@@ -767,7 +766,7 @@ fn _forward_sequence_standard_runtime(
 
             var token_freqs_cos_ptr = freqs_cos_ptr + t * head_dim
             var token_freqs_sin_ptr = freqs_sin_ptr + t * head_dim
-            var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
+            var layer_weights = layers[l]
 
             forward_layer(
                 next_state,
@@ -866,6 +865,10 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
         if per_layer_dim <= 0:
             raise Error("Invalid Nano model weights: per_layer_map gate dim must be > 0")
         py_dict["kv_share_start"] = _detect_nano_kv_share_start(model_weights)
+        
+        var ptr = alloc[NanoModelWeights](1)
+        ptr.init_pointee_move(model_weights^)
+        py_dict["_descriptor_ptr"] = Int(ptr)
     else:
         runtime_obj = _build_standard_runtime(metadata_obj)
         var model_weights = _build_model_from_runtime(runtime_obj)
@@ -880,6 +883,10 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
         hidden_size = model_weights.embed_tokens.shape_1
         intermediate_size = model_weights.layers[0].gate_proj.shape_0
         vocab_size = model_weights.lm_head.shape_0
+
+        var ptr = alloc[ModelWeights](1)
+        ptr.init_pointee_move(model_weights^)
+        py_dict["_descriptor_ptr"] = Int(ptr)
         py_dict["kv_share_start"] = num_layers
 
     var max_seq_len = 8192  # default max seq len
@@ -1013,6 +1020,8 @@ fn step_mojo(
     var token_id = Int(py=token_id_obj)
 
     var runtime_obj = llm["runtime"]
+    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
+    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
@@ -1088,7 +1097,7 @@ fn step_mojo(
                 out_logits_ptr,
                 token_id,
                 pos,
-                runtime_obj,
+                ptr_nano[],
                 hidden_size,
                 num_heads,
                 num_kv_heads,
@@ -1109,7 +1118,7 @@ fn step_mojo(
                 out_logits_ptr,
                 token_id,
                 pos,
-                runtime_obj,
+                ptr_nano[],
                 hidden_size,
                 num_heads,
                 num_kv_heads,
@@ -1178,6 +1187,8 @@ fn generate_embeddings_mojo(
         raise Error("inputs must contain at least one token")
 
     var runtime_obj = llm["runtime"]
+    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
+    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0)))
     var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
     var hidden_size = Int(py=llm["hidden_size"])
@@ -1398,7 +1409,7 @@ fn _forward_nano_token_hidden_gpu_runtime(
         var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
         var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
         var layer_per_input_ptr = per_layer_inputs_ptr + l * per_layer_dim
-        var layer_weights = _build_nano_layer_from_runtime_entry(runtime_layers[l])
+        var layer_weights = runtime_layers[l]
 
         forward_nano_layer_gpu(
             next_streams_ptr,
@@ -1437,7 +1448,7 @@ fn _forward_step_nano_gpu_runtime(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     pos: Int,
-    runtime_obj: PythonObject,
+    model: NanoModelWeights,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
@@ -1513,6 +1524,21 @@ fn PyInit__core() -> PythonObject:
         b.def_function[init_model_with_options_mojo]("init_model_with_options")
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
         b.def_function[step_mojo]("step")
+        b.def_function[free_model_mojo]("free_model")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
+
+fn free_model_mojo(llm: PythonObject) raises:
+    var arch = String(py=llm["arch"])
+    var ptr_int = Int(py=llm.get("_descriptor_ptr", 0))
+    if ptr_int == 0:
+        return
+    if arch == "nano":
+        var ptr = UnsafePointer[NanoModelWeights, MutExternalOrigin](unsafe_from_address=ptr_int)
+        ptr.destroy_pointee()
+        ptr.free()
+    else:
+        var ptr = UnsafePointer[ModelWeights, MutExternalOrigin](unsafe_from_address=ptr_int)
+        ptr.destroy_pointee()
+        ptr.free()
