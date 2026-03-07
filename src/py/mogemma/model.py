@@ -373,7 +373,11 @@ class EmbeddingModel:
         if input_count > 0:
             expected_len = len(tokens[0])
             if any(len(row) != expected_len for row in tokens):
-                raise ValueError("all token sequences in a batch must have the exact same length (padding is required for batch inference)")
+                msg = (
+                    "all token sequences in a batch must have the exact same length "
+                    "(padding is required for batch inference)"
+                )
+                raise ValueError(msg)
 
         raw_embeddings = self._backend.generate_embeddings(self._llm, tokens)
         embeddings = np.asarray(raw_embeddings, dtype=np.float32)

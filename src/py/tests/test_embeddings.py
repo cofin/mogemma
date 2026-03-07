@@ -472,8 +472,12 @@ def test_embed_token_array_enforces_rectangular_shape(
 def test_embed_pads_heterogeneous_sequences(
     dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: object
 ) -> None:
-    """Test that embedding multiple strings of different lengths results in equal-length token arrays passed to the backend."""
+    """Test that embedding multiple strings of different lengths results in equal-length token arrays.
+
+    This ensures that token arrays passed to the backend are rectangular.
+    """
     del mock_core
+
     # Setup mock tokenizer to return heterogeneous encodings
     class MockEncoding:
         def __init__(self, ids: list[int]) -> None:
@@ -487,14 +491,14 @@ def test_embed_pads_heterogeneous_sequences(
 
     config = EmbeddingConfig(model_path=Path(dummy_model_path))
     model = EmbeddingModel(config)
-    
+
     # Text input that would normally be heterogeneous
     texts = ["Long text here", "Short", "Very long text goes here indeed"]
-    
+
     # embed() should call tokenizer.enable_padding() which ensures equal lengths
     # The actual padding happens in the mock (we simulate it returning equal lengths).
     # We verify that model.embed does not throw the ValueError about rectangular arrays.
     embeddings = model.embed(texts)
-    
+
     assert embeddings.shape == (3, 768)
     mock_tokenizer.enable_padding.assert_called_once()
