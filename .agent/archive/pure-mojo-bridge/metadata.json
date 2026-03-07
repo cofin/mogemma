@@ -1,8 +1,0 @@
-{
-  "flow_id": "pure-mojo-bridge",
-  "type": "feature",
-  "status": "planned",
-  "parent_prd": "pure-mojo-pivot",
-  "beads_epic_id": "mogemma-seq.1",
-  "description": "Dependency Purge & Zero-Copy Bridge: Replace modular/max with Python safetensors and raw memory pointer mapping into Mojo."
-}

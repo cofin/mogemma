@@ -1,9 +1,0 @@
-{
-  "flow_id": "text-inference-engine",
-  "current_phase": 3,
-  "current_task_index": 2,
-  "tasks": [
-    "mogemma-316.7",
-    "mogemma-316.8"
-  ]
-}

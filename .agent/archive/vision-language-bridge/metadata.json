@@ -1,8 +1,0 @@
-{
-  "flow_id": "vision-language-bridge",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-02-08T12:00:00Z",
-  "updated_at": "2026-02-08T12:00:00Z",
-  "description": "Enable multimodal vision support for Gemma 3 via MAX."
-}
