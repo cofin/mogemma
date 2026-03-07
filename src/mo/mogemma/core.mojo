@@ -888,7 +888,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
     var k_cache: PythonObject
     var v_cache: PythonObject
 
-    if device_backend == "cuda":
+    if device_backend == "cuda" or device_backend == "gpu":
         # Opaque dummy handle for GPU residency. We use Numpy internally for Phase 1-3 testing to avoid segfaults.
         var k_np = _allocate_session_f32(np, session_kv_cache_len)
         var v_np = _allocate_session_f32(np, session_kv_cache_len)
@@ -1024,8 +1024,8 @@ fn step_mojo(
     var step_backend = String(py=llm.get("step_backend", ""))
     if step_backend == "":
         var device_backend = String(py=llm.get("device_backend", "cpu"))
-        if device_backend == "cuda":
-            step_backend = "cuda"
+        if device_backend == "cuda" or device_backend == "gpu":
+            step_backend = "gpu"
             llm["fallback_reason"] = "none"
         else:
             step_backend = "cpu"
@@ -1055,7 +1055,7 @@ fn step_mojo(
     var kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
 
-    if step_backend == "cuda":
+    if step_backend == "cuda" or step_backend == "gpu":
         kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache))
         kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache))
         # scratch_obj is a numpy array for scaffolding
@@ -1083,7 +1083,7 @@ fn step_mojo(
 
     if arch == "nano":
         var per_layer_dim = Int(py=llm["per_layer_dim"])
-        if step_backend == "cuda":
+        if step_backend == "cuda" or step_backend == "gpu":
             _forward_step_nano_gpu_runtime(
                 out_logits_ptr,
                 token_id,

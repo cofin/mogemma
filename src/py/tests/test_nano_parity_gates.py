@@ -36,45 +36,49 @@ def _create_dummy_safetensors(model_dir: Path) -> None:
     num_modalities = 4
     per_layer_dim = 16
     
+    rng = np.random.default_rng(42)
+    def make_tensor(shape):
+        return rng.normal(size=shape).astype(np.float32)
+
     tensors = {
-        "model.embed_tokens.weight": np.zeros((vocab_size, hidden_size), dtype=np.float32),
-        "model.norm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        "lm_head.weight": np.zeros((vocab_size, hidden_size), dtype=np.float32),
-        "model.per_layer_embed.weight": np.zeros((100, 1, per_layer_dim), dtype=np.float32),
-        "model.per_layer_embed.projection.weight": np.zeros((hidden_size, 1, per_layer_dim), dtype=np.float32),
-        "model.per_layer_embed.norm.weight": np.zeros((per_layer_dim,), dtype=np.float32),
+        "model.embed_tokens.weight": make_tensor((vocab_size, hidden_size)),
+        "model.norm.weight": make_tensor((hidden_size,)),
+        "lm_head.weight": make_tensor((vocab_size, hidden_size)),
+        "model.per_layer_embed.weight": make_tensor((100, 1, per_layer_dim)),
+        "model.per_layer_embed.projection.weight": make_tensor((hidden_size, 1, per_layer_dim)),
+        "model.per_layer_embed.norm.weight": make_tensor((per_layer_dim,)),
     }
     
     for i in range(3):
-        tensors[f"model.altup.projection.{i}.weight"] = np.zeros((hidden_size, hidden_size), dtype=np.float32)
-        tensors[f"model.altup.unembed.{i}.weight"] = np.zeros((hidden_size, hidden_size), dtype=np.float32)
+        tensors[f"model.altup.projection.{i}.weight"] = make_tensor((hidden_size, hidden_size))
+        tensors[f"model.altup.unembed.{i}.weight"] = make_tensor((hidden_size, hidden_size))
         
     pfx = "model.layers.0"
     tensors.update({
-        f"{pfx}.input_layernorm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        f"{pfx}.post_attention_layernorm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        f"{pfx}.self_attn.q_proj.weight": np.zeros((q_size, hidden_size), dtype=np.float32),
-        f"{pfx}.self_attn.k_proj.weight": np.zeros((kv_size, hidden_size), dtype=np.float32),
-        f"{pfx}.self_attn.v_proj.weight": np.zeros((kv_size, hidden_size), dtype=np.float32),
-        f"{pfx}.self_attn.o_proj.weight": np.zeros((hidden_size, q_size), dtype=np.float32),
-        f"{pfx}.mlp.gate_proj.weight": np.zeros((intermediate_size, hidden_size), dtype=np.float32),
-        f"{pfx}.mlp.up_proj.weight": np.zeros((intermediate_size, hidden_size), dtype=np.float32),
-        f"{pfx}.mlp.down_proj.weight": np.zeros((hidden_size, intermediate_size), dtype=np.float32),
-        f"{pfx}.self_attn.q_norm.weight": np.zeros((head_dim,), dtype=np.float32),
-        f"{pfx}.self_attn.k_norm.weight": np.zeros((head_dim,), dtype=np.float32),
-        f"{pfx}.pre_feedforward_layernorm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        f"{pfx}.post_feedforward_layernorm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        f"{pfx}.altup.router.weight": np.zeros((num_modalities, hidden_size), dtype=np.float32),
-        f"{pfx}.altup.router_norm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        f"{pfx}.altup.prediction_coefs": np.zeros((num_modalities, num_modalities, num_modalities), dtype=np.float32),
-        f"{pfx}.altup.correction_coefs": np.zeros((num_modalities, num_modalities), dtype=np.float32),
-        f"{pfx}.altup.output_scale": np.zeros((num_modalities,), dtype=np.float32),
-        f"{pfx}.laurel.down_proj.weight": np.zeros((16, hidden_size), dtype=np.float32),
-        f"{pfx}.laurel.up_proj.weight": np.zeros((hidden_size, 16), dtype=np.float32),
-        f"{pfx}.laurel.norm.weight": np.zeros((hidden_size,), dtype=np.float32),
-        f"{pfx}.per_layer_map.gate.weight": np.zeros((per_layer_dim, hidden_size), dtype=np.float32),
-        f"{pfx}.per_layer_map.projection.weight": np.zeros((hidden_size, per_layer_dim), dtype=np.float32),
-        f"{pfx}.per_layer_map.norm.weight": np.zeros((hidden_size,), dtype=np.float32),
+        f"{pfx}.input_layernorm.weight": make_tensor((hidden_size,)),
+        f"{pfx}.post_attention_layernorm.weight": make_tensor((hidden_size,)),
+        f"{pfx}.self_attn.q_proj.weight": make_tensor((q_size, hidden_size)),
+        f"{pfx}.self_attn.k_proj.weight": make_tensor((kv_size, hidden_size)),
+        f"{pfx}.self_attn.v_proj.weight": make_tensor((kv_size, hidden_size)),
+        f"{pfx}.self_attn.o_proj.weight": make_tensor((hidden_size, q_size)),
+        f"{pfx}.mlp.gate_proj.weight": make_tensor((intermediate_size, hidden_size)),
+        f"{pfx}.mlp.up_proj.weight": make_tensor((intermediate_size, hidden_size)),
+        f"{pfx}.mlp.down_proj.weight": make_tensor((hidden_size, intermediate_size)),
+        f"{pfx}.self_attn.q_norm.weight": make_tensor((head_dim,)),
+        f"{pfx}.self_attn.k_norm.weight": make_tensor((head_dim,)),
+        f"{pfx}.pre_feedforward_layernorm.weight": make_tensor((hidden_size,)),
+        f"{pfx}.post_feedforward_layernorm.weight": make_tensor((hidden_size,)),
+        f"{pfx}.altup.router.weight": make_tensor((num_modalities, hidden_size)),
+        f"{pfx}.altup.router_norm.weight": make_tensor((hidden_size,)),
+        f"{pfx}.altup.prediction_coefs": make_tensor((num_modalities, num_modalities, num_modalities)),
+        f"{pfx}.altup.correction_coefs": make_tensor((num_modalities, num_modalities)),
+        f"{pfx}.altup.output_scale": make_tensor((num_modalities,)),
+        f"{pfx}.laurel.down_proj.weight": make_tensor((16, hidden_size)),
+        f"{pfx}.laurel.up_proj.weight": make_tensor((hidden_size, 16)),
+        f"{pfx}.laurel.norm.weight": make_tensor((hidden_size,)),
+        f"{pfx}.per_layer_map.gate.weight": make_tensor((per_layer_dim, hidden_size)),
+        f"{pfx}.per_layer_map.projection.weight": make_tensor((hidden_size, per_layer_dim)),
+        f"{pfx}.per_layer_map.norm.weight": make_tensor((hidden_size,)),
     })
     
     save_file(tensors, model_dir / "model.safetensors")
@@ -88,7 +92,7 @@ def mock_tokenizer() -> Iterator[MagicMock]:
         encoded_mock = MagicMock()
         encoded_mock.ids = [1, 2, 3]
         tokenizer.encode.return_value = encoded_mock
-        tokenizer.decode.return_value = "dummy"
+        tokenizer.decode.side_effect = lambda tokens, **kwargs: str(tokens[0]) if tokens else ""
         tokenizer.token_to_id.return_value = 999
         mock.return_value = tokenizer
         yield tokenizer

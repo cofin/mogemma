@@ -1651,12 +1651,12 @@ fn forward_nano_layer_gpu(
         corrected_ptr, predictions_ptr, activated_ptr, weights.altup, hidden_size, num_modalities, altup_scratch_ptr
     )
 
-    for d in range(hidden_size):
-        first_prediction_ptr.store(d, predictions_ptr.load(d))
+    for i in range(hidden_size):
+        first_prediction_ptr.store(i, corrected_ptr.load(i) * weights.altup.output_scale.ptr.load(i))
 
     forward_per_layer_mapping_gpu(
         delta_ptr,
-        activated_ptr,
+        first_prediction_ptr,
         per_layer_input_ptr,
         weights.per_layer_map,
         hidden_size,
@@ -1664,11 +1664,9 @@ fn forward_nano_layer_gpu(
         plm_scratch_ptr,
     )
 
-    for out_m in range(num_modalities):
-        var scale = weights.altup.output_scale.ptr.load(out_m)
-        for d in range(hidden_size):
-            var idx = out_m * hidden_size + d
-            var val = corrected_ptr.load(idx)
-            if out_m != 0:
-                val += delta_ptr.load(d)
-            out_streams_ptr.store(idx, val * scale + in_streams_ptr.load(idx))
+    for i in range(hidden_size):
+        out_streams_ptr.store(i, corrected_ptr.load(i))
+    for m in range(1, num_modalities):
+        for i in range(hidden_size):
+            var idx = m * hidden_size + i
+            out_streams_ptr.store(idx, corrected_ptr.load(idx) + delta_ptr.load(i))
