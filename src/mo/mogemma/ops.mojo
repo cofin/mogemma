@@ -111,6 +111,31 @@ fn vec_mat_mul[
 
 
 @always_inline
+fn mat_mat_mul[
+    nelts: Int = 16
+](
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, in_dim]
+    w_ptr: UnsafePointer[Float32, MutExternalOrigin],  # transposed [out_dim, in_dim]
+    batch_size: Int,
+    in_dim: Int,
+    out_dim: Int,
+):
+    """Performs a batched matrix-matrix multiplication.
+
+    Multiplies the batched input matrix by a transposed weight matrix and writes the resulting matrix to the output tensor.
+    """
+    for b in range(batch_size):
+        vec_mat_mul[nelts](
+            out_ptr + b * out_dim,
+            x_ptr + b * in_dim,
+            w_ptr,
+            in_dim,
+            out_dim,
+        )
+
+
+@always_inline
 fn rms_norm[
     nelts: Int = 16
 ](

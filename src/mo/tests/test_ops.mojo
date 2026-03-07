@@ -1,5 +1,5 @@
 from collections import List
-from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, softmax
+from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax
 from mogemma.ops_gpu import rms_norm_gpu, geglu_gpu, rope_rotate_gpu, vec_mat_mul_gpu, softmax_gpu
 from memory import UnsafePointer
 from testing import assert_almost_equal
@@ -134,6 +134,29 @@ fn test_vec_mat_mul() raises:
 
     assert_almost_equal(out[0], 8.0, atol=1e-5)
     assert_almost_equal(out[1], 8.0, atol=1e-5)
+    _ = x[0]
+    _ = w[0]
+
+
+fn test_mat_mat_mul() raises:
+    var batch_size = 2
+    var in_dim = 4
+    var out_dim = 2
+    var x = List[Float32](length=batch_size * in_dim, fill=1.0)
+    var w = List[Float32](length=out_dim * in_dim, fill=2.0)  # transposed [out_dim, in_dim]
+    var out = List[Float32](length=batch_size * out_dim, fill=0.0)
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    var w_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(w.unsafe_ptr()))
+    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out.unsafe_ptr()))
+
+    mat_mat_mul[2](out_ptr, x_ptr, w_ptr, batch_size, in_dim, out_dim)
+
+    # 1.0 * 2.0 * 4 = 8.0 for each output element
+    assert_almost_equal(out[0], 8.0, atol=1e-5)
+    assert_almost_equal(out[1], 8.0, atol=1e-5)
+    assert_almost_equal(out[2], 8.0, atol=1e-5)
+    assert_almost_equal(out[3], 8.0, atol=1e-5)
     _ = x[0]
     _ = w[0]
 

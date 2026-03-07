@@ -738,7 +738,7 @@ fn _forward_step_standard_runtime(
 
 fn _forward_sequence_standard_runtime(
     out_emb_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    input_ids_ptr: UnsafePointer[Int32, MutExternalOrigin],
+    input_ids_ptr: UnsafePointer[Int32, MutExternalOrigin], # [batch_size, seq_len]
     seq_len: Int,
     runtime_obj: PythonObject,
     hidden_size: Int,
@@ -748,8 +748,8 @@ fn _forward_sequence_standard_runtime(
     intermediate_size: Int,
     freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
     freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin], # [batch_size, max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin], # [batch_size, max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
     batch_size: Int,
@@ -765,22 +765,24 @@ fn _forward_sequence_standard_runtime(
     var norm = _tensor_from_meta(runtime_obj["norm"])
 
     var current_state = scratch_ptr
-    var next_state = scratch_ptr + hidden_size
-    var layer_scratch = scratch_ptr + hidden_size * 2
-    var emb_acc = layer_scratch + hidden_size * 10
-    for i in range(hidden_size):
+    var next_state = scratch_ptr + batch_size * hidden_size
+    var layer_scratch = scratch_ptr + batch_size * hidden_size * 2
+    var emb_acc = layer_scratch + batch_size * hidden_size * 10
+    
+    for i in range(batch_size * hidden_size):
         emb_acc.store(i, 0.0)
 
     var emb_scale = sqrt(Float32(hidden_size))
     for t in range(seq_len):
-        var token_id = Int(input_ids_ptr.load(t))
-        var emb_row_offset = token_id * hidden_size
-        for i in range(hidden_size):
-            current_state.store(i, embed_tokens.ptr.load(emb_row_offset + i) * emb_scale)
+        for b in range(batch_size):
+            var token_id = Int(input_ids_ptr.load(b * seq_len + t))
+            var emb_row_offset = token_id * hidden_size
+            for i in range(hidden_size):
+                current_state.store(b * hidden_size + i, embed_tokens.ptr.load(emb_row_offset + i) * emb_scale)
 
         for l in range(num_layers):
-            var layer_kv_k_ptr = kv_cache_k_ptr + l * max_seq_len * num_kv_heads * head_dim
-            var layer_kv_v_ptr = kv_cache_v_ptr + l * max_seq_len * num_kv_heads * head_dim
+            var layer_kv_k_ptr = kv_cache_k_ptr + l * batch_size * max_seq_len * num_kv_heads * head_dim
+            var layer_kv_v_ptr = kv_cache_v_ptr + l * batch_size * max_seq_len * num_kv_heads * head_dim
 
             var token_freqs_cos_ptr = freqs_cos_ptr + t * head_dim
             var token_freqs_sin_ptr = freqs_sin_ptr + t * head_dim
@@ -802,17 +804,19 @@ fn _forward_sequence_standard_runtime(
                 layer_kv_v_ptr,
                 max_seq_len,
                 layer_scratch,
+                batch_size,
             )
 
-            for i in range(hidden_size):
+            for i in range(batch_size * hidden_size):
                 current_state.store(i, next_state.load(i))
 
-        rms_norm(next_state, current_state, norm.ptr, hidden_size, 1e-6)
-        for i in range(hidden_size):
-            emb_acc.store(i, emb_acc.load(i) + next_state.load(i))
+        for b in range(batch_size):
+            rms_norm(next_state + b * hidden_size, current_state + b * hidden_size, norm.ptr, hidden_size, 1e-6)
+            for i in range(hidden_size):
+                emb_acc.store(b * hidden_size + i, emb_acc.load(b * hidden_size + i) + next_state.load(b * hidden_size + i))
 
     var scale = 1.0 / Float32(seq_len)
-    for i in range(hidden_size):
+    for i in range(batch_size * hidden_size):
         out_emb_ptr.store(i, emb_acc.load(i) * scale)
 
 
@@ -1265,7 +1269,7 @@ fn generate_embeddings_mojo(
     var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
     var scratch = _allocate_transient_f32(batch_size * embedding_scratch_len)  # generous scratch space
     var emb_out = _allocate_transient_f32(batch_size * hidden_size)
-    var input_ids = _allocate_transient_i32(max_seq_len)
+    var input_ids = _allocate_transient_i32(batch_size * max_seq_len)
 
     # Convert lists to pointers
     var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_k.unsafe_ptr()))
@@ -1274,24 +1278,21 @@ fn generate_embeddings_mojo(
     var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(emb_out.unsafe_ptr()))
     var input_ids_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(input_ids.unsafe_ptr()))
 
-    # Process each sequence in the batch
-    for b in range(batch_size):
-        var seq_list = input_array[b]
-        var seq_len = Int(py=builtins.len(seq_list))
+    var seq_len = Int(py=builtins.len(input_array[0]))
 
-        # Extract input_ids for this batch
-        for t in range(seq_len):
-            var token_py = seq_list[t]
-            input_ids[t] = Int32(Int(py=token_py))
+    if arch == "nano":
+        var per_layer_dim = Int(py=llm["per_layer_dim"])
+        for b in range(batch_size):
+            var seq_list = input_array[b]
+            for t in range(seq_len):
+                var token_py = seq_list[t]
+                input_ids[b * max_seq_len + t] = Int32(Int(py=token_py))
 
-        var seq_out_ptr = emb_out_ptr + b * hidden_size
-
-        if arch == "nano":
-            var per_layer_dim = Int(py=llm["per_layer_dim"])
+            var seq_out_ptr = emb_out_ptr + b * hidden_size
 
             _forward_sequence_nano_runtime(
                 seq_out_ptr,
-                input_ids_ptr,
+                input_ids_ptr + b * max_seq_len,
                 seq_len,
                 runtime_obj,
                 hidden_size,
@@ -1307,27 +1308,33 @@ fn generate_embeddings_mojo(
                 max_seq_len,
                 kv_share_start,
                 scratch_ptr,
-                batch_size,
+                1,
             )
-        else:
-            _forward_sequence_standard_runtime(
-                seq_out_ptr,
-                input_ids_ptr,
-                seq_len,
-                runtime_obj,
-                hidden_size,
-                num_heads,
-                num_kv_heads,
-                head_dim,
-                intermediate_size,
-                freqs_cos_ptr,
-                freqs_sin_ptr,
-                kv_cache_k_ptr,
-                kv_cache_v_ptr,
-                max_seq_len,
-                scratch_ptr,
-                batch_size,
-            )
+    else:
+        for b in range(batch_size):
+            var seq_list = input_array[b]
+            for t in range(seq_len):
+                var token_py = seq_list[t]
+                input_ids[b * seq_len + t] = Int32(Int(py=token_py))
+
+        _forward_sequence_standard_runtime(
+            emb_out_ptr,
+            input_ids_ptr,
+            seq_len,
+            runtime_obj,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            freqs_cos_ptr,
+            freqs_sin_ptr,
+            kv_cache_k_ptr,
+            kv_cache_v_ptr,
+            max_seq_len,
+            scratch_ptr,
+            batch_size,
+        )
 
     # Return as numpy array
     var result_np = np.zeros(Python.tuple(batch_size, hidden_size), dtype=np.float32)

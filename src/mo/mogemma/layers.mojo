@@ -16,8 +16,8 @@ from mogemma.ops_gpu import vec_mat_mul_gpu, rope_rotate_gpu, softmax_gpu, rms_n
 
 @always_inline
 fn forward_attention(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
     pos: Int,  # current token index in sequence
     hidden_size: Int,
@@ -26,106 +26,123 @@ fn forward_attention(
     head_dim: Int,
     freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim] for this pos
     freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim] for this pos
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temporary memory
+    batch_size: Int = 1,
 ):
     """Computes Multi-Head/Grouped-Query Attention for a single token at the given position.
 
-    This function projects the input hidden state into Query, Key, and Value tensors, applies RoPE to Q and K, updates the KV cache, computes attention scores across all heads, applies softmax, computes the weighted sum of Values, and projects the result back to the hidden size.
+    This function projects the input batched hidden state into Query, Key, and Value tensors, applies RoPE to Q and K, updates the KV cache, computes attention scores across all heads, applies softmax, computes the weighted sum of Values, and projects the result back to the hidden size.
     """
     # 1. Project Q, K, V
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
-    var k_ptr = scratch_ptr + q_size
-    var v_ptr = scratch_ptr + q_size + kv_size
+    var k_ptr = scratch_ptr + batch_size * q_size
+    var v_ptr = scratch_ptr + batch_size * q_size + batch_size * kv_size
 
-    vec_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, hidden_size, q_size)
-    vec_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, hidden_size, kv_size)
-    vec_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, hidden_size, kv_size)
+    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, batch_size, hidden_size, q_size)
+    mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, batch_size, hidden_size, kv_size)
+    mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, batch_size, hidden_size, kv_size)
 
-    # 1b. Apply per-head QK norms (if weights are present)
-    if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+    for b in range(batch_size):
+        var b_q_ptr = q_ptr + b * q_size
+        var b_k_ptr = k_ptr + b * kv_size
+        var b_v_ptr = v_ptr + b * kv_size
+
+        var b_kv_cache_k_ptr = kv_cache_k_ptr + b * (max_seq_len * kv_size)
+        var b_kv_cache_v_ptr = kv_cache_v_ptr + b * (max_seq_len * kv_size)
+
+        # 1b. Apply per-head QK norms (if weights are present)
+        if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+            for h in range(num_heads):
+                rms_norm(b_q_ptr + h * head_dim, b_q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+        if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+            for h in range(num_kv_heads):
+                rms_norm(b_k_ptr + h * head_dim, b_k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+
+        # 2. Apply RoPE to Q and K
         for h in range(num_heads):
-            rms_norm(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
-    if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+            rope_rotate(b_q_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
         for h in range(num_kv_heads):
-            rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+            rope_rotate(b_k_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
 
-    # 2. Apply RoPE to Q and K
-    for h in range(num_heads):
-        rope_rotate(q_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
-    for h in range(num_kv_heads):
-        rope_rotate(k_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
+        # 3. Write K, V to KV Cache
+        var kv_offset = pos * kv_size
+        for i in range(kv_size):
+            b_kv_cache_k_ptr.store(kv_offset + i, b_k_ptr.load(i))
+            b_kv_cache_v_ptr.store(kv_offset + i, b_v_ptr.load(i))
 
-    # 3. Write K, V to KV Cache
-    var kv_offset = pos * kv_size
-    for i in range(kv_size):
-        kv_cache_k_ptr.store(kv_offset + i, k_ptr.load(i))
-        kv_cache_v_ptr.store(kv_offset + i, v_ptr.load(i))
+        # 4. Attention for each head
+        var heads_per_kv = num_heads // num_kv_heads
+        var scale = 1.0 / sqrt(Float32(head_dim))
+        var attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size) + b * q_size
 
-    # 4. Attention for each head
-    var heads_per_kv = num_heads // num_kv_heads
-    var scale = 1.0 / sqrt(Float32(head_dim))
-    var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size  # use memory after V
+        for h in range(num_heads):
+            var kv_h = h // heads_per_kv
+            var q_head_ptr = b_q_ptr + h * head_dim
+            var scores_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size) + batch_size * q_size + h * max_seq_len
 
-    for h in range(num_heads):
-        var kv_h = h // heads_per_kv
-        var q_head_ptr = q_ptr + h * head_dim
-        var scores_ptr = attn_out_ptr + num_heads * head_dim  # temporary scores for this head
+            # Calculate scores for past tokens up to `pos`
+            for t in range(pos + 1):
+                var k_head_ptr = b_kv_cache_k_ptr + t * kv_size + kv_h * head_dim
+                var score: Float32 = 0.0
+                for d in range(head_dim):
+                    score += q_head_ptr.load(d) * k_head_ptr.load(d)
+                scores_ptr.store(t, score * scale)
 
-        # Calculate scores for past tokens up to `pos`
-        for t in range(pos + 1):
-            var k_head_ptr = kv_cache_k_ptr + t * kv_size + kv_h * head_dim
-            var score: Float32 = 0.0
+            # Softmax
+            softmax(scores_ptr, pos + 1)
+
+            # Weighted sum of V
+            var out_head_ptr = attn_out_ptr + h * head_dim
             for d in range(head_dim):
-                score += q_head_ptr.load(d) * k_head_ptr.load(d)
-            scores_ptr.store(t, score * scale)
+                out_head_ptr.store(d, 0.0)
 
-        # Softmax
-        softmax(scores_ptr, pos + 1)
-
-        # Weighted sum of V
-        var out_head_ptr = attn_out_ptr + h * head_dim
-        for d in range(head_dim):
-            out_head_ptr.store(d, 0.0)
-
-        for t in range(pos + 1):
-            var v_head_ptr = kv_cache_v_ptr + t * kv_size + kv_h * head_dim
-            var prob = scores_ptr.load(t)
-            for d in range(head_dim):
-                var acc = out_head_ptr.load(d)
-                out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
+            for t in range(pos + 1):
+                var v_head_ptr = b_kv_cache_v_ptr + t * kv_size + kv_h * head_dim
+                var prob = scores_ptr.load(t)
+                for d in range(head_dim):
+                    var acc = out_head_ptr.load(d)
+                    out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
 
     # 5. Output Projection
-    vec_mat_mul(out_ptr, attn_out_ptr, weights.o_proj.ptr, q_size, hidden_size)
+    var batched_attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size)
+    mat_mat_mul(out_ptr, batched_attn_out_ptr, weights.o_proj.ptr, batch_size, q_size, hidden_size)
 
 
 @always_inline
 fn forward_mlp(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
     hidden_size: Int,
     intermediate_size: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+    batch_size: Int = 1,
 ):
     """Computes the feed-forward network (MLP) block for a standard transformer layer.
 
     Projects the input hidden state to an intermediate size through gate and up projections, applies the GEGLU activation function, and then down-projects back to the hidden size.
     """
     var gate_ptr = scratch_ptr
-    var up_ptr = scratch_ptr + intermediate_size
-    var geglu_out_ptr = scratch_ptr + intermediate_size * 2
+    var up_ptr = scratch_ptr + batch_size * intermediate_size
+    var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    vec_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, hidden_size, intermediate_size)
-    vec_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, hidden_size, intermediate_size)
+    mat_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, batch_size, hidden_size, intermediate_size)
+    mat_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, batch_size, hidden_size, intermediate_size)
 
-    geglu(geglu_out_ptr, gate_ptr, up_ptr, intermediate_size)
+    for b in range(batch_size):
+        geglu(
+            geglu_out_ptr + b * intermediate_size,
+            gate_ptr + b * intermediate_size,
+            up_ptr + b * intermediate_size,
+            intermediate_size,
+        )
 
-    vec_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, intermediate_size, hidden_size)
+    mat_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, batch_size, intermediate_size, hidden_size)
 
 
 @always_inline
@@ -193,8 +210,8 @@ fn forward_mlp_nano(
 
 @always_inline
 fn forward_layer(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
     pos: Int,
     hidden_size: Int,
@@ -204,20 +221,22 @@ fn forward_layer(
     intermediate_size: Int,
     freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
     freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [head_dim]
-    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
-    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [max_seq_len, num_kv_heads, head_dim]
+    kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, max_seq_len, num_kv_heads, head_dim]
+    kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, max_seq_len, num_kv_heads, head_dim]
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    batch_size: Int = 1,
 ):
     """Executes a single standard transformer layer (Attention + MLP) with residual connections and layer normalization.
 
     Applies RMSNorm before Attention, adds the Attention output to the residual stream, applies RMSNorm again before the MLP block, and finally adds the MLP output to the residual stream.
     """
     var norm_x_ptr = scratch_ptr
-    var attn_out_ptr = scratch_ptr + hidden_size
-    var attn_scratch_ptr = scratch_ptr + hidden_size * 2
+    var attn_out_ptr = scratch_ptr + batch_size * hidden_size
+    var attn_scratch_ptr = scratch_ptr + batch_size * hidden_size * 2
 
-    rms_norm(norm_x_ptr, x_ptr, weights.input_layernorm.ptr, hidden_size, 1e-6)
+    for b in range(batch_size):
+        rms_norm(norm_x_ptr + b * hidden_size, x_ptr + b * hidden_size, weights.input_layernorm.ptr, hidden_size, 1e-6)
 
     forward_attention(
         attn_out_ptr,
@@ -234,27 +253,33 @@ fn forward_layer(
         kv_cache_v_ptr,
         max_seq_len,
         attn_scratch_ptr,
+        batch_size,
     )
 
-    var post_attn_out_ptr = scratch_ptr + hidden_size * 2
-    rms_norm(post_attn_out_ptr, attn_out_ptr, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+    var post_attn_out_ptr = scratch_ptr + batch_size * hidden_size * 2
+    for b in range(batch_size):
+        rms_norm(post_attn_out_ptr + b * hidden_size, attn_out_ptr + b * hidden_size, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
 
-    var residual_ptr = scratch_ptr + hidden_size * 3
-    for i in range(hidden_size):
-        residual_ptr.store(i, x_ptr.load(i) + post_attn_out_ptr.load(i))
+    var residual_ptr = scratch_ptr + batch_size * hidden_size * 3
+    for b in range(batch_size):
+        for i in range(hidden_size):
+            residual_ptr.store(b * hidden_size + i, x_ptr.load(b * hidden_size + i) + post_attn_out_ptr.load(b * hidden_size + i))
 
-    var norm_residual_ptr = scratch_ptr + hidden_size * 4
-    rms_norm(norm_residual_ptr, residual_ptr, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    var norm_residual_ptr = scratch_ptr + batch_size * hidden_size * 4
+    for b in range(batch_size):
+        rms_norm(norm_residual_ptr + b * hidden_size, residual_ptr + b * hidden_size, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
 
-    var mlp_out_ptr = scratch_ptr + hidden_size * 5
-    var mlp_scratch_ptr = scratch_ptr + hidden_size * 6
-    forward_mlp(mlp_out_ptr, norm_residual_ptr, weights, hidden_size, intermediate_size, mlp_scratch_ptr)
+    var mlp_out_ptr = scratch_ptr + batch_size * hidden_size * 5
+    var mlp_scratch_ptr = scratch_ptr + batch_size * hidden_size * 6
+    forward_mlp(mlp_out_ptr, norm_residual_ptr, weights, hidden_size, intermediate_size, mlp_scratch_ptr, batch_size)
 
-    var post_mlp_out_ptr = scratch_ptr + hidden_size * 7
-    rms_norm(post_mlp_out_ptr, mlp_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    var post_mlp_out_ptr = scratch_ptr + batch_size * hidden_size * 7
+    for b in range(batch_size):
+        rms_norm(post_mlp_out_ptr + b * hidden_size, mlp_out_ptr + b * hidden_size, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
 
-    for i in range(hidden_size):
-        out_ptr.store(i, residual_ptr.load(i) + post_mlp_out_ptr.load(i))
+    for b in range(batch_size):
+        for i in range(hidden_size):
+            out_ptr.store(b * hidden_size + i, residual_ptr.load(b * hidden_size + i) + post_mlp_out_ptr.load(b * hidden_size + i))
 
 
 @always_inline
