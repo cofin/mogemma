@@ -6,6 +6,7 @@ from collections import List
 
 @fieldwise_init
 struct TensorInfo(Copyable, Movable):
+    """Represents the metadata and memory pointer for a single model tensor."""
     var ptr: UnsafePointer[Float32, MutExternalOrigin]
     var shape_0: Int
     var shape_1: Int
@@ -18,6 +19,7 @@ struct TensorInfo(Copyable, Movable):
 
 @fieldwise_init
 struct LayerWeights(Copyable, Movable):
+    """Container for all learnable parameter tensors within a single standard transformer layer."""
     var q_proj: TensorInfo
     var k_proj: TensorInfo
     var v_proj: TensorInfo
@@ -50,6 +52,7 @@ struct LayerWeights(Copyable, Movable):
 
 @fieldwise_init
 struct ModelWeights(Movable):
+    """Top-level container for all standard Gemma model weights, including token embeddings and transformer layers."""
     var embed_tokens: TensorInfo
     var norm: TensorInfo
     var lm_head: TensorInfo
@@ -72,6 +75,7 @@ struct ModelWeights(Movable):
 
 
 struct KVCache(Movable):
+    """Maintains the Key and Value (KV) state across decoding steps to optimize autoregressive generation."""
     var max_seq_len: Int
     var num_layers: Int
     var num_kv_heads: Int
@@ -99,6 +103,7 @@ struct KVCache(Movable):
 
 @fieldwise_init
 struct AltUpWeights(Copyable, Movable):
+    """Contains the projection and routing weights for the alternating update (AltUp) mechanism in the Nano architecture."""
     var router: TensorInfo
     var router_norm: TensorInfo
     var prediction_coefs: TensorInfo
@@ -115,6 +120,7 @@ struct AltUpWeights(Copyable, Movable):
 
 @fieldwise_init
 struct LaurelWeights(Copyable, Movable):
+    """Holds the down-projection and up-projection weights for the Laurel mechanism."""
     var down_proj: TensorInfo
     var up_proj: TensorInfo
     var norm: TensorInfo
@@ -127,6 +133,7 @@ struct LaurelWeights(Copyable, Movable):
 
 @fieldwise_init
 struct PerLayerMapWeights(Copyable, Movable):
+    """Weights for the per-layer mapping transformations in Gemma Nano variants."""
     var gate: TensorInfo
     var projection: TensorInfo
     var norm: TensorInfo
@@ -139,6 +146,7 @@ struct PerLayerMapWeights(Copyable, Movable):
 
 @fieldwise_init
 struct NanoLayerWeights(Copyable, Movable):
+    """Container for all weights in a single Gemma Nano layer, combining base weights with AltUp, Laurel, and per-layer mapping components."""
     var base: LayerWeights
     var altup: AltUpWeights
     var laurel: LaurelWeights
@@ -153,6 +161,7 @@ struct NanoLayerWeights(Copyable, Movable):
 
 @fieldwise_init
 struct NanoModelWeights(Movable):
+    """Top-level container for Gemma Nano model weights, adding specialized projections and un-embeds to the base model structure."""
     var embed_tokens: TensorInfo
     var norm: TensorInfo
     var lm_head: TensorInfo
