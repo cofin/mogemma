@@ -16,10 +16,10 @@ from safetensors.numpy import save_file
 
 _core = pytest.importorskip("mogemma._core")
 
-from mogemma.config import GenerationConfig  # noqa: E402
-from mogemma.model import SyncGemmaModel  # noqa: E402
+from mogemma.config import GenerationConfig
+from mogemma.model import SyncGemmaModel
 
-from .parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PROMPT_FIXTURES  # noqa: E402
+from .parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PROMPT_FIXTURES
 
 
 def _create_dummy_safetensors(model_dir: Path) -> None:
