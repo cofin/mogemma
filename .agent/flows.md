@@ -297,7 +297,7 @@
 *Beads: mogemma-foxi (closed)*
 
 
-## [ ] Flow: multimodal-python-api_20260308
-*Link: [./specs/multimodal-python-api_20260308/](./specs/multimodal-python-api_20260308/)*
-*Beads: mogemma-3qk9*
+## [x] Flow: multimodal-python-api_20260308 (archived)
+*Link: [./archive/multimodal-python-api_20260308/](./archive/multimodal-python-api_20260308/)*
+*Beads: mogemma-3qk9 (closed)*
 
