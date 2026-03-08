@@ -14,6 +14,8 @@ import numpy.typing as npt
 import pytest
 from safetensors.numpy import save_file
 
+_core = pytest.importorskip("mogemma._core")
+
 from mogemma.config import GenerationConfig
 from mogemma.model import SyncGemmaModel
 
