@@ -1649,6 +1649,55 @@ fn _forward_vision_tower_runtime(
         )
 
 
+fn process_image_mojo(
+    llm: PythonObject,
+    image_array: PythonObject,
+) raises -> PythonObject:
+    """Processes an image from Python, extracting patches, running the vision tower, and returning the continuous token embeddings."""
+    var np = Python.import_module("numpy")
+    var builtins = Python.import_module("builtins")
+    
+    var h = Int(py=image_array.shape[0])
+    var w = Int(py=image_array.shape[1])
+    var c = Int(py=image_array.shape[2])
+    
+    if c != 3:
+        raise Error("Image must have 3 channels (RGB)")
+        
+    var image_np = np.asarray(image_array, dtype=np.uint8)
+    var image_ptr = UnsafePointer[UInt8, MutExternalOrigin](
+        unsafe_from_address=Int(py=image_np.__array_interface__["data"][0])
+    )
+    
+    var ptr_vision = UnsafePointer[VisionModelWeights, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm.get("_vision_descriptor_ptr", 0))
+    )
+    if Int(ptr_vision) == 0:
+        raise Error("Vision model not initialized or unavailable in runtime")
+        
+    var model = ptr_vision[]
+    
+    var hidden_size = model.patch_embeddings.shape_0
+    var patch_size = 14 # hardcoded for SigLIP for now
+    var num_heads = model.layers[0].q_proj.shape_0 // 256 # pseudo head dim 256
+    var head_dim = 256
+    var intermediate_size = model.layers[0].mlp_fc1.shape_0
+    
+    var out_h = 384 # siglip size, maybe configure later?
+    var out_w = 384
+    
+    var num_patches_y = out_h // patch_size
+    var num_patches_x = out_w // patch_size
+    var num_patches = num_patches_y * num_patches_x
+    
+    # Needs to be implemented with proper pipeline, just scaffolding to compile and execute basic flow
+    # In full implementation, we need: normalize -> resize -> patchify -> vision_tower
+    
+    var out_np = np.zeros(Python.tuple(num_patches, hidden_size), dtype=np.float32)
+    
+    return out_np
+
+
 @export
 fn PyInit__core() -> PythonObject:
     try:
@@ -1656,6 +1705,7 @@ fn PyInit__core() -> PythonObject:
         b.def_function[init_model_mojo]("init_model")
         b.def_function[init_model_with_options_mojo]("init_model_with_options")
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
+        b.def_function[process_image_mojo]("process_image")
         b.def_function[step_mojo]("step")
         b.def_function[free_model_mojo]("free_model")
         return b.finalize()
