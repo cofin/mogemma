@@ -47,7 +47,7 @@ build-backend = "hatchling.build"
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build[uv]"
 skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
-test-command = "pytest {project}/src/py/tests"
+test-command = "cp -r {project}/src/py/tests . && pytest tests"
 test-requires = [
     "pytest",
     "pytest-asyncio",
