@@ -1877,7 +1877,7 @@ fn forward_nano_layer_gpu(
     _rms_norm_nano_weighted_gpu(attn_norm_ptr, attn_ptr, weights.base.post_attention_layernorm.ptr, hidden_size, 1e-6)
     var inv_sqrt2: Float32 = 0.7071067811865475
     for i in range(hidden_size):
-        attn_laurel_ptr.store(i, (laurel_ptr.load(i) + attn_norm_ptr.load(i)) * inv_sqrt2)
+        attn_laurel_ptr.store(i, (active_ptr.load(i) + laurel_ptr.load(i) + attn_norm_ptr.load(i)) * inv_sqrt2)
 
     _rms_norm_nano_weighted_gpu(
         ffw_norm_in_ptr, attn_laurel_ptr, weights.base.pre_feedforward_layernorm.ptr, hidden_size, 1e-6
@@ -1889,7 +1889,7 @@ fn forward_nano_layer_gpu(
     _rms_norm_nano_weighted_gpu(ffw_norm_ptr, ffw_ptr, weights.base.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
 
     for i in range(hidden_size):
-        activated_ptr.store(i, (attn_laurel_ptr.load(i) + ffw_norm_ptr.load(i)) * inv_sqrt2)
+        activated_ptr.store(i, attn_laurel_ptr.load(i) + ffw_norm_ptr.load(i))
 
     forward_altup_correct_gpu(
         corrected_ptr, predictions_ptr, activated_ptr, weights.altup, hidden_size, num_modalities, altup_scratch_ptr
