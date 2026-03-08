@@ -1,5 +1,5 @@
 [project]
-authors = [{ name = "Cody Fincher", email = "cody.fincher@gmail.com" }]
+authors = [{ name = "Cody Fincher", email = "cody@litestar.dev" }]
 classifiers = [
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
