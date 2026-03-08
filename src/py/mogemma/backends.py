@@ -74,6 +74,10 @@ class CoreModuleContract(Protocol):
         """Run one token step and return logits."""
         ...
 
+    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray]) -> None:
+        """Process multimodal images through the vision encoder."""
+        ...
+
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
         """Run batched embedding inference and return embedding rows."""
         ...
@@ -94,6 +98,10 @@ class GenerationBackend(Protocol):
 
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Run one autoregressive step and return logits."""
+        ...
+
+    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray]) -> None:
+        """Process multimodal images through the vision encoder."""
         ...
 
 
@@ -135,6 +143,15 @@ class CoreBackend:
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Step the LLM context to decode the next token logits."""
         return self._core.step(llm, token_id, temp, top_k, top_p)
+
+    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray]) -> None:
+        """Process multimodal images through the vision encoder."""
+        if hasattr(self._core, "process_image"):
+            for image in images:
+                self._core.process_image(llm, image)
+        else:
+            msg = "Core module does not support process_image"
+            raise NotImplementedError(msg)
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
         """Generate numerical embeddings from sequences of tokens."""
