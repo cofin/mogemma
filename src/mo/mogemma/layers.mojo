@@ -8,6 +8,7 @@ from mogemma.model import (
     PerLayerMapWeights,
     NanoLayerWeights,
     NanoModelWeights,
+    VisionLayerWeights,
     TensorInfo,
 )
 from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul
@@ -1914,3 +1915,154 @@ fn forward_nano_layer_gpu(
         for i in range(hidden_size):
             var idx = m * hidden_size + i
             out_streams_ptr.store(idx, corrected_ptr.load(idx) + delta_ptr.load(i))
+
+
+@always_inline
+fn forward_vision_attention(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    weights: VisionLayerWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Computes bidirectional Self-Attention for the Vision Transformer (SigLIP)."""
+    var q_size = num_heads * head_dim
+    var q_ptr = scratch_ptr
+    var k_ptr = scratch_ptr + num_patches * q_size
+    var v_ptr = scratch_ptr + num_patches * q_size * 2
+
+    # 1. Project Q, K, V for all patches
+    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, num_patches, hidden_size, q_size)
+    mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, num_patches, hidden_size, q_size)
+    mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, num_patches, hidden_size, q_size)
+
+    # 2. Compute Attention for each head (Bidirectional)
+    var scale = 1.0 / sqrt(Float32(head_dim))
+    var attn_out_ptr = scratch_ptr + num_patches * q_size * 3
+
+    for h in range(num_heads):
+        var scores_ptr = attn_out_ptr + num_patches * q_size
+
+        for p_q in range(num_patches):
+            var q_head_ptr = q_ptr + p_q * q_size + h * head_dim
+            var p_scores_ptr = scores_ptr + p_q * num_patches
+
+            # Scores against all other patches
+            for p_k in range(num_patches):
+                var k_head_ptr = k_ptr + p_k * q_size + h * head_dim
+                var score: Float32 = 0.0
+                for d in range(head_dim):
+                    score += q_head_ptr.load(d) * k_head_ptr.load(d)
+                p_scores_ptr.store(p_k, score * scale)
+
+            # Softmax over all patches
+            softmax(p_scores_ptr, num_patches)
+
+            # Weighted sum of V
+            var out_head_ptr = attn_out_ptr + p_q * q_size + h * head_dim
+            for d in range(head_dim):
+                out_head_ptr.store(d, 0.0)
+
+            for p_v in range(num_patches):
+                var v_head_ptr = v_ptr + p_v * q_size + h * head_dim
+                var prob = p_scores_ptr.load(p_v)
+                for d in range(head_dim):
+                    var acc = out_head_ptr.load(d)
+                    out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
+
+    # 3. Output Projection
+    mat_mat_mul(out_ptr, attn_out_ptr, weights.o_proj.ptr, num_patches, q_size, hidden_size)
+
+
+@always_inline
+fn forward_vision_mlp(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    weights: VisionLayerWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Computes the feed-forward network (MLP) for the Vision Transformer (SigLIP).
+    Typically uses GELU activation.
+    """
+    var fc1_out_ptr = scratch_ptr
+    
+    mat_mat_mul(fc1_out_ptr, x_ptr, weights.mlp_fc1.ptr, num_patches, hidden_size, intermediate_size)
+
+    # GELU activation: 0.5 * x * (1 + erf(x / sqrt(2)))
+    var sqrt_2: Float32 = 1.4142135623730951
+    var total_elements = num_patches * intermediate_size
+    for i in range(total_elements):
+        var x = fc1_out_ptr.load(i)
+        fc1_out_ptr.store(i, 0.5 * x * (1.0 + erf(x / sqrt_2)))
+
+    mat_mat_mul(out_ptr, fc1_out_ptr, weights.mlp_fc2.ptr, num_patches, intermediate_size, hidden_size)
+
+
+@always_inline
+fn forward_vision_layer(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    weights: VisionLayerWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Executes a single vision transformer layer (Attention + MLP) with residual connections."""
+    var norm_x_ptr = scratch_ptr
+    var attn_out_ptr = scratch_ptr + num_patches * hidden_size
+    var attn_scratch_ptr = scratch_ptr + num_patches * hidden_size * 2
+
+    # Pre-attention norm
+    for p in range(num_patches):
+        rms_norm(norm_x_ptr + p * hidden_size, x_ptr + p * hidden_size, weights.input_layernorm.ptr, hidden_size, 1e-6)
+
+    # Attention
+    forward_vision_attention(
+        attn_out_ptr,
+        norm_x_ptr,
+        weights,
+        num_patches,
+        hidden_size,
+        num_heads,
+        head_dim,
+        attn_scratch_ptr,
+    )
+
+    # Residual
+    var residual_ptr = scratch_ptr + num_patches * hidden_size * 2
+    for p in range(num_patches):
+        for i in range(hidden_size):
+            residual_ptr.store(p * hidden_size + i, x_ptr.load(p * hidden_size + i) + attn_out_ptr.load(p * hidden_size + i))
+
+    # Pre-MLP norm
+    var norm_residual_ptr = scratch_ptr + num_patches * hidden_size * 3
+    for p in range(num_patches):
+        rms_norm(norm_residual_ptr + p * hidden_size, residual_ptr + p * hidden_size, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+
+    # MLP
+    var mlp_out_ptr = scratch_ptr + num_patches * hidden_size * 4
+    var mlp_scratch_ptr = scratch_ptr + num_patches * hidden_size * 5
+    forward_vision_mlp(
+        mlp_out_ptr,
+        norm_residual_ptr,
+        weights,
+        num_patches,
+        hidden_size,
+        intermediate_size,
+        mlp_scratch_ptr,
+    )
+
+    # Final residual
+    for p in range(num_patches):
+        for i in range(hidden_size):
+            out_ptr.store(p * hidden_size + i, residual_ptr.load(p * hidden_size + i) + mlp_out_ptr.load(p * hidden_size + i))
+
