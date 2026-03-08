@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,7 +20,11 @@ class HubManager:
     def __init__(self, cache_path: str | Path | None = None) -> None:
         """Initialize the HubManager."""
         if cache_path is None:
-            self.cache_path = Path.home() / ".cache" / "mogemma"
+            configured_cache_path = os.getenv("MOGEMMA_CACHE_DIR")
+            if configured_cache_path:
+                self.cache_path = Path(configured_cache_path)
+            else:
+                self.cache_path = Path.home() / ".cache" / "mogemma"
         else:
             self.cache_path = Path(cache_path)
 

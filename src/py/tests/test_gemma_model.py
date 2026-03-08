@@ -112,6 +112,31 @@ def test_gemma_model_init_uses_hub_resolution(
     assert called == [("google/gemma-3-4b-it", True, True)]
 
 
+def test_gemma_model_init_forwards_cache_path_to_hub(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_tokenizer: MagicMock, mock_core: CoreStub
+) -> None:
+    """Model init should pass config.cache_path through to HubManager."""
+    downloaded = tmp_path / "cached-model"
+    downloaded.mkdir()
+    _create_dummy_safetensors(downloaded)
+    custom_cache = tmp_path / "custom-cache"
+    observed_cache_paths: list[Path | None] = []
+
+    class FakeHubManager:
+        def __init__(self, cache_path: str | Path | None = None) -> None:
+            observed_cache_paths.append(None if cache_path is None else Path(cache_path))
+
+        def resolve_model(self, model_id: str, *, download_if_missing: bool, strict: bool, **_: object) -> Path:
+            del model_id, download_if_missing, strict
+            return downloaded
+
+    monkeypatch.setattr(model_module, "HubManager", FakeHubManager)
+
+    model = SyncGemmaModel(GenerationConfig(model_path="google/gemma-3-4b-it", cache_path=custom_cache))
+    assert model is not None
+    assert observed_cache_paths == [custom_cache]
+
+
 def test_gemma_model_init(dummy_model_path: str, mock_tokenizer: MagicMock, mock_core: CoreStub) -> None:
     config = GenerationConfig(model_path=Path(dummy_model_path))
     model = SyncGemmaModel(config)

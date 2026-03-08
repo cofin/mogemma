@@ -84,9 +84,9 @@ class ModelVariant(str, Enum):
     NANO = "gemma_nano"
 
 
-def _resolve_model_path(raw_model_path: str | Path) -> Path:
+def _resolve_model_path(raw_model_path: str | Path, cache_path: str | Path | None = None) -> Path:
     """Resolve user-supplied model input consistently for all model types."""
-    return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
+    return HubManager(cache_path=cache_path).resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
 def _core_unavailable_message(model_type: str) -> str:
@@ -324,7 +324,7 @@ class EmbeddingModel:
 
         self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         # Resolve model path (Hub or local)
-        self.model_path = _resolve_model_path(config.model_path)
+        self.model_path = _resolve_model_path(config.model_path, config.cache_path)
         self._loader = auto_loader(self.model_path)
         self._backend = _resolve_embedding_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
@@ -449,7 +449,7 @@ class SyncGemmaModel:
 
         self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         # Resolve model path (Hub or local)
-        self.model_path = _resolve_model_path(config.model_path)
+        self.model_path = _resolve_model_path(config.model_path, config.cache_path)
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
         self._backend = _resolve_generation_backend(self._device_selection.effective_device)
