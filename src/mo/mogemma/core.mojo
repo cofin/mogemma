@@ -93,13 +93,13 @@ fn _rope_cache_len(max_seq_len: Int, head_dim: Int) -> Int:
 
 
 @always_inline
-fn _step_scratch_len(hidden_size: Int) -> Int:
-    return hidden_size * 160
+fn _step_scratch_len(hidden_size: Int, max_seq_len: Int, num_heads: Int) -> Int:
+    return hidden_size * 160 + max_seq_len * num_heads * 2
 
 
 @always_inline
-fn _embedding_scratch_len(hidden_size: Int) -> Int:
-    return hidden_size * 180
+fn _embedding_scratch_len(hidden_size: Int, max_seq_len: Int, num_heads: Int) -> Int:
+    return hidden_size * 180 + max_seq_len * num_heads * 2
 
 
 fn _allocate_session_f32(np: PythonObject, length: Int) raises -> PythonObject:
@@ -996,7 +996,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
             freqs_cos_ptr.store(t * head_dim + d, cos(freq))
             freqs_sin_ptr.store(t * head_dim + d, sin(freq))
 
-    var step_scratch_len = _step_scratch_len(hidden_size)
+    var step_scratch_len = _step_scratch_len(hidden_size, max_seq_len, num_heads)
     var step_scratch_obj = _allocate_session_f32(np, step_scratch_len)
 
     py_dict["k_cache"] = k_cache
@@ -1014,7 +1014,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
     py_dict["vocab_size"] = vocab_size
     py_dict["session_kv_cache_len"] = session_kv_cache_len
     py_dict["step_scratch_len"] = step_scratch_len
-    py_dict["embedding_scratch_len"] = _embedding_scratch_len(hidden_size)
+    py_dict["embedding_scratch_len"] = _embedding_scratch_len(hidden_size, max_seq_len, num_heads)
     py_dict["per_layer_dim"] = per_layer_dim
     py_dict["runtime"] = runtime_obj
     py_dict["descriptor_build_count"] = 1
