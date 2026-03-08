@@ -47,7 +47,7 @@ build-backend = "hatchling.build"
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build[uv]"
 skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
-test-command = "rm -rf {project}/src/py/mogemma && pytest {project}/src/py/tests"
+test-command = "cd /tmp && pytest {project}/src/py/tests --import-mode=importlib"
 test-requires = [
     "pytest",
     "pytest-asyncio",
