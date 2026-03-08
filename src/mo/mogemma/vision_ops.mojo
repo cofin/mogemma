@@ -82,3 +82,52 @@ fn bilinear_resize_rgb(
                 var out_val = val11 * w11 + val12 * w12 + val21 * w21 + val22 * w22
                 out_ptr.store((y * out_w + x) * 3 + c, out_val)
 
+@always_inline
+fn extract_patches(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_patches, hidden_size]
+    in_ptr: UnsafePointer[Float32, MutExternalOrigin], # [H, W, C]
+    weight_ptr: UnsafePointer[Float32, MutExternalOrigin], # [hidden_size, patch_size, patch_size, C]
+    bias_ptr: UnsafePointer[Float32, MutExternalOrigin], # [hidden_size]
+    h: Int,
+    w: Int,
+    c: Int,
+    patch_size: Int,
+    hidden_size: Int,
+):
+    """Extracts patches using a simulated Conv2D with stride=patch_size."""
+    var num_patches_y = h // patch_size
+    var num_patches_x = w // patch_size
+    
+    for py in range(num_patches_y):
+        for px in range(num_patches_x):
+            var patch_idx = py * num_patches_x + px
+            var out_row_ptr = out_ptr + patch_idx * hidden_size
+            
+            for hs in range(hidden_size):
+                var acc = bias_ptr.load(hs)
+                var w_base = weight_ptr + hs * patch_size * patch_size * c
+                
+                for dy in range(patch_size):
+                    var in_y = py * patch_size + dy
+                    for dx in range(patch_size):
+                        var in_x = px * patch_size + dx
+                        for dc in range(c):
+                            var in_val = in_ptr.load((in_y * w + in_x) * c + dc)
+                            var w_val = w_base.load((dy * patch_size + dx) * c + dc)
+                            acc += in_val * w_val
+                            
+                out_row_ptr.store(hs, acc)
+
+@always_inline
+fn add_positional_embeddings(
+    seq_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_patches, hidden_size]
+    pos_emb_ptr: UnsafePointer[Float32, MutExternalOrigin], # [num_patches, hidden_size]
+    num_patches: Int,
+    hidden_size: Int,
+):
+    """Adds positional embeddings to the patch sequence."""
+    var total_elements = num_patches * hidden_size
+    for i in range(total_elements):
+        seq_ptr.store(i, seq_ptr.load(i) + pos_emb_ptr.load(i))
+
+
