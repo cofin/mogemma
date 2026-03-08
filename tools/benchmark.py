@@ -188,9 +188,7 @@ def _run_benchmark() -> dict[str, object]:
     else:
         config = EmbeddingConfig(model_path=model_root, device=args.device)
         texts = [f"Benchmark embedding input {i}" for i in range(args.batch_size)]
-        metrics = _run_embedding(
-            config, texts=texts, rounds=args.rounds
-        )
+        metrics = _run_embedding(config, texts=texts, rounds=args.rounds)
 
     payload = {
         "schema_version": 2,

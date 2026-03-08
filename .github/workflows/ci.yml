@@ -84,6 +84,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
+      - name: Build extension
+        run: make build
+
       - name: Test
         run: uv run pytest src/py/tests
 
