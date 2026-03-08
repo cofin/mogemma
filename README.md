@@ -29,7 +29,7 @@ pip install 'mogemma[llm]'
 from mogemma import SyncGemmaModel
 
 model = SyncGemmaModel()
-print(model.generate("Explain quantum computing in one sentence:"))
+print(model.generate("Write a haiku about a robot discovering coffee:"))
 ```
 
 ### Async Streaming
