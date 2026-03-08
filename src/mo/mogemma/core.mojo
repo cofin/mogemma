@@ -15,11 +15,13 @@ from mogemma.model import (
     AltUpWeights,
     LaurelWeights,
     PerLayerMapWeights,
+    VisionModelWeights,
 )
 from mogemma.layers import (
     forward_layer,
     forward_nano_layer,
     forward_nano_layer_gpu,
+    forward_vision_layer,
     _collapse_altup_streams,
     _prepare_altup_streams,
     _rms_norm_nano_weighted,
@@ -1594,6 +1596,57 @@ fn _forward_step_nano_gpu_runtime(
     from mogemma.ops_gpu import vec_mat_mul_gpu
 
     vec_mat_mul_gpu(out_logits_ptr, hidden_ptr, lm_head.ptr, hidden_size, vocab_size)
+
+
+@always_inline
+fn _forward_vision_tower_runtime(
+    out_patches_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    in_patches_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    model: VisionModelWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Executes the full forward pass of the vision tower over a sequence of image patches."""
+    var num_layers = len(model.layers)
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + num_patches * hidden_size
+    var layer_scratch = scratch_ptr + num_patches * hidden_size * 2
+
+    # Load initial patches
+    for i in range(num_patches * hidden_size):
+        current_state.store(i, in_patches_ptr.load(i))
+
+    # Pass through vision layers
+    for l in range(num_layers):
+        forward_vision_layer(
+            next_state,
+            current_state,
+            model.layers[l],
+            num_patches,
+            hidden_size,
+            num_heads,
+            head_dim,
+            intermediate_size,
+            layer_scratch,
+        )
+
+        # Swap states
+        for i in range(num_patches * hidden_size):
+            current_state.store(i, next_state.load(i))
+
+    # Final vision normalization
+    for p in range(num_patches):
+        rms_norm(
+            out_patches_ptr + p * hidden_size,
+            current_state + p * hidden_size,
+            model.norm.ptr,
+            hidden_size,
+            1e-6,
+        )
 
 
 @export
