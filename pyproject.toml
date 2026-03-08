@@ -15,6 +15,7 @@ classifiers = [
 dependencies = [
     "obstore>=0.2.08",
     "numpy>=1.26.0",
+    "typing_extensions",
     "safetensors>=0.4.5",
     "tensorstore>=0.1.78",
 ]
@@ -135,8 +136,8 @@ split-on-trailing-comma = false
     "S101",
     "S603",
     "PLR2004",
-    "SLF001", 
-    "E402"
+    "SLF001",
+    "E402",
 ]
 "src/py/mogemma/typing.py" = ["A005"]
 "src/mo/tests/test_*.py" = [

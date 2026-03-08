@@ -474,6 +474,7 @@ dependencies = [
     { name = "safetensors" },
     { name = "tensorstore", version = "0.1.78", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "tensorstore", version = "0.1.81", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -522,6 +523,7 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4.5" },
     { name = "sentencepiece", marker = "extra == 'llm'", specifier = ">=0.2.0" },
     { name = "tensorstore", specifier = ">=0.1.78" },
+    { name = "typing-extensions" },
 ]
 provides-extras = ["llm", "telemetry"]
 
