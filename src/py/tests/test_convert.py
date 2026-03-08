@@ -166,6 +166,58 @@ def test_convert_gemma3_tensors() -> None:
     assert hf[f"{l0}.mlp.down_proj.weight"].shape == (2048, 8192)
 
 
+def test_convert_quantize_int8() -> None:
+    """Verify that linear weights are quantized when requested."""
+    # Create some mock weights with known min/max for predictable scales
+    w_q = np.array([[-1.0, 0.0], [0.5, 2.0]], dtype=np.float32)
+    orbax = {
+        "transformer/embedder.input_embedding": np.zeros((20, 2048), dtype=np.float32),
+        "transformer/final_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/pre_attention_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/post_attention_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/pre_ffw_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/post_ffw_norm.scale": np.zeros((2048,), dtype=np.float32),
+        "transformer/layer_0/attn/_query_norm.scale": np.zeros((256,), dtype=np.float32),
+        "transformer/layer_0/attn/_key_norm.scale": np.zeros((256,), dtype=np.float32),
+        
+        # We need q_einsum to reshape into our mock 2x2. Shape: (num_heads, hidden, head_dim)
+        # Reshaping goes: transpose(0, 2, 1).reshape(-1, hidden)
+        # So we'll just pass a correctly sized zeros array and test the framework works
+        "transformer/layer_0/attn/q_einsum.w": np.zeros((1, 2, 2), dtype=np.float32),
+        "transformer/layer_0/attn/kv_einsum.w": np.zeros((2, 1, 2, 2), dtype=np.float32),
+        "transformer/layer_0/attn/attn_vec_einsum.w": np.zeros((1, 2, 2), dtype=np.float32),
+        "transformer/layer_0/mlp/gating_einsum.w": np.zeros((2, 2, 2), dtype=np.float32),
+        "transformer/layer_0/mlp/linear.w": np.zeros((2, 2), dtype=np.float32),
+    }
+
+    # Inject our mock data into the correct spot so we can test the specific scale
+    # q_ein = orbax["transformer/layer_0/attn/q_einsum.w"] (1, 2, 2)
+    # Target shape after conversion is (2, 2)
+    orbax["transformer/layer_0/attn/q_einsum.w"] = w_q.reshape(1, 2, 2).transpose(0, 2, 1)
+
+    hf_float = _convert_gemma3(orbax, quantize_int8=False)
+    hf_quant = _convert_gemma3(orbax, quantize_int8=True)
+    
+    # Check non-quantized remains float32
+    assert hf_float["model.layers.0.self_attn.q_proj.weight"].dtype == np.float32
+    assert "model.layers.0.self_attn.q_proj.weight_scale" not in hf_float
+    
+    # Check quantized becomes int8 and has scale
+    q_weight = hf_quant["model.layers.0.self_attn.q_proj.weight"]
+    q_scale = hf_quant["model.layers.0.self_attn.q_proj.weight_scale"]
+    
+    assert q_weight.dtype == np.int8
+    assert q_scale.dtype == np.float32
+    
+    # For [-1.0, 0.0, 0.5, 2.0], max_abs is 2.0. Scale = 2.0 / 127 = 0.015748
+    expected_scale = 2.0 / 127.0
+    np.testing.assert_allclose(q_scale, [expected_scale], rtol=1e-5)
+    
+    # Reconstruct and check error is minimal
+    reconstructed = q_weight.astype(np.float32) * q_scale
+    np.testing.assert_allclose(reconstructed, w_q, atol=expected_scale * 0.5)
+
+
 @pytest.mark.skipif(
     not (Path.home() / ".cache" / "mogemma" / "gemma3n-e2b-it").exists(), reason="Nano checkpoint not found"
 )
