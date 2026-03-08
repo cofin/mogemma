@@ -1,0 +1,10 @@
+{
+  "flow_id": "mojo-vision-preprocessing_20260308",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "multimodal-vision_20260308",
+  "beads_epic_id": "mogemma-foxi",
+  "created_at": "2026-03-08T21:43:00Z",
+  "updated_at": "2026-03-08T21:43:00Z",
+  "description": "Implement image resizing, normalization, and the vision transformer (e.g., SigLIP) forward pass in pure Mojo."
+}
