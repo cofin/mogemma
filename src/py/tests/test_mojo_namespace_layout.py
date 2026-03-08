@@ -33,14 +33,12 @@ def test_build_targets_point_to_namespaced_core() -> None:
     assert "src/mo" in core_job["include-dirs"]
 
 
-def test_cuda_build_policy_environment_wiring() -> None:
+def test_cibuildwheel_linux_repair_command() -> None:
     root = Path(__file__).resolve().parents[3]
 
     with (root / "pyproject.toml").open("rb") as f:
         config = tomllib.load(f)
 
-    # Ensure there is a CIBW env configuration placeholder for CUDA builds
-    # even if it's currently empty, to satisfy the packaging contract.
     cibw = config.get("tool", {}).get("cibuildwheel", {})
     assert "linux" in cibw
     assert "repair-wheel-command" in cibw["linux"]
