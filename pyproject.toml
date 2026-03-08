@@ -134,7 +134,8 @@ split-on-trailing-comma = false
     "S101",
     "S603",
     "PLR2004",
-    "SLF001",
+    "SLF001", 
+    "E402"
 ]
 "src/py/mogemma/typing.py" = ["A005"]
 "src/mo/tests/test_*.py" = [
@@ -207,3 +208,6 @@ first_value = "1"
 
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
+
+[tool.cibuildwheel.macos]
+repair-wheel-command = ""
