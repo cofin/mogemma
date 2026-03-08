@@ -4,10 +4,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _EMPTY_PATH_MSG = "model_path must be a non-empty local path or a valid Google model id"
+_EMPTY_CACHE_PATH_MSG = "cache_path must be an absolute or relative directory path"
 _EMPTY_SEQUENCE_MSG = "max_sequence_length must be greater than 0"
 _INVALID_BATCH_SIZE_MSG = "batch_size must be greater than 0"
 _INVALID_TOKENS_MSG = "max_tokens must be greater than 0"
 _EMPTY_TOKENIZER_PATH_HINT = "Use an existing local directory or a valid Google model id"
+_INVALID_ARCH_OVERRIDES_MSG = "architecture_overrides must be a dict[str, int | float] or None"
 
 
 @dataclass(frozen=True)
@@ -17,8 +19,14 @@ class EmbeddingConfig:
     model_path: Path | str = "gemma3-270m-it"
     """Path to the local Gemma 3 model weights or Google model ID."""
 
+    cache_path: Path | str | None = None
+    """Optional base directory for downloaded model cache."""
+
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
+
+    architecture_overrides: dict[str, int | float] | None = None
+    """Optional architecture values passed through to Mojo init."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""
@@ -37,11 +45,14 @@ class EmbeddingConfig:
 
         if model_path_str in {".", ".."}:
             raise ValueError(_EMPTY_PATH_MSG)
+        if self.cache_path is not None and str(self.cache_path) in {"", ".", ".."}:
+            raise ValueError(_EMPTY_CACHE_PATH_MSG)
 
         if self.max_sequence_length <= 0:
             raise ValueError(_EMPTY_SEQUENCE_MSG)
         if self.batch_size <= 0:
             raise ValueError(_INVALID_BATCH_SIZE_MSG)
+        _validate_architecture_overrides(self.architecture_overrides)
 
 
 @dataclass(frozen=True)
@@ -51,8 +62,14 @@ class GenerationConfig:
     model_path: Path | str = "gemma3-270m-it"
     """Path to the local Gemma 3 model weights or Google model ID."""
 
+    cache_path: Path | str | None = None
+    """Optional base directory for downloaded model cache."""
+
     device: str = "cpu"
     """Execution device (e.g., 'cpu', 'gpu')."""
+
+    architecture_overrides: dict[str, int | float] | None = None
+    """Optional architecture values passed through to Mojo init."""
 
     max_sequence_length: int = 512
     """Maximum input sequence length."""
@@ -86,7 +103,22 @@ class GenerationConfig:
             raise ValueError(_EMPTY_PATH_MSG)
         if model_path_str in {".", ".."}:
             raise ValueError(_EMPTY_PATH_MSG)
+        if self.cache_path is not None and str(self.cache_path) in {"", ".", ".."}:
+            raise ValueError(_EMPTY_CACHE_PATH_MSG)
         if self.max_sequence_length <= 0:
             raise ValueError(_EMPTY_SEQUENCE_MSG)
         if self.max_tokens <= 0:
             raise ValueError(_INVALID_TOKENS_MSG)
+        _validate_architecture_overrides(self.architecture_overrides)
+
+
+def _validate_architecture_overrides(overrides: dict[str, int | float] | None) -> None:
+    if overrides is None:
+        return
+    if not isinstance(overrides, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise TypeError(_INVALID_ARCH_OVERRIDES_MSG)
+    for key, value in overrides.items():
+        if not isinstance(key, str) or not key:  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(_INVALID_ARCH_OVERRIDES_MSG)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(_INVALID_ARCH_OVERRIDES_MSG)

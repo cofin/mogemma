@@ -27,7 +27,6 @@ help: ## Display this help
 install: clean ## Install everything (Python, Mojo, Beads)
 	@echo "${INFO} Installing..."
 	@if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
-	@uv python pin 3.10
 	@uv venv
 	@$(MAKE) py-install
 	@$(MAKE) beads-install
@@ -35,8 +34,8 @@ install: clean ## Install everything (Python, Mojo, Beads)
 
 .PHONY: beads-install
 beads-install: ## Install beads
-	@if ! command -v bd >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash; fi
-	@if [ ! -f .beads/config.yaml ]; then bd init --stealth || true; fi
+	@if ! command -v br >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh | bash; fi
+	@if [ ! -f .beads/config.yaml ]; then br init --prefix mogemma || true; fi
 
 .PHONY: py-install
 py-install: ## Install Python deps
@@ -47,6 +46,7 @@ build: ## Build Mojo python extension using hatch-mojo
 	@echo "${INFO} Building Mojo core..."
 	@mkdir -p src/py/mogemma
 	@uv build --wheel
+	@uv run python -c 'import glob,zipfile;from pathlib import Path;w=sorted(glob.glob("dist/mogemma-*.whl"));assert w,"No built wheel found under dist/";p=Path("src/py/mogemma/_core.so");z=zipfile.ZipFile(w[-1]);p.write_bytes(z.read("mogemma/_core.so"));z.close();print(f"Staged {p} from {w[-1]}")'
 
 .PHONY: smoke-test
 smoke-test: ## Run the Mojo bridge smoke test
@@ -67,12 +67,12 @@ lint: ## Lint and format code (Python, Mojo)
 	@uv run ruff format --check src/py
 	@echo "${INFO} Type checking Python (mypy)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run mypy src/py/mogemma
+	@uv run mypy
 	@echo "${INFO} Type checking Python (pyright)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pyright src/py/mogemma
+	@uv run pyright
 	@echo "${INFO} Formatting Mojo..."
-	# @mojo format src/mo
+	@uv run mojo format --line-length 120 src/mo
 	@echo "${OK} Lint complete"
 
 .PHONY: check-release
@@ -84,18 +84,18 @@ check-release: ## Run release preflight checks (lint + tests)
 	@uv run ruff format --check src/py
 	@echo "${INFO} Type checking Python (mypy)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run mypy src/py/mogemma
+	@uv run mypy
 	@echo "${INFO} Type checking Python (pyright)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pyright src/py/mogemma
+	@uv run pyright
 	@$(MAKE) test
 	@$(MAKE) benchmark
 	@echo "${OK} Release preflight checks passed"
 
 .PHONY: type-check
 type-check: ## Run all type checkers
-	@uv run mypy src/py/$(PROJECT_NAME)
-	@uv run pyright src/py/$(PROJECT_NAME)
+	@uv run mypy
+	@uv run pyright
 
 .PHONY: coverage
 coverage: ## Run tests with coverage reports

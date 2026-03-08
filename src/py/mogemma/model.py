@@ -3,12 +3,16 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Generator, Sequence
+from enum import Enum
 from pathlib import Path
 from typing import Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
 
+from .backends import DeviceSelection, EmbeddingBackend, GenerationBackend, resolve_device_selection
+from .backends import resolve_embedding_backend as _resolve_embedding_backend_impl
+from .backends import resolve_generation_backend as _resolve_generation_backend_impl
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
 from .loader import ModelLoader, auto_loader
@@ -18,7 +22,7 @@ from .typing import SENTENCEPIECE_INSTALLED, _SPProcessorImpl
 try:
     from . import _core
 except ImportError:
-    # Allow fallback for development/testing if .so is missing
+    # Keep import optional for development/testing environments.
     _core = None
 
 
@@ -73,31 +77,135 @@ _INSTRUCTION_START = "<start_of_turn>"
 _INSTRUCTION_END = "<end_of_turn>"
 
 
-def _resolve_model_path(raw_model_path: str | Path) -> Path:
+class ModelVariant(str, Enum):
+    """Enumeration of supported model architectural variants."""
+
+    STANDARD = "gemma_standard"
+    NANO = "gemma_nano"
+
+
+def _resolve_model_path(raw_model_path: str | Path, cache_path: str | Path | None = None) -> Path:
     """Resolve user-supplied model input consistently for all model types."""
-    return HubManager().resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
+    return HubManager(cache_path=cache_path).resolve_model(str(raw_model_path), download_if_missing=True, strict=True)
 
 
-def _initialize_llm(loader: ModelLoader, *, model_type: str) -> object:
+def _core_unavailable_message(model_type: str) -> str:
+    if model_type == "embedding":
+        return (
+            "Mojo core is unavailable for embeddings. "
+            "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
+        )
+    return (
+        "Mojo core is unavailable for text generation. "
+        "Build/install the `mogemma._core` extension before calling generate()."
+    )
+
+
+def _detect_model_variant(metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> ModelVariant:
+    """Classify model variant from tensor metadata names."""
+    keys = metadata.keys()
+    # Nano conversion emits per-layer map and Laurel tensors absent in standard Gemma.
+    if any(".per_layer_map." in name or ".laurel." in name or ".post_laurel_layernorm." in name for name in keys):
+        return ModelVariant.NANO
+    return ModelVariant.STANDARD
+
+
+def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) -> dict[str, int | float] | None:
+    if overrides is None:
+        return None
+    normalized: dict[str, int | float] = {}
+    for key, value in overrides.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):  # pyright: ignore[reportUnnecessaryIsInstance]
+            msg = "architecture_overrides values must be numeric (int|float)"
+            raise TypeError(msg)
+        normalized[key] = value
+    return normalized
+
+
+def _invoke_init_model_with_options(
+    _core: object,
+    metadata: dict[str, tuple[int, tuple[int, ...], str]],
+    overrides: dict[str, int | float],
+    descriptor: dict[str, object],
+) -> object:
+    init_model_with_options = getattr(_core, "init_model_with_options", None)
+    if callable(init_model_with_options):
+        return init_model_with_options(metadata, overrides, descriptor)
+    return None
+
+
+def _invoke_legacy_init_model(
+    _core: object,
+    metadata: dict[str, tuple[int, tuple[int, ...], str]],
+    overrides: dict[str, int | float] | None,
+    backend: GenerationBackend | EmbeddingBackend,
+) -> object:
+    if overrides is None:
+        return backend.init_model(metadata)
+
+    init_model_fn = getattr(_core, "init_model", None)
+    if not callable(init_model_fn):
+        msg = "Mojo core does not expose init_model(metadata, architecture_overrides)"
+        raise TypeError(msg)
+    try:
+        return init_model_fn(metadata, overrides)
+    except TypeError as exc:
+        msg = (
+            "Mojo core init_model does not accept architecture_overrides. "
+            "Rebuild/install a compatible mogemma._core extension."
+        )
+        raise RuntimeError(msg) from exc
+
+
+def _initialize_llm(
+    loader: ModelLoader,
+    backend: GenerationBackend | EmbeddingBackend,
+    *,
+    device_selection: DeviceSelection,
+    model_type: str,
+    architecture_overrides: dict[str, int | float] | None = None,
+) -> object:
     if _core is None:
-        if model_type == "embedding":
-            msg = (
-                "Mojo core is unavailable for embeddings. "
-                "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
-            )
-        else:
-            msg = (
-                "Mojo core is unavailable for text generation. "
-                "Build/install the `mogemma._core` extension before calling generate()."
-            )
-        raise RuntimeError(msg)
+        raise RuntimeError(_core_unavailable_message(model_type))
+
+    metadata = loader.get_tensor_metadata()
+
+    normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
+    descriptor = device_selection.as_runtime_descriptor()
 
     try:
-        metadata = loader.get_tensor_metadata()
-        return _core.init_model(metadata)
+        llm = _invoke_init_model_with_options(_core, metadata, normalized_overrides or {}, descriptor)
+        if llm is None:
+            llm = _invoke_legacy_init_model(_core, metadata, normalized_overrides, backend)
+    except ValueError:
+        raise
     except Exception as exc:
         msg = f"{model_type} model failed to initialize from '{loader.model_path}': {exc}"
         raise RuntimeError(msg) from exc
+
+    if isinstance(llm, dict):
+        llm.setdefault("device_selection", descriptor)
+        llm.setdefault("device_backend", device_selection.backend)
+        llm.setdefault("device_kind", device_selection.device_kind)
+        llm.setdefault("device_index", device_selection.device_index)
+        llm.setdefault("device_request", device_selection.requested)
+        llm.setdefault("device_availability_source", device_selection.availability_source)
+        llm.setdefault("device_strict", device_selection.strict)
+        if normalized_overrides:
+            llm.setdefault("architecture_overrides", normalized_overrides)
+    return llm
+
+
+def _resolve_generation_backend(device: str) -> GenerationBackend:
+    if _core is None:
+        raise RuntimeError(_core_unavailable_message("generation"))
+    return _resolve_generation_backend_impl(device=device, core_module=_core)
+
+
+def _resolve_embedding_backend(device: str) -> EmbeddingBackend:
+    if _core is None:
+        raise RuntimeError(_core_unavailable_message("embedding"))
+    return _resolve_embedding_backend_impl(device=device, core_module=_core)
 
 
 def _sample_next_token(logits: npt.ArrayLike, *, temperature: float, top_k: int, top_p: float) -> int:
@@ -173,6 +281,30 @@ def _format_instruction_prompt(prompt: str) -> str:
     return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
 
 
+def _reset_llm_session_state(llm: object) -> None:
+    """Reset mutable session fields before a new generation run."""
+    if not isinstance(llm, dict):
+        return
+
+    llm["pos"] = 0
+    for cache_key in ("k_cache", "v_cache"):
+        cache = llm.get(cache_key)
+        if cache is None:
+            continue
+        if hasattr(cache, "fill"):
+            cache.fill(0.0)
+            continue
+        if isinstance(cache, list):
+            for i in range(len(cache)):
+                cache[i] = 0.0
+            continue
+        try:
+            np.asarray(cache).fill(0.0)
+        except (TypeError, ValueError, AttributeError, NotImplementedError):
+            # Keep reset best-effort for backend-specific cache containers.
+            continue
+
+
 class EmbeddingModel:
     """Python interface for the Gemma 3 embedding engine."""
 
@@ -190,12 +322,31 @@ class EmbeddingModel:
         self.config = config
         self._tokenizer = tokenizer
 
+        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         # Resolve model path (Hub or local)
-        self.model_path = _resolve_model_path(config.model_path)
+        self.model_path = _resolve_model_path(config.model_path, config.cache_path)
         self._loader = auto_loader(self.model_path)
+        self._backend = _resolve_embedding_backend(self._device_selection.effective_device)
+        self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(self._loader, model_type="embedding")
+        self._llm: object | None = _initialize_llm(
+            self._loader,
+            self._backend,
+            device_selection=self._device_selection,
+            model_type="embedding",
+            architecture_overrides=config.architecture_overrides,
+        )
+
+    def __del__(self) -> None:
+        """Free underlying unmanaged runtime state."""
+        if (
+            hasattr(self, "_backend")
+            and hasattr(self, "_llm")
+            and self._llm is not None
+            and hasattr(self._backend, "free_model")
+        ):
+            self._backend.free_model(self._llm)
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -216,14 +367,19 @@ class EmbeddingModel:
         raise FileNotFoundError(msg)
 
     def _embed_token_array(self, tokens: Sequence[Sequence[int]], input_count: int) -> npt.NDArray[np.float32]:
-        if _core is None or self._llm is None:
-            msg = (
-                "Mojo core is unavailable for embeddings. "
-                "Build/install the `mogemma._core` extension before calling embed()/embed_tokens()."
-            )
-            raise RuntimeError(msg)
+        if self._llm is None:
+            raise RuntimeError(_core_unavailable_message("embedding"))
 
-        raw_embeddings = _core.generate_embeddings(self._llm, tokens)
+        if input_count > 0:
+            expected_len = len(tokens[0])
+            if any(len(row) != expected_len for row in tokens):
+                msg = (
+                    "all token sequences in a batch must have the exact same length "
+                    "(padding is required for batch inference)"
+                )
+                raise ValueError(msg)
+
+        raw_embeddings = self._backend.generate_embeddings(self._llm, tokens)
         embeddings = np.asarray(raw_embeddings, dtype=np.float32)
 
         if embeddings.ndim != _EXPECTED_MATRIX_DIMS:
@@ -291,13 +447,32 @@ class SyncGemmaModel:
         self.config = config
         self._tokenizer = tokenizer
 
+        self._device_selection: DeviceSelection = resolve_device_selection(config.device)
         # Resolve model path (Hub or local)
-        self.model_path = _resolve_model_path(config.model_path)
+        self.model_path = _resolve_model_path(config.model_path, config.cache_path)
         self._loader = auto_loader(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
+        self._backend = _resolve_generation_backend(self._device_selection.effective_device)
+        self._backend_id = self._backend.backend_id
 
         # Initialize Mojo core
-        self._llm: object | None = _initialize_llm(self._loader, model_type="generation")
+        self._llm: object | None = _initialize_llm(
+            self._loader,
+            self._backend,
+            device_selection=self._device_selection,
+            model_type="generation",
+            architecture_overrides=config.architecture_overrides,
+        )
+
+    def __del__(self) -> None:
+        """Free underlying unmanaged runtime state."""
+        if (
+            hasattr(self, "_backend")
+            and hasattr(self, "_llm")
+            and self._llm is not None
+            and hasattr(self._backend, "free_model")
+        ):
+            self._backend.free_model(self._llm)
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -331,18 +506,13 @@ class SyncGemmaModel:
             if not tokens or tokens[0] != _BOS_TOKEN_ID:
                 tokens = [_BOS_TOKEN_ID, *list(tokens)]
 
-        if _core is None or self._llm is None:
-            msg = (
-                "Mojo core is unavailable for text generation. "
-                "Build/install the `mogemma._core` extension before calling generate()."
-            )
-            raise RuntimeError(msg)
+        if self._llm is None:
+            raise RuntimeError(_core_unavailable_message("generation"))
 
-        if isinstance(self._llm, dict):
-            self._llm["pos"] = 0
+        _reset_llm_session_state(self._llm)
 
         for t in tokens[:-1]:
-            _core.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
+            self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
 
         if tokens:
             current_token = int(tokens[-1])
@@ -352,7 +522,9 @@ class SyncGemmaModel:
 
         eos_token_id = _normalize_eos_token_id(tokenizer)
         for _ in range(self.config.max_tokens):
-            logits = _core.step(self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p)
+            logits = self._backend.step(
+                self._llm, current_token, self.config.temperature, self.config.top_k, self.config.top_p
+            )
 
             next_token = _sample_next_token(
                 logits, temperature=self.config.temperature, top_k=self.config.top_k, top_p=self.config.top_p
@@ -361,7 +533,7 @@ class SyncGemmaModel:
                 return
 
             decoded = tokenizer.decode([next_token])
-            if not isinstance(decoded, str):
+            if not isinstance(decoded, str):  # pyright: ignore[reportUnnecessaryIsInstance]
                 msg = "tokenizer.decode returned non-string output"
                 raise TypeError(msg)
             if not decoded:

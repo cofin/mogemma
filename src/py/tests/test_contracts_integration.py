@@ -70,6 +70,12 @@ def mock_core_init_failure(monkeypatch: pytest.MonkeyPatch) -> None:
             msg = "checkpoint missing or unreadable"
             raise RuntimeError(msg)
 
+        def step(self, *args: object, **kwargs: object) -> object:
+            pass
+
+        def generate_embeddings(self, *args: object, **kwargs: object) -> object:
+            pass
+
     monkeypatch.setattr(model_module, "_core", CoreInitFailure())
 
 

@@ -7,19 +7,14 @@ import pytest
 MO_TESTS_DIR = Path(__file__).parent
 MOJO_TEST_TIMEOUT_SECONDS = int(os.getenv("MOGEMMA_MOJO_TEST_TIMEOUT_SECONDS", "90"))
 RUN_UNSTABLE_MOJO_TESTS = os.getenv("MOGEMMA_RUN_UNSTABLE_MOJO_TESTS", "0") == "1"
-UNSTABLE_MOJO_TESTS = {
-    "test_layers.mojo",
-    "test_nano_layers.mojo",
-}
+UNSTABLE_MOJO_TESTS = {"test_layers.mojo", "test_nano_layers.mojo"}
 
-@pytest.mark.parametrize("test_file", [
-    "test_layers.mojo",
-    "test_model.mojo",
-    "test_ops.mojo",
-    "test_nano_layers.mojo",
-    "test_altup_contract.mojo",
-])
-def test_mojo_unit_tests(test_file):
+
+@pytest.mark.parametrize(
+    "test_file",
+    ["test_layers.mojo", "test_model.mojo", "test_ops.mojo", "test_nano_layers.mojo", "test_altup_contract.mojo"],
+)
+def test_mojo_unit_tests(test_file: str) -> None:
     if test_file in UNSTABLE_MOJO_TESTS and not RUN_UNSTABLE_MOJO_TESTS:
         pytest.skip(
             "Known unstable on Mojo 0.26.1 in CI/local (hang/crash). "
@@ -30,13 +25,7 @@ def test_mojo_unit_tests(test_file):
     cmd = ["mojo", "-I", str(MO_TESTS_DIR.parent), str(test_path)]
     try:
         # Use -I src/mo to include the mogemma module.
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=MOJO_TEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=MOJO_TEST_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""
         stderr = exc.stderr or ""

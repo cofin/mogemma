@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-import concurrent.futures
+import asyncio
 import logging
+import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import obstore as obs
@@ -17,7 +20,11 @@ class HubManager:
     def __init__(self, cache_path: str | Path | None = None) -> None:
         """Initialize the HubManager."""
         if cache_path is None:
-            self.cache_path = Path.home() / ".cache" / "mogemma"
+            configured_cache_path = os.getenv("MOGEMMA_CACHE_DIR")
+            if configured_cache_path:
+                self.cache_path = Path(configured_cache_path)
+            else:
+                self.cache_path = Path.home() / ".cache" / "mogemma"
         else:
             self.cache_path = Path(cache_path)
 
@@ -68,7 +75,7 @@ class HubManager:
             return cached_path
 
         if download_if_missing:
-            return self.download(model_id)
+            return self.download_sync(model_id)
 
         if strict:
             msg = (
@@ -85,6 +92,21 @@ class HubManager:
     class ModelNotFoundError(FileNotFoundError):
         """Raised when a model is not found in the public bucket."""
 
+    @staticmethod
+    def _is_within_cache_root(path: Path, cache_root: Path) -> bool:
+        """Return ``True`` when *path* resolves under *cache_root*."""
+        try:
+            path.resolve(strict=False).relative_to(cache_root.resolve(strict=False))
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _cleanup_dir(path: Path) -> None:
+        """Remove *path* recursively when it exists."""
+        if path.exists():
+            shutil.rmtree(path)
+
     def _get_tokenizer_path(self, clean_id: str) -> str | None:
         """Determine the tokenizer path based on model family."""
         if "gemma3n" in clean_id:
@@ -95,14 +117,20 @@ class HubManager:
             return "tokenizers/tokenizer_gemma2.model"
         return None
 
-    def _list_remote_files(self, store: obs.store.GCSStore, prefix: str, clean_id: str) -> list[str]:
-        """List all files under the given prefix in GCS."""
-        paths = []
+    def _make_store(self) -> obs.store.GCSStore:
+        return obs.store.GCSStore("gemma-data", config={"skip_signature": "true"})  # type: ignore[arg-type]
+
+    @staticmethod
+    def _normalize_list_page(page: object) -> list[object]:
+        return list(page) if isinstance(page, list) else [page]
+
+    def _list_remote_files_sync(self, store: obs.store.GCSStore, prefix: str, clean_id: str) -> list[str]:
+        paths: list[str] = []
         try:
             for page in obs.list(store, prefix):
-                items = page if isinstance(page, list) else [page]
-                for item in items:
-                    path = item["path"]  # pyright: ignore[reportCallIssue,reportArgumentType]
+                for item in self._normalize_list_page(page):
+                    # We know item is a dict-like object returned by obstore
+                    path = item["path"]  # type: ignore[index]
                     if not path.endswith("_$folder$"):
                         paths.append(path)
         except Exception as exc:
@@ -110,38 +138,157 @@ class HubManager:
             raise self.GCSDownloadError(msg) from exc
         return paths
 
-    def download(self, model_id: str) -> Path:
-        """Download a model directly from Google Cloud Storage using obstore."""
+    async def _list_remote_files_async(self, store: obs.store.GCSStore, prefix: str, clean_id: str) -> list[str]:
+        paths: list[str] = []
+        try:
+            async for page in store.list_async(prefix):
+                for item in self._normalize_list_page(page):
+                    path = item["path"]  # type: ignore[index]
+                    if not path.endswith("_$folder$"):
+                        paths.append(path)
+        except Exception as exc:
+            msg = f"Failed to list model {clean_id} from GCS: {exc}"
+            raise self.GCSDownloadError(msg) from exc
+        return paths
+
+    @staticmethod
+    def _write_file(destination: Path, data: bytes) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    def _finalize_download(
+        self, clean_id: str, local_dir: Path, staging_dir: Path, *, tokenizer_required: bool
+    ) -> Path:
+        if tokenizer_required and not (staging_dir / "tokenizer.model").exists():
+            msg = f"Download failed for '{clean_id}': integrity error (missing tokenizer.model)"
+            raise ValueError(msg)
+        if not self._has_model_files(staging_dir):
+            msg = f"Download failed for '{clean_id}': integrity error (missing model artifacts)"
+            raise ValueError(msg)
+        if not self._is_within_cache_root(local_dir, self.cache_path):
+            msg = f"Downloader returned invalid cache path for '{clean_id}'"
+            raise ValueError(msg)
+        if local_dir.exists():
+            self._cleanup_dir(local_dir)
+        staging_dir.rename(local_dir)
+        self._ensure_safetensors(local_dir)
+        return local_dir
+
+    def download_sync(self, model_id: str) -> Path:
+        """Download a model via the obstore native backend."""
         clean_id = self._clean_model_id(model_id)
         local_dir = self._cache_dir_for_model_id(self.cache_path, model_id)
-        local_dir.mkdir(parents=True, exist_ok=True)
-
-        store = obs.store.GCSStore("gemma-data", config={"skip_signature": "true"})  # type: ignore[arg-type]
         prefix = f"checkpoints/{clean_id}/"
+        store = self._make_store()
+        tokenizer_path = self._get_tokenizer_path(clean_id)
 
-        paths_to_download = self._list_remote_files(store, prefix, clean_id)
+        paths_to_download = self._list_remote_files_sync(store, prefix, clean_id)
         if not paths_to_download:
             msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
             raise self.ModelNotFoundError(msg)
-
-        tokenizer_path = self._get_tokenizer_path(clean_id)
         if tokenizer_path:
             paths_to_download.append(tokenizer_path)
 
-        def _download_file(remote_path: str) -> None:
-            data = obs.get(store, remote_path)
-            rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
-            out_file = local_dir / rel_path
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            with out_file.open("wb") as f:
-                f.writelines(data.stream())
+        try:
+            logger.info("Downloading %d files for %s from Google Cloud Storage...", len(paths_to_download), model_id)
+            staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
+            try:
+                for remote_path in paths_to_download:
+                    result = obs.get(store, remote_path)
+                    data = result.bytes().to_bytes()
+                    rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
+                    self._write_file(staging_dir / rel_path, data)
+                return self._finalize_download(
+                    clean_id, local_dir, staging_dir, tokenizer_required=tokenizer_path is not None
+                )
+            except Exception:
+                self._cleanup_dir(staging_dir)
+                raise
+        except Exception:
+            if local_dir.exists() and not self._has_model_files(local_dir):
+                self._cleanup_dir(local_dir)
+            raise
 
-        logger.info("Downloading %d files for %s from Google Cloud Storage...", len(paths_to_download), model_id)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            list(executor.map(_download_file, paths_to_download))
+    async def download_async(self, model_id: str) -> Path:
+        """Download a model via obstore's native async backend."""
+        clean_id = self._clean_model_id(model_id)
+        local_dir = self._cache_dir_for_model_id(self.cache_path, model_id)
+        prefix = f"checkpoints/{clean_id}/"
+        store = self._make_store()
+        tokenizer_path = self._get_tokenizer_path(clean_id)
 
-        self._ensure_safetensors(local_dir)
-        return local_dir
+        paths_to_download = await self._list_remote_files_async(store, prefix, clean_id)
+        if not paths_to_download:
+            msg = f"Model '{clean_id}' was not found in the public gemma-data bucket."
+            raise self.ModelNotFoundError(msg)
+        if tokenizer_path:
+            paths_to_download.append(tokenizer_path)
+
+        try:
+            logger.info("Downloading %d files for %s from Google Cloud Storage...", len(paths_to_download), model_id)
+            staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
+            try:
+                for remote_path in paths_to_download:
+                    result = await obs.get_async(store, remote_path)
+                    data = (await result.bytes_async()).to_bytes()
+                    rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
+                    await asyncio.to_thread(self._write_file, staging_dir / rel_path, data)
+                return await asyncio.to_thread(
+                    self._finalize_download,
+                    clean_id,
+                    local_dir,
+                    staging_dir,
+                    tokenizer_required=tokenizer_path is not None,
+                )
+            except Exception:
+                await asyncio.to_thread(self._cleanup_dir, staging_dir)
+                raise
+        except Exception:
+            if local_dir.exists() and not self._has_model_files(local_dir):
+                await asyncio.to_thread(self._cleanup_dir, local_dir)
+            raise
+
+    async def resolve_model_async(
+        self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **_kwargs: object
+    ) -> Path:
+        """Resolve a model ID to a local path without blocking the active asyncio event loop."""
+        local_path = Path(model_id)
+
+        def _check_local() -> tuple[bool, bool]:
+            return local_path.exists(), local_path.is_dir()
+
+        local_exists, local_is_dir = await asyncio.to_thread(_check_local)
+
+        if local_exists and local_is_dir:
+            return local_path
+
+        if local_exists and not local_is_dir:
+            msg = f"Model path '{model_id}' exists but is not a directory."
+            if strict:
+                raise ValueError(msg)
+            return local_path
+
+        cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
+
+        def _check_cached() -> bool:
+            return cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path)
+
+        cached_valid = await asyncio.to_thread(_check_cached)
+
+        if cached_valid:
+            await asyncio.to_thread(self._ensure_safetensors, cached_path)
+            return cached_path
+
+        if download_if_missing:
+            return await self.download_async(model_id)
+
+        if strict:
+            msg = (
+                f"Cannot resolve model path '{model_id}'. "
+                "Use an existing local directory or a valid Google model id (e.g., gemma-3-1b-it)."
+            )
+            raise ValueError(msg)
+        return Path(model_id)
 
     @classmethod
     def _ensure_safetensors(cls, path: Path) -> None:

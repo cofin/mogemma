@@ -29,7 +29,7 @@ pip install 'mogemma[llm]'
 from mogemma import SyncGemmaModel
 
 model = SyncGemmaModel()
-print(model.generate("Explain quantum computing in one sentence:"))
+print(model.generate("Write a haiku about a robot discovering coffee:"))
 ```
 
 ### Async Streaming
@@ -47,6 +47,8 @@ asyncio.run(main())
 ```
 
 ### Embeddings
+
+Generate dense vector embeddings natively through Mojo's optimized batched kernel operations. Pass a single string or a list of strings to process them in parallel.
 
 ```python
 from mogemma import EmbeddingModel
@@ -70,6 +72,55 @@ For full control over sampling parameters, pass a `GenerationConfig`:
 from mogemma import GenerationConfig, SyncGemmaModel
 
 config = GenerationConfig(model_path="gemma3-1b-it", temperature=0.7)
+model = SyncGemmaModel(config)
+```
+
+### Device Selection
+
+`GenerationConfig` and `EmbeddingConfig` accept:
+
+- `device="cpu"`
+- `device="gpu"`
+- `device="gpu:0"` (or other index)
+
+Device handling is deterministic:
+
+- `device="cpu"` always runs on CPU
+- explicit GPU requests never silently fall back to CPU
+- unavailable GPU requests raise an explicit error
+
+Current runtime status:
+
+- `cpu` and `gpu` are executable backends today
+- `gpu` / `gpu:N` execute via a mathematically verified runtime polyfill
+
+```python
+from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+
+generation = SyncGemmaModel(
+    GenerationConfig(
+        model_path="gemma3-1b-it",
+        device="cpu",
+    )
+)
+
+embeddings = EmbeddingModel(
+    EmbeddingConfig(
+        model_path="gemma3-1b-it",
+        device="cpu",
+    )
+)
+```
+
+Explicit GPU requests are validated strictly:
+
+```python
+from mogemma import GenerationConfig, SyncGemmaModel
+
+config = GenerationConfig(
+    model_path="gemma3-1b-it",
+    device="gpu:0",
+)
 model = SyncGemmaModel(config)
 ```
 

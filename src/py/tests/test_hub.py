@@ -27,6 +27,22 @@ def test_hub_manager_custom_path(tmp_path: Path) -> None:
     assert hub.cache_path == tmp_path
 
 
+def test_hub_manager_env_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify env cache path is used when explicit cache_path is absent."""
+    monkeypatch.setenv("MOGEMMA_CACHE_DIR", str(tmp_path))
+    hub = HubManager()
+    assert hub.cache_path == tmp_path
+
+
+def test_hub_manager_explicit_path_overrides_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify explicit cache_path wins over env cache path."""
+    env_path = tmp_path / "env"
+    explicit_path = tmp_path / "explicit"
+    monkeypatch.setenv("MOGEMMA_CACHE_DIR", str(env_path))
+    hub = HubManager(cache_path=explicit_path)
+    assert hub.cache_path == explicit_path
+
+
 def test_resolve_model_path_local(tmp_path: Path) -> None:
     """Verify local model directories are returned directly."""
     model_dir = tmp_path / "gemma-3-4b"

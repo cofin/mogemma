@@ -19,14 +19,16 @@ _TokenizerImpl: Any | None = None
 trace: Any | None
 
 try:
-    import sentencepiece as _sp  # type: ignore[import-untyped]
+    import sentencepiece as _sp  # type: ignore[import-untyped,import-not-found] # pyright: ignore[reportMissingImports]
 
     _SPProcessorImpl = _sp.SentencePieceProcessor
 except ModuleNotFoundError:
     _SPProcessorImpl = None
 
 try:
-    from opentelemetry import trace as _trace
+    from opentelemetry import (
+        trace as _trace,  # type: ignore[import-not-found,attr-defined] # pyright: ignore[reportMissingImports]
+    )
 except ModuleNotFoundError:
     trace = None
 else:
