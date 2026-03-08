@@ -489,11 +489,13 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None) -> str:
         """Generate text from the given prompt."""
-        return "".join(list(self.generate_stream(prompt)))
+        return "".join(list(self.generate_stream(prompt, images=images)))
 
-    def generate_stream(self, prompt: str) -> Generator[str, None, None]:
+    def generate_stream(
+        self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None
+    ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
         prompt_to_encode = _format_instruction_prompt(prompt) if self._instruction_tuned else prompt
@@ -510,6 +512,9 @@ class SyncGemmaModel:
             raise RuntimeError(_core_unavailable_message("generation"))
 
         _reset_llm_session_state(self._llm)
+
+        if images is not None:
+            self._backend.process_images(self._llm, images)
 
         for t in tokens[:-1]:
             self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
@@ -559,13 +564,15 @@ class AsyncGemmaModel:
         """
         self._model = SyncGemmaModel(config)
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None) -> str:
         """Generate text asynchronously."""
-        return await asyncio.to_thread(self._model.generate, prompt)
+        return await asyncio.to_thread(self._model.generate, prompt, images)
 
-    async def generate_stream(self, prompt: str) -> AsyncIterator[str]:
+    async def generate_stream(
+        self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None
+    ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
-        generator = self._model.generate_stream(prompt)
+        generator = self._model.generate_stream(prompt, images=images)
 
         def get_next() -> str | None:
             try:
