@@ -10,6 +10,7 @@ import pytest
 
 import mogemma.model as model_module
 from mogemma import EmbeddingConfig, EmbeddingModel
+from mogemma.backends import DeviceSelection
 from mogemma.hub import HubManager
 
 
@@ -336,13 +337,13 @@ def test_embedding_model_defaults_to_cpu_backend(
             return np.ones((1, 768), dtype=np.float32)
 
     seen_devices: list[str] = []
+
+    def _mock_resolve(device: str) -> BackendStub:
+        seen_devices.append(device)
+        return BackendStub()
+
     monkeypatch.setattr(model_module, "_core", object())
-    monkeypatch.setattr(
-        model_module,
-        "_resolve_embedding_backend",
-        lambda device: (seen_devices.append(device), BackendStub())[1],
-        raising=False,
-    )
+    monkeypatch.setattr(model_module, "_resolve_embedding_backend", _mock_resolve, raising=False)
 
     model = EmbeddingModel(EmbeddingConfig(model_path=Path(dummy_model_path), device="cpu"))
 
@@ -368,7 +369,7 @@ def test_embedding_model_uses_normalized_backend_descriptor(
 
     def fake_resolve_device_selection(device: str) -> object:
         seen["request"] = device
-        return model_module.DeviceSelection(
+        return DeviceSelection(
             requested=device,
             backend="cpu",
             device_kind="cpu",
@@ -410,7 +411,7 @@ def test_embedding_model_caches_device_selection_in_runtime_state(
     monkeypatch.setattr(
         model_module,
         "resolve_device_selection",
-        lambda device: model_module.DeviceSelection(
+        lambda device: DeviceSelection(
             requested=device,
             backend="cpu",
             device_kind="cpu",

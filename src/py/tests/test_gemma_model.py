@@ -10,6 +10,7 @@ import pytest
 
 import mogemma.model as model_module
 from mogemma import GenerationConfig, SyncGemmaModel
+from mogemma.backends import DeviceSelection
 from mogemma.hub import HubManager
 
 
@@ -430,13 +431,13 @@ def test_sync_model_defaults_to_cpu_backend(
             return np.array([1.0, 0.0], dtype=np.float32)
 
     seen_devices: list[str] = []
+
+    def _mock_resolve(device: str) -> BackendStub:
+        seen_devices.append(device)
+        return BackendStub()
+
     monkeypatch.setattr(model_module, "_core", object())
-    monkeypatch.setattr(
-        model_module,
-        "_resolve_generation_backend",
-        lambda device: (seen_devices.append(device), BackendStub())[1],
-        raising=False,
-    )
+    monkeypatch.setattr(model_module, "_resolve_generation_backend", _mock_resolve, raising=False)
 
     model = SyncGemmaModel(GenerationConfig(model_path=Path(dummy_model_path), device="cpu", max_tokens=1))
 
@@ -455,7 +456,7 @@ def test_gemma_generation_resets_session_caches_between_calls(
             self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float
         ) -> npt.NDArray[np.float32]:
             del token_id, temp, top_k, top_p
-            llm["pos"] = int(llm.get("pos", 0)) + 1
+            llm["pos"] = int(str(llm.get("pos", 0))) + 1
             return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # eos immediately
 
     monkeypatch.setattr(model_module, "_core", SessionCore())
@@ -488,9 +489,9 @@ def test_gemma_generation_resets_list_backed_caches_between_calls(
             self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float
         ) -> npt.NDArray[np.float32]:
             del token_id, temp, top_k, top_p
-            self.seen_k_cache_prefix.append(list(llm["k_cache"]))  # type: ignore[arg-type]
-            self.seen_v_cache_prefix.append(list(llm["v_cache"]))  # type: ignore[arg-type]
-            llm["pos"] = int(llm.get("pos", 0)) + 1
+            self.seen_k_cache_prefix.append(list(llm["k_cache"]))  # type: ignore[arg-type,call-overload]
+            self.seen_v_cache_prefix.append(list(llm["v_cache"]))  # type: ignore[arg-type,call-overload]
+            llm["pos"] = int(str(llm.get("pos", 0))) + 1
             return np.array([5.0, 0.0, 0.0], dtype=np.float32)  # eos immediately
 
     core = ListCacheCore()
@@ -522,7 +523,7 @@ def test_gemma_generation_restarts_position_each_call(
             self, llm: dict[str, object], token_id: int, temp: float, top_k: int, top_p: float
         ) -> npt.NDArray[np.float32]:
             del token_id, temp, top_k, top_p
-            current_pos = int(llm.get("pos", 0))
+            current_pos = int(str(llm.get("pos", 0)))
             if current_pos == 0:
                 self.first_positions.append(current_pos)
             llm["pos"] = current_pos + 1
@@ -558,7 +559,7 @@ def test_generation_model_uses_normalized_backend_descriptor(
 
     def fake_resolve_device_selection(device: str) -> object:
         seen["request"] = device
-        return model_module.DeviceSelection(
+        return DeviceSelection(
             requested=device,
             backend="cpu",
             device_kind="cpu",
@@ -600,7 +601,7 @@ def test_generation_model_caches_device_selection_in_runtime_state(
     monkeypatch.setattr(
         model_module,
         "resolve_device_selection",
-        lambda device: model_module.DeviceSelection(
+        lambda device: DeviceSelection(
             requested=device,
             backend="cpu",
             device_kind="cpu",

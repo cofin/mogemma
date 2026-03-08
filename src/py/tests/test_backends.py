@@ -68,7 +68,7 @@ def test_resolve_generation_backend_uses_cpu_core_adapter() -> None:
     llm = backend.init_model({"weight": (1, (2, 3), "f32")})
     logits = backend.step(llm, 7, 0.0, 1, 1.0)
 
-    assert logits.shape == (2,)
+    assert np.shape(logits) == (2,)
     assert core.calls[0][0] == "init_model"
     assert core.calls[1][0] == "step"
 
@@ -82,7 +82,7 @@ def test_resolve_embedding_backend_uses_cpu_core_adapter() -> None:
     llm = backend.init_model({"weight": (1, (2, 3), "f32")})
     embeddings = backend.generate_embeddings(llm, [[1, 2, 3]])
 
-    assert embeddings.shape == (1, 4)
+    assert np.shape(embeddings) == (1, 4)
     assert core.calls[0][0] == "init_model"
     assert core.calls[1][0] == "generate_embeddings"
 

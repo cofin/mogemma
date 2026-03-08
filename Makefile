@@ -67,10 +67,10 @@ lint: ## Lint and format code (Python, Mojo)
 	@uv run ruff format --check src/py
 	@echo "${INFO} Type checking Python (mypy)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run mypy src/py/mogemma
+	@uv run mypy
 	@echo "${INFO} Type checking Python (pyright)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pyright src/py/mogemma
+	@uv run pyright
 	@echo "${INFO} Formatting Mojo..."
 	@uv run mojo format --line-length 120 src/mo
 	@echo "${OK} Lint complete"
@@ -84,18 +84,18 @@ check-release: ## Run release preflight checks (lint + tests)
 	@uv run ruff format --check src/py
 	@echo "${INFO} Type checking Python (mypy)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run mypy src/py/mogemma
+	@uv run mypy
 	@echo "${INFO} Type checking Python (pyright)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
-	@uv run pyright src/py/mogemma
+	@uv run pyright
 	@$(MAKE) test
 	@$(MAKE) benchmark
 	@echo "${OK} Release preflight checks passed"
 
 .PHONY: type-check
 type-check: ## Run all type checkers
-	@uv run mypy src/py/$(PROJECT_NAME)
-	@uv run pyright src/py/$(PROJECT_NAME)
+	@uv run mypy
+	@uv run pyright
 
 .PHONY: coverage
 coverage: ## Run tests with coverage reports
