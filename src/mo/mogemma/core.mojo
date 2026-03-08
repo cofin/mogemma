@@ -61,7 +61,7 @@ fn _ensure_embedding_matrix(
     return embeddings
 
 
-fn _tensor_from_meta(meta_obj: PythonObject) raises -> TensorInfo:
+fn _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject = None) raises -> TensorInfo:
     var builtins = Python.import_module("builtins")
     if not builtins.bool(meta_obj):
         return TensorInfo(0, 0, 0)
@@ -77,11 +77,17 @@ fn _tensor_from_meta(meta_obj: PythonObject) raises -> TensorInfo:
     if Int(py=builtins.len(shape_tuple)) > 1:
         s1 = Int(py=shape_tuple[1])
 
+    if builtins.bool(scale_obj):
+        var scale_tuple = scale_obj
+        var scale_ptr_int = Int(py=scale_tuple[0])
+        return TensorInfo(ptr_int, scale_ptr_int, s0, s1)
+        
     return TensorInfo(ptr_int, s0, s1)
 
 
 fn _get_tensor(metadata_obj: PythonObject, name: String) raises -> TensorInfo:
-    return _tensor_from_meta(metadata_obj.get(name))
+    var scale_name = name + "_scale"
+    return _tensor_from_meta(metadata_obj.get(name), metadata_obj.get(scale_name, None))
 
 
 @always_inline
@@ -147,6 +153,14 @@ fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
         layer_entry.append(metadata_obj.get(pfx + ".self_attn.k_norm.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"))
+        # Scales
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.gate_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.up_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.down_proj.weight_scale", None))
         layers.append(layer_entry)
         layer_idx += 1
 
@@ -209,6 +223,16 @@ fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
         layer_entry.append(metadata_obj.get(pfx + ".per_layer_map.gate.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".per_layer_map.projection.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".per_layer_map.norm.weight"))
+        
+        # Scales (for quant)
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.gate_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.up_proj.weight_scale", None))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.down_proj.weight_scale", None))
+        
         layers.append(layer_entry)
         layer_idx += 1
 
@@ -230,13 +254,13 @@ fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
         var layer = LayerWeights()
         layer.input_layernorm = _tensor_from_meta(entry[0])
         layer.post_attention_layernorm = _tensor_from_meta(entry[1])
-        layer.q_proj = _tensor_from_meta(entry[2])
-        layer.k_proj = _tensor_from_meta(entry[3])
-        layer.v_proj = _tensor_from_meta(entry[4])
-        layer.o_proj = _tensor_from_meta(entry[5])
-        layer.gate_proj = _tensor_from_meta(entry[6])
-        layer.up_proj = _tensor_from_meta(entry[7])
-        layer.down_proj = _tensor_from_meta(entry[8])
+        layer.q_proj = _tensor_from_meta(entry[2], entry[13])
+        layer.k_proj = _tensor_from_meta(entry[3], entry[14])
+        layer.v_proj = _tensor_from_meta(entry[4], entry[15])
+        layer.o_proj = _tensor_from_meta(entry[5], entry[16])
+        layer.gate_proj = _tensor_from_meta(entry[6], entry[17])
+        layer.up_proj = _tensor_from_meta(entry[7], entry[18])
+        layer.down_proj = _tensor_from_meta(entry[8], entry[19])
         layer.q_norm = _tensor_from_meta(entry[9])
         layer.k_norm = _tensor_from_meta(entry[10])
         layer.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
@@ -269,13 +293,13 @@ fn _build_nano_model_from_runtime(runtime_obj: PythonObject) raises -> NanoModel
         var layer = NanoLayerWeights()
         layer.base.input_layernorm = _tensor_from_meta(entry[0])
         layer.base.post_attention_layernorm = _tensor_from_meta(entry[1])
-        layer.base.q_proj = _tensor_from_meta(entry[2])
-        layer.base.k_proj = _tensor_from_meta(entry[3])
-        layer.base.v_proj = _tensor_from_meta(entry[4])
-        layer.base.o_proj = _tensor_from_meta(entry[5])
-        layer.base.gate_proj = _tensor_from_meta(entry[6])
-        layer.base.up_proj = _tensor_from_meta(entry[7])
-        layer.base.down_proj = _tensor_from_meta(entry[8])
+        layer.base.q_proj = _tensor_from_meta(entry[2], entry[24])
+        layer.base.k_proj = _tensor_from_meta(entry[3], entry[25])
+        layer.base.v_proj = _tensor_from_meta(entry[4], entry[26])
+        layer.base.o_proj = _tensor_from_meta(entry[5], entry[27])
+        layer.base.gate_proj = _tensor_from_meta(entry[6], entry[28])
+        layer.base.up_proj = _tensor_from_meta(entry[7], entry[29])
+        layer.base.down_proj = _tensor_from_meta(entry[8], entry[30])
         layer.base.q_norm = _tensor_from_meta(entry[9])
         layer.base.k_norm = _tensor_from_meta(entry[10])
         layer.base.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
@@ -308,13 +332,13 @@ fn _build_nano_layer_from_runtime_entry(entry: PythonObject) raises -> NanoLayer
     var layer = NanoLayerWeights()
     layer.base.input_layernorm = _tensor_from_meta(entry[0])
     layer.base.post_attention_layernorm = _tensor_from_meta(entry[1])
-    layer.base.q_proj = _tensor_from_meta(entry[2])
-    layer.base.k_proj = _tensor_from_meta(entry[3])
-    layer.base.v_proj = _tensor_from_meta(entry[4])
-    layer.base.o_proj = _tensor_from_meta(entry[5])
-    layer.base.gate_proj = _tensor_from_meta(entry[6])
-    layer.base.up_proj = _tensor_from_meta(entry[7])
-    layer.base.down_proj = _tensor_from_meta(entry[8])
+    layer.base.q_proj = _tensor_from_meta(entry[2], entry[24])
+    layer.base.k_proj = _tensor_from_meta(entry[3], entry[25])
+    layer.base.v_proj = _tensor_from_meta(entry[4], entry[26])
+    layer.base.o_proj = _tensor_from_meta(entry[5], entry[27])
+    layer.base.gate_proj = _tensor_from_meta(entry[6], entry[28])
+    layer.base.up_proj = _tensor_from_meta(entry[7], entry[29])
+    layer.base.down_proj = _tensor_from_meta(entry[8], entry[30])
     layer.base.q_norm = _tensor_from_meta(entry[9])
     layer.base.k_norm = _tensor_from_meta(entry[10])
     layer.base.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
@@ -694,13 +718,13 @@ fn _build_standard_layer_from_runtime_entry(entry: PythonObject) raises -> Layer
     var layer = LayerWeights()
     layer.input_layernorm = _tensor_from_meta(entry[0])
     layer.post_attention_layernorm = _tensor_from_meta(entry[1])
-    layer.q_proj = _tensor_from_meta(entry[2])
-    layer.k_proj = _tensor_from_meta(entry[3])
-    layer.v_proj = _tensor_from_meta(entry[4])
-    layer.o_proj = _tensor_from_meta(entry[5])
-    layer.gate_proj = _tensor_from_meta(entry[6])
-    layer.up_proj = _tensor_from_meta(entry[7])
-    layer.down_proj = _tensor_from_meta(entry[8])
+    layer.q_proj = _tensor_from_meta(entry[2], entry[13])
+    layer.k_proj = _tensor_from_meta(entry[3], entry[14])
+    layer.v_proj = _tensor_from_meta(entry[4], entry[15])
+    layer.o_proj = _tensor_from_meta(entry[5], entry[16])
+    layer.gate_proj = _tensor_from_meta(entry[6], entry[17])
+    layer.up_proj = _tensor_from_meta(entry[7], entry[18])
+    layer.down_proj = _tensor_from_meta(entry[8], entry[19])
     layer.q_norm = _tensor_from_meta(entry[9])
     layer.k_norm = _tensor_from_meta(entry[10])
     layer.pre_feedforward_layernorm = _tensor_from_meta(entry[11])

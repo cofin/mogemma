@@ -9,11 +9,25 @@ struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
     """Represents the metadata and memory pointer for a single model tensor."""
 
     var ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var scale_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var i8_ptr: UnsafePointer[Int8, MutExternalOrigin]
+    var is_quantized: Bool
     var shape_0: Int
     var shape_1: Int
 
     fn __init__(out self, p: Int, s0: Int, s1: Int):
         self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=p)
+        self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
+        self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=0)
+        self.is_quantized = False
+        self.shape_0 = s0
+        self.shape_1 = s1
+
+    fn __init__(out self, i8_p: Int, scale_p: Int, s0: Int, s1: Int):
+        self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
+        self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=scale_p)
+        self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=i8_p)
+        self.is_quantized = True
         self.shape_0 = s0
         self.shape_1 = s1
 
