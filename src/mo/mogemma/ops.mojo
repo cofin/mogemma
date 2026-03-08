@@ -136,6 +136,70 @@ fn mat_mat_mul[
 
 
 @always_inline
+fn vec_mat_mul_i8[
+    nelts: Int = 16
+](
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    w_ptr: UnsafePointer[Int8, MutExternalOrigin],  # transposed [out_dim, in_dim]
+    scale_ptr: UnsafePointer[Float32, MutExternalOrigin], # [1] or [out_dim]
+    in_dim: Int,
+    out_dim: Int,
+):
+    """Performs a vector-matrix multiplication using symmetric int8 weights.
+
+    Multiplies the input vector by a transposed 8-bit weight matrix, dequantizes the accumulations using the provided scale, and writes the resulting float32 vector to the output tensor.
+    """
+    for o in range(out_dim):
+        var acc: Float32 = 0.0
+        var i = 0
+        var w_row_ptr = w_ptr + o * in_dim
+
+        while i <= in_dim - nelts:
+            var x_val = x_ptr.load[width=nelts](i)
+            # load as Int8, then cast to Float32 for math
+            var w_val_i8 = w_row_ptr.load[width=nelts](i)
+            var w_val = w_val_i8.cast[DType.float32]()
+            acc += (x_val * w_val).reduce_add()
+            i += nelts
+
+        while i < in_dim:
+            var x_val = x_ptr.load(i)
+            var w_val = Float32(w_row_ptr.load(i))
+            acc += x_val * w_val
+            i += 1
+
+        # We assume per-tensor scale for now, where scale_ptr has size 1. 
+        # If it were per-channel, it would be scale_ptr.load(o).
+        var scale = scale_ptr.load(0)
+        out_ptr.store(o, acc * scale)
+
+
+@always_inline
+fn mat_mat_mul_i8[
+    nelts: Int = 16
+](
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, in_dim]
+    w_ptr: UnsafePointer[Int8, MutExternalOrigin],  # transposed [out_dim, in_dim]
+    scale_ptr: UnsafePointer[Float32, MutExternalOrigin], # [1]
+    batch_size: Int,
+    in_dim: Int,
+    out_dim: Int,
+):
+    """Performs a batched matrix-matrix multiplication using symmetric int8 weights."""
+    for b in range(batch_size):
+        vec_mat_mul_i8[nelts](
+            out_ptr + b * out_dim,
+            x_ptr + b * in_dim,
+            w_ptr,
+            scale_ptr,
+            in_dim,
+            out_dim,
+        )
+
+
+@always_inline
 fn rms_norm[
     nelts: Int = 16
 ](

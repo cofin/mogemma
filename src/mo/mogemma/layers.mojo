@@ -11,12 +11,25 @@ from mogemma.model import (
     VisionLayerWeights,
     TensorInfo,
 )
-from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul
-from mogemma.ops_gpu import vec_mat_mul_gpu, rope_rotate_gpu, softmax_gpu, rms_norm_gpu, geglu_gpu
+from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul, mat_mat_mul_i8
+
+@always_inline
+fn _gemm_dispatch(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    w: TensorInfo,
+    batch_size: Int,
+    in_dim: Int,
+    out_dim: Int,
+):
+    if w.is_quantized:
+        mat_mat_mul_i8(out_ptr, x_ptr, w.i8_ptr, w.scale_ptr, batch_size, in_dim, out_dim)
+    else:
+        mat_mat_mul(out_ptr, x_ptr, w.ptr, batch_size, in_dim, out_dim)
 
 
 @always_inline
-fn forward_attention(
+fn forward_layer(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
@@ -44,9 +57,9 @@ fn forward_attention(
     var k_ptr = scratch_ptr + batch_size * q_size
     var v_ptr = scratch_ptr + batch_size * q_size + batch_size * kv_size
 
-    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, batch_size, hidden_size, q_size)
-    mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, batch_size, hidden_size, kv_size)
-    mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, batch_size, hidden_size, kv_size)
+    _gemm_dispatch(q_ptr, norm_x_ptr, weights.q_proj, batch_size, hidden_size, q_size)
+    _gemm_dispatch(k_ptr, norm_x_ptr, weights.k_proj, batch_size, hidden_size, kv_size)
+    _gemm_dispatch(v_ptr, norm_x_ptr, weights.v_proj, batch_size, hidden_size, kv_size)
 
     for b in range(batch_size):
         var b_q_ptr = q_ptr + b * q_size
@@ -113,7 +126,7 @@ fn forward_attention(
 
     # 5. Output Projection
     var batched_attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size)
-    mat_mat_mul(out_ptr, batched_attn_out_ptr, weights.o_proj.ptr, batch_size, q_size, hidden_size)
+    _gemm_dispatch(out_ptr, batched_attn_out_ptr, weights.o_proj, batch_size, q_size, hidden_size)
 
 
 @always_inline
@@ -134,8 +147,8 @@ fn forward_mlp(
     var up_ptr = scratch_ptr + batch_size * intermediate_size
     var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    mat_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, batch_size, hidden_size, intermediate_size)
-    mat_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(gate_ptr, x_ptr, weights.gate_proj, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(up_ptr, x_ptr, weights.up_proj, batch_size, hidden_size, intermediate_size)
 
     for b in range(batch_size):
         geglu(
@@ -145,7 +158,7 @@ fn forward_mlp(
             intermediate_size,
         )
 
-    mat_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, batch_size, intermediate_size, hidden_size)
+    _gemm_dispatch(out_ptr, geglu_out_ptr, weights.down_proj, batch_size, intermediate_size, hidden_size)
 
 
 @always_inline
@@ -201,12 +214,12 @@ fn forward_mlp_nano(
     var up_ptr = scratch_ptr + batch_size * intermediate_size
     var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    mat_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(gate_ptr, x_ptr, weights.gate_proj, batch_size, hidden_size, intermediate_size)
     # Gemma3n defaults: first 10 layers use 0.95 activation sparsity, rest dense.
     if layer_idx < 10:
         for b in range(batch_size):
             _apply_nano_activation_sparsity(gate_ptr + b * intermediate_size, intermediate_size, 0.95)
-    mat_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(up_ptr, x_ptr, weights.up_proj, batch_size, hidden_size, intermediate_size)
 
     for b in range(batch_size):
         geglu(
@@ -216,7 +229,7 @@ fn forward_mlp_nano(
             intermediate_size,
         )
 
-    mat_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, batch_size, intermediate_size, hidden_size)
+    _gemm_dispatch(out_ptr, geglu_out_ptr, weights.down_proj, batch_size, intermediate_size, hidden_size)
 
 
 @always_inline
@@ -535,10 +548,10 @@ fn forward_attention_nano(
     var k_ptr = scratch_ptr + batch_size * q_size
     var v_ptr = scratch_ptr + batch_size * (q_size + kv_size)
 
-    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, batch_size, hidden_size, q_size)
+    _gemm_dispatch(q_ptr, x_ptr, weights.q_proj, batch_size, hidden_size, q_size)
     if write_kv:
-        mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, batch_size, hidden_size, kv_size)
-        mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, batch_size, hidden_size, kv_size)
+        _gemm_dispatch(k_ptr, x_ptr, weights.k_proj, batch_size, hidden_size, kv_size)
+        _gemm_dispatch(v_ptr, x_ptr, weights.v_proj, batch_size, hidden_size, kv_size)
 
     for b in range(batch_size):
         var b_q_ptr = q_ptr + b * q_size
@@ -600,7 +613,7 @@ fn forward_attention_nano(
                     out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
 
     var batched_attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size)
-    mat_mat_mul(out_ptr, batched_attn_out_ptr, weights.o_proj.ptr, batch_size, q_size, hidden_size)
+    _gemm_dispatch(out_ptr, batched_attn_out_ptr, weights.o_proj, batch_size, q_size, hidden_size)
 
 
 @always_inline
@@ -652,8 +665,8 @@ fn forward_laurel(
     var norm_up_ptr = up_ptr + batch_size * hidden_size
 
     # laurel(hidden) = hidden + rms_norm(up(down(hidden)))
-    mat_mat_mul(down_ptr, hidden_ptr, weights.down_proj.ptr, batch_size, hidden_size, bottleneck_dim)
-    mat_mat_mul(up_ptr, down_ptr, weights.up_proj.ptr, batch_size, bottleneck_dim, hidden_size)
+    _gemm_dispatch(down_ptr, hidden_ptr, weights.down_proj, batch_size, hidden_size, bottleneck_dim)
+    _gemm_dispatch(up_ptr, down_ptr, weights.up_proj, batch_size, bottleneck_dim, hidden_size)
     for b in range(batch_size):
         _rms_norm_nano_weighted(
             norm_up_ptr + b * hidden_size, up_ptr + b * hidden_size, weights.norm.ptr, hidden_size, 1e-6

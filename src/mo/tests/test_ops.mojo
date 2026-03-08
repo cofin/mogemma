@@ -161,6 +161,34 @@ fn test_mat_mat_mul() raises:
     _ = w[0]
 
 
+from mogemma.ops import vec_mat_mul_i8, mat_mat_mul_i8
+fn test_mat_mat_mul_i8() raises:
+    var batch_size = 2
+    var in_dim = 4
+    var out_dim = 2
+    var x = List[Float32](length=batch_size * in_dim, fill=1.0)
+    var w = List[Int8](length=out_dim * in_dim, fill=10)  # Int8 weights, value=10
+    var scale = List[Float32](length=1, fill=0.2)
+    var out = List[Float32](length=batch_size * out_dim, fill=0.0)
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    var w_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=Int(w.unsafe_ptr()))
+    var scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scale.unsafe_ptr()))
+    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out.unsafe_ptr()))
+
+    mat_mat_mul_i8[2](out_ptr, x_ptr, w_ptr, scale_ptr, batch_size, in_dim, out_dim)
+
+    # Dequantized weight = 10 * 0.2 = 2.0
+    # 1.0 * 2.0 * 4 = 8.0 for each output element
+    assert_almost_equal(out[0], 8.0, atol=1e-5)
+    assert_almost_equal(out[1], 8.0, atol=1e-5)
+    assert_almost_equal(out[2], 8.0, atol=1e-5)
+    assert_almost_equal(out[3], 8.0, atol=1e-5)
+    _ = x[0]
+    _ = w[0]
+    _ = scale[0]
+
+
 fn test_vec_mat_mul_gpu() raises:
     var x = List[Float32](length=4, fill=1.0)
     var w = List[Float32](length=8, fill=2.0)
@@ -205,6 +233,8 @@ fn main() raises:
     test_geglu()
     test_rope_rotate()
     test_vec_mat_mul()
+    test_mat_mat_mul()
+    test_mat_mat_mul_i8()
     test_softmax()
     print("Mojo math primitive tests passed!")
 
