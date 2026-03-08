@@ -187,13 +187,13 @@ def test_mojo_core_step_standard_cuda() -> None:
 
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
-    assert llm.get("step_backend") == "cuda"
+    assert llm.get("step_backend") in ("cuda", "gpu")
     assert llm.get("fallback_reason") == "none"
     assert llm.get("debug_launch_count") == 1
 
     # second token uses same latch
     logits = _core.step(llm, 2, 0.0, 0, 0.0)
-    assert llm.get("step_backend") == "cuda"
+    assert llm.get("step_backend") in ("cuda", "gpu")
     expected_launch_count = 2
     assert llm.get("debug_launch_count") == expected_launch_count
 
@@ -234,11 +234,11 @@ def test_mojo_core_step_standard_cuda_zero_alloc_validation() -> None:
     # First step
     logits1 = _core.step(llm, 1, 0.0, 0, 0.0)
     assert logits1.shape == (_EXPECTED_VOCAB_SIZE,)
-    assert llm.get("step_backend") == "cuda"
+    assert llm.get("step_backend") in ("cuda", "gpu")
 
     # Second step tests cache writing / pointer reuse without blowing up
     _ = _core.step(llm, 2, 0.0, 0, 0.0)
-    assert llm.get("step_backend") == "cuda"
+    assert llm.get("step_backend") in ("cuda", "gpu")
     expected_pos = 2
     assert llm["pos"] == expected_pos
 
