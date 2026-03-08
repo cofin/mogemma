@@ -30,16 +30,17 @@ Issue = "https://github.com/cofin/mogemma/issues/"
 Source = "https://github.com/cofin/mogemma"
 
 [project.optional-dependencies]
-llm = [
-    "sentencepiece>=0.2.0",
-]
-telemetry = [
-    "opentelemetry-api>=1.35.0",
-]
+llm = ["sentencepiece>=0.2.0"]
+telemetry = ["opentelemetry-api>=1.35.0"]
 
 
 [build-system]
-requires = ["hatchling", "hatch-mojo>=0.1.5", "mojo>=0.26.1", "patchelf>=0.17.2.4; platform_system == 'Linux'"]
+requires = [
+    "hatchling",
+    "hatch-mojo>=0.1.7",
+    "mojo>=0.26.1",
+    "patchelf>=0.17.2.4; platform_system == 'Linux'",
+]
 build-backend = "hatchling.build"
 
 [tool.cibuildwheel]
@@ -47,7 +48,15 @@ build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 build-frontend = "build[uv]"
 skip = ["*-musllinux_*", "*-win*", "*_i686", "pp*"]
 test-command = "pytest {project}/src/py/tests"
-test-requires = ["pytest", "pytest-asyncio", "numpy", "sentencepiece", "obstore", "opentelemetry-api", "tomli"]
+test-requires = [
+    "pytest",
+    "pytest-asyncio",
+    "numpy",
+    "sentencepiece",
+    "obstore",
+    "opentelemetry-api",
+    "tomli",
+]
 
 [tool.cibuildwheel.linux]
 before-all = [
@@ -116,27 +125,27 @@ split-on-trailing-comma = false
 
 [tool.ruff.lint.per-file-ignores]
 "src/py/tests/test_*.py" = [
-  "ARG001",
-  "D100",
-  "D101",
-  "D102",
-  "D103",
-  "D107",
-  "S101",
-  "S603",
-  "PLR2004",
-  "SLF001",
+    "ARG001",
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D107",
+    "S101",
+    "S603",
+    "PLR2004",
+    "SLF001",
 ]
 "src/py/mogemma/typing.py" = ["A005"]
 "src/mo/tests/test_*.py" = [
-  "ARG001",
-  "D100",
-  "D101",
-  "D102",
-  "D103",
-  "D107",
-  "S101",
-  "S603",
+    "ARG001",
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D107",
+    "S101",
+    "S603",
 ]
 
 [tool.mypy]
@@ -153,14 +162,14 @@ venv = ".venv"
 
 [dependency-groups]
 dev = [
-    {include-group = "lint"},
-    {include-group = "test"},
-    {include-group = "build"},
+    { include-group = "lint" },
+    { include-group = "test" },
+    { include-group = "build" },
 ]
 build = ["bump-my-version>=0.31.1", "mojo>=0.26.1"]
 lint = ["mypy>=1.13.0", "pyright>=1.1.386", "ruff>=0.14.14"]
-test = [ 
-    "obstore>=0.2.08", 
+test = [
+    "obstore>=0.2.08",
     "pytest>=9.0.2",
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=1.3.0",
