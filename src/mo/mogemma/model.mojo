@@ -77,6 +77,46 @@ struct ModelWeights(Movable):
             out_ptr.store(i, src_ptr.load(i))
 
 
+@fieldwise_init
+struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
+    """Container for all learnable parameter tensors within a single vision transformer layer."""
+
+    var q_proj: TensorInfo
+    var k_proj: TensorInfo
+    var v_proj: TensorInfo
+    var o_proj: TensorInfo
+    var mlp_fc1: TensorInfo
+    var mlp_fc2: TensorInfo
+    var input_layernorm: TensorInfo
+    var post_attention_layernorm: TensorInfo
+
+    fn __init__(out self):
+        self.q_proj = TensorInfo(0, 0, 0)
+        self.k_proj = TensorInfo(0, 0, 0)
+        self.v_proj = TensorInfo(0, 0, 0)
+        self.o_proj = TensorInfo(0, 0, 0)
+        self.mlp_fc1 = TensorInfo(0, 0, 0)
+        self.mlp_fc2 = TensorInfo(0, 0, 0)
+        self.input_layernorm = TensorInfo(0, 0, 0)
+        self.post_attention_layernorm = TensorInfo(0, 0, 0)
+
+
+@fieldwise_init
+struct VisionModelWeights(Movable):
+    """Top-level container for all Gemma vision model weights."""
+
+    var patch_embeddings: TensorInfo
+    var position_embeddings: TensorInfo
+    var norm: TensorInfo
+    var layers: List[VisionLayerWeights]
+
+    fn __init__(out self):
+        self.patch_embeddings = TensorInfo(0, 0, 0)
+        self.position_embeddings = TensorInfo(0, 0, 0)
+        self.norm = TensorInfo(0, 0, 0)
+        self.layers = List[VisionLayerWeights]()
+
+
 struct KVCache(Movable):
     """Maintains the Key and Value (KV) state across decoding steps to optimize autoregressive generation."""
 
