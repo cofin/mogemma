@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 from collections.abc import Callable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
@@ -353,6 +354,9 @@ def convert_orbax_to_safetensors(model_path: Path) -> Path:
 
     logger.info("Converting Orbax checkpoint at %s to safetensors …", model_path)
 
+    # Identify original files for cleanup
+    original_items = list(model_path.iterdir())
+
     loader = OrbaxLoader(model_path)
     try:
         keys = list(loader._arrays.keys())  # noqa: SLF001
@@ -373,4 +377,25 @@ def convert_orbax_to_safetensors(model_path: Path) -> Path:
     save_file(contiguous, str(out_path))
 
     logger.info("Wrote %d tensors to %s", len(contiguous), out_path)
+
+    # Cleanup original Orbax files
+    freed_bytes = 0
+    for item in original_items:
+        if item.name in ("tokenizer.model", "model.safetensors", "config.json"):
+            continue
+        try:
+            if item.is_file() or item.is_symlink():
+                size = item.stat().st_size
+                item.unlink()
+                freed_bytes += size
+            elif item.is_dir():
+                size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+                shutil.rmtree(item)
+                freed_bytes += size
+        except OSError as e:
+            logger.warning("Failed to clean up %s: %s", item, e)
+
+    if freed_bytes > 0:
+        logger.info("Cleaned up Orbax source files, freed %d bytes (%.2f MB)", freed_bytes, freed_bytes / (1024 * 1024))
+
     return out_path
