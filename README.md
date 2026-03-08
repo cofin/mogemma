@@ -48,6 +48,8 @@ asyncio.run(main())
 
 ### Embeddings
 
+Generate dense vector embeddings natively through Mojo's optimized batched kernel operations. Pass a single string or a list of strings to process them in parallel.
+
 ```python
 from mogemma import EmbeddingModel
 
