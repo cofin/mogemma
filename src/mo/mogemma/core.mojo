@@ -555,7 +555,7 @@ fn _forward_step_nano_runtime(
 
     var hidden_ptr = scratch_ptr
     var token_scratch_ptr = scratch_ptr + hidden_size
-    
+
     var token_id_buf = List[Int32](length=1, fill=Int32(token_id))
     var token_id_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(token_id_buf.unsafe_ptr()))
 
@@ -634,7 +634,9 @@ fn _forward_sequence_nano_runtime(
     var emb_acc_ptr = scratch_ptr
     var token_hidden_ptr = scratch_ptr + batch_size * hidden_size
     var token_ids_buffer = List[Int32](length=batch_size, fill=0)
-    var token_ids_buffer_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(token_ids_buffer.unsafe_ptr()))
+    var token_ids_buffer_ptr = UnsafePointer[Int32, MutExternalOrigin](
+        unsafe_from_address=Int(token_ids_buffer.unsafe_ptr())
+    )
     var token_scratch_ptr = scratch_ptr + batch_size * hidden_size * 2
     for i in range(batch_size * hidden_size):
         emb_acc_ptr.store(i, 0.0)

@@ -5,7 +5,7 @@ from collections import List
 
 
 @fieldwise_init
-struct TensorInfo(Copyable, Movable, ImplicitlyCopyable):
+struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
     """Represents the metadata and memory pointer for a single model tensor."""
 
     var ptr: UnsafePointer[Float32, MutExternalOrigin]
@@ -19,7 +19,7 @@ struct TensorInfo(Copyable, Movable, ImplicitlyCopyable):
 
 
 @fieldwise_init
-struct LayerWeights(Copyable, Movable, ImplicitlyCopyable):
+struct LayerWeights(Copyable, ImplicitlyCopyable, Movable):
     """Container for all learnable parameter tensors within a single standard transformer layer."""
 
     var q_proj: TensorInfo
@@ -106,7 +106,7 @@ struct KVCache(Movable):
 
 
 @fieldwise_init
-struct AltUpWeights(Copyable, Movable, ImplicitlyCopyable):
+struct AltUpWeights(Copyable, ImplicitlyCopyable, Movable):
     """Contains the projection and routing weights for the alternating update (AltUp) mechanism in the Nano architecture.
     """
 
@@ -125,7 +125,7 @@ struct AltUpWeights(Copyable, Movable, ImplicitlyCopyable):
 
 
 @fieldwise_init
-struct LaurelWeights(Copyable, Movable, ImplicitlyCopyable):
+struct LaurelWeights(Copyable, ImplicitlyCopyable, Movable):
     """Holds the down-projection and up-projection weights for the Laurel mechanism."""
 
     var down_proj: TensorInfo
@@ -139,7 +139,7 @@ struct LaurelWeights(Copyable, Movable, ImplicitlyCopyable):
 
 
 @fieldwise_init
-struct PerLayerMapWeights(Copyable, Movable, ImplicitlyCopyable):
+struct PerLayerMapWeights(Copyable, ImplicitlyCopyable, Movable):
     """Weights for the per-layer mapping transformations in Gemma Nano variants."""
 
     var gate: TensorInfo
@@ -153,7 +153,7 @@ struct PerLayerMapWeights(Copyable, Movable, ImplicitlyCopyable):
 
 
 @fieldwise_init
-struct NanoLayerWeights(Copyable, Movable, ImplicitlyCopyable):
+struct NanoLayerWeights(Copyable, ImplicitlyCopyable, Movable):
     """Container for all weights in a single Gemma Nano layer, combining base weights with AltUp, Laurel, and per-layer mapping components.
     """
 

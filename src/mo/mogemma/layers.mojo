@@ -556,7 +556,9 @@ fn forward_attention_nano(
 
         if write_kv:
             for h in range(num_kv_heads):
-                _rms_norm_nano_weighted(b_k_ptr + h * head_dim, b_k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+                _rms_norm_nano_weighted(
+                    b_k_ptr + h * head_dim, b_k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6
+                )
                 _rms_norm_nano_unit(b_v_ptr + h * head_dim, b_v_ptr + h * head_dim, head_dim, 1e-6)
                 rope_rotate(b_k_ptr + h * head_dim, freqs_cos_ptr, freqs_sin_ptr, head_dim)
 
@@ -572,7 +574,9 @@ fn forward_attention_nano(
         for h in range(num_heads):
             var kv_h = h // heads_per_kv
             var q_head_ptr = b_q_ptr + h * head_dim
-            var scores_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size) + batch_size * q_size + h * max_seq_len
+            var scores_ptr = (
+                scratch_ptr + batch_size * (q_size + kv_size + kv_size) + batch_size * q_size + h * max_seq_len
+            )
 
             for t in range(pos + 1):
                 var k_head_ptr = b_kv_cache_k_ptr + t * kv_size + kv_h * head_dim
@@ -650,9 +654,13 @@ fn forward_laurel(
     mat_mat_mul(down_ptr, hidden_ptr, weights.down_proj.ptr, batch_size, hidden_size, bottleneck_dim)
     mat_mat_mul(up_ptr, down_ptr, weights.up_proj.ptr, batch_size, bottleneck_dim, hidden_size)
     for b in range(batch_size):
-        _rms_norm_nano_weighted(norm_up_ptr + b * hidden_size, up_ptr + b * hidden_size, weights.norm.ptr, hidden_size, 1e-6)
+        _rms_norm_nano_weighted(
+            norm_up_ptr + b * hidden_size, up_ptr + b * hidden_size, weights.norm.ptr, hidden_size, 1e-6
+        )
         for i in range(hidden_size):
-            out_ptr.store(b * hidden_size + i, hidden_ptr.load(b * hidden_size + i) + norm_up_ptr.load(b * hidden_size + i))
+            out_ptr.store(
+                b * hidden_size + i, hidden_ptr.load(b * hidden_size + i) + norm_up_ptr.load(b * hidden_size + i)
+            )
 
 
 @always_inline
@@ -861,7 +869,7 @@ fn _collapse_altup_streams(
     for b in range(batch_size):
         var b_out_ptr = out_ptr + b * hidden_size
         var b_streams_ptr = streams_ptr + b * num_modalities * hidden_size
-        
+
         var b_tmp_ptr = scratch_ptr + b * hidden_size * 2
         var b_acc_ptr = scratch_ptr + b * hidden_size * 2 + hidden_size
 
