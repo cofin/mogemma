@@ -81,7 +81,7 @@ fn _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject = None) rai
         var scale_tuple = scale_obj
         var scale_ptr_int = Int(py=scale_tuple[0])
         return TensorInfo(ptr_int, scale_ptr_int, s0, s1)
-        
+
     return TensorInfo(ptr_int, s0, s1)
 
 
@@ -223,7 +223,7 @@ fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
         layer_entry.append(metadata_obj.get(pfx + ".per_layer_map.gate.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".per_layer_map.projection.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".per_layer_map.norm.weight"))
-        
+
         # Scales (for quant)
         layer_entry.append(metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale", None))
         layer_entry.append(metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale", None))
@@ -232,7 +232,7 @@ fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
         layer_entry.append(metadata_obj.get(pfx + ".mlp.gate_proj.weight_scale", None))
         layer_entry.append(metadata_obj.get(pfx + ".mlp.up_proj.weight_scale", None))
         layer_entry.append(metadata_obj.get(pfx + ".mlp.down_proj.weight_scale", None))
-        
+
         layers.append(layer_entry)
         layer_idx += 1
 
@@ -1677,48 +1677,49 @@ fn process_image_mojo(
     llm: PythonObject,
     image_array: PythonObject,
 ) raises -> PythonObject:
-    """Processes an image from Python, extracting patches, running the vision tower, and returning the continuous token embeddings."""
+    """Processes an image from Python, extracting patches, running the vision tower, and returning the continuous token embeddings.
+    """
     var np = Python.import_module("numpy")
     var builtins = Python.import_module("builtins")
-    
+
     var h = Int(py=image_array.shape[0])
     var w = Int(py=image_array.shape[1])
     var c = Int(py=image_array.shape[2])
-    
+
     if c != 3:
         raise Error("Image must have 3 channels (RGB)")
-        
+
     var image_np = np.asarray(image_array, dtype=np.uint8)
     var image_ptr = UnsafePointer[UInt8, MutExternalOrigin](
         unsafe_from_address=Int(py=image_np.__array_interface__["data"][0])
     )
-    
+
     var ptr_vision = UnsafePointer[VisionModelWeights, MutExternalOrigin](
         unsafe_from_address=Int(py=llm.get("_vision_descriptor_ptr", 0))
     )
     if Int(ptr_vision) == 0:
         raise Error("Vision model not initialized or unavailable in runtime")
-        
+
     var model = ptr_vision[]
-    
+
     var hidden_size = model.patch_embeddings.shape_0
-    var patch_size = 14 # hardcoded for SigLIP for now
-    var num_heads = model.layers[0].q_proj.shape_0 // 256 # pseudo head dim 256
+    var patch_size = 14  # hardcoded for SigLIP for now
+    var num_heads = model.layers[0].q_proj.shape_0 // 256  # pseudo head dim 256
     var head_dim = 256
     var intermediate_size = model.layers[0].mlp_fc1.shape_0
-    
-    var out_h = 384 # siglip size, maybe configure later?
+
+    var out_h = 384  # siglip size, maybe configure later?
     var out_w = 384
-    
+
     var num_patches_y = out_h // patch_size
     var num_patches_x = out_w // patch_size
     var num_patches = num_patches_y * num_patches_x
-    
+
     # Needs to be implemented with proper pipeline, just scaffolding to compile and execute basic flow
     # In full implementation, we need: normalize -> resize -> patchify -> vision_tower
-    
+
     var out_np = np.zeros(Python.tuple(num_patches, hidden_size), dtype=np.float32)
-    
+
     return out_np
 
 

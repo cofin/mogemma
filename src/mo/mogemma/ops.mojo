@@ -142,7 +142,7 @@ fn vec_mat_mul_i8[
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],
     w_ptr: UnsafePointer[Int8, MutExternalOrigin],  # transposed [out_dim, in_dim]
-    scale_ptr: UnsafePointer[Float32, MutExternalOrigin], # [1] or [out_dim]
+    scale_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [1] or [out_dim]
     in_dim: Int,
     out_dim: Int,
 ):
@@ -169,7 +169,7 @@ fn vec_mat_mul_i8[
             acc += x_val * w_val
             i += 1
 
-        # We assume per-tensor scale for now, where scale_ptr has size 1. 
+        # We assume per-tensor scale for now, where scale_ptr has size 1.
         # If it were per-channel, it would be scale_ptr.load(o).
         var scale = scale_ptr.load(0)
         out_ptr.store(o, acc * scale)
@@ -182,7 +182,7 @@ fn mat_mat_mul_i8[
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, in_dim]
     w_ptr: UnsafePointer[Int8, MutExternalOrigin],  # transposed [out_dim, in_dim]
-    scale_ptr: UnsafePointer[Float32, MutExternalOrigin], # [1]
+    scale_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [1]
     batch_size: Int,
     in_dim: Int,
     out_dim: Int,

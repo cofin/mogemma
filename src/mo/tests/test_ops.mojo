@@ -162,6 +162,8 @@ fn test_mat_mat_mul() raises:
 
 
 from mogemma.ops import vec_mat_mul_i8, mat_mat_mul_i8
+
+
 fn test_mat_mat_mul_i8() raises:
     var batch_size = 2
     var in_dim = 4
