@@ -13,6 +13,7 @@ from mogemma.model import (
 )
 from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul, mat_mat_mul_i8
 
+
 @always_inline
 fn _gemm_dispatch(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -1326,6 +1327,9 @@ fn forward_attention_gpu(
 ):
     """Computes Multi-Head/Grouped-Query Attention for the standard model on the GPU.
 
+    See `forward_attention` for functional details."""
+    """Computes Multi-Head/Grouped-Query Attention for the standard model on the GPU.
+
     See `forward_attention` for functional details.
     """
     var q_size = num_heads * head_dim
@@ -1398,6 +1402,9 @@ fn forward_mlp_gpu(
 ):
     """Computes the feed-forward network (MLP) for the standard model on the GPU.
 
+    See `forward_mlp` for functional details."""
+    """Computes the feed-forward network (MLP) for the standard model on the GPU.
+
     See `forward_mlp` for functional details.
     """
     var gate_ptr = scratch_ptr
@@ -1430,6 +1437,9 @@ fn forward_layer_gpu(
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes a single standard transformer layer on the GPU.
+
+    See `forward_layer` for functional details."""
     """Executes a single standard transformer layer on the GPU.
 
     See `forward_layer` for functional details.
@@ -1489,6 +1499,9 @@ fn forward_laurel_gpu(
 ):
     """Executes the Laurel projection step for the Nano architecture on the GPU.
 
+    See `forward_laurel` for functional details."""
+    """Executes the Laurel projection step for the Nano architecture on the GPU.
+
     See `forward_laurel` for functional details.
     """
     var down_ptr = scratch_ptr
@@ -1512,6 +1525,9 @@ fn _rms_norm_nano_weighted_gpu(
 ):
     """Applies weighted RMSNorm on the GPU.
 
+    Normalizes the input vector and scales it by the weight vector."""
+    """Applies weighted RMSNorm on the GPU.
+
     Normalizes the input vector and scales it by the weight vector.
     """
     var sum_sq: Float32 = 0.0
@@ -1530,6 +1546,9 @@ fn _rms_norm_nano_unit_gpu(
     size: Int,
     eps: Float32 = 1e-6,
 ):
+    """Applies unit RMSNorm on the GPU.
+
+    Normalizes the input vector without scaling."""
     """Applies unit (unweighted) RMSNorm on the GPU.
 
     Normalizes the input vector without scaling weights.
@@ -1561,6 +1580,9 @@ fn forward_attention_nano_gpu(
     write_kv: Bool,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes Multi-Head/Grouped-Query Attention for the Nano model on the GPU.
+
+    See `forward_attention_nano` for functional details."""
     """Computes Multi-Head/Grouped-Query Attention for the Nano model on the GPU.
 
     See `forward_attention_nano` for functional details.
@@ -1636,6 +1658,9 @@ fn forward_per_layer_mapping_gpu(
 ):
     """Applies the per-layer mapping delta for the Nano AltUp architecture on the GPU.
 
+    See `forward_per_layer_mapping` for functional details."""
+    """Applies the per-layer mapping delta for the Nano AltUp architecture on the GPU.
+
     See `forward_per_layer_mapping` for functional details.
     """
     var gate_out_ptr = scratch_ptr
@@ -1663,6 +1688,9 @@ fn _compute_router_modalities_gpu(
 ):
     """Computes the router modality probabilities for the AltUp mechanism on the GPU.
 
+    See `_compute_router_modalities` for functional details."""
+    """Computes the router modality probabilities for the AltUp mechanism on the GPU.
+
     See `_compute_router_modalities` for functional details.
     """
     var router_in_ptr = scratch_ptr
@@ -1686,6 +1714,9 @@ fn forward_altup_predict_gpu(
     num_modalities: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes the AltUp prediction phase on the GPU.
+
+    See `forward_altup_predict` for functional details."""
     """Executes the AltUp prediction phase on the GPU.
 
     See `forward_altup_predict` for functional details.
@@ -1727,6 +1758,9 @@ fn forward_altup_correct_gpu(
 ):
     """Executes the AltUp correction phase on the GPU.
 
+    See `forward_altup_correct` for functional details."""
+    """Executes the AltUp correction phase on the GPU.
+
     See `forward_altup_correct` for functional details.
     """
     var modalities_ptr = scratch_ptr
@@ -1756,6 +1790,9 @@ fn _apply_nano_activation_sparsity_gpu(
     size: Int,
     sparsity: Float32,
 ):
+    """Applies activation sparsity to the Nano MLP gate projection on the GPU.
+
+    See `_apply_nano_activation_sparsity` for functional details."""
     """Applies activation sparsity to the Nano MLP gate projection on the GPU.
 
     See `_apply_nano_activation_sparsity` for functional details.
@@ -1793,6 +1830,9 @@ fn forward_mlp_nano_gpu(
     layer_idx: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Computes the feed-forward network (MLP) for a Nano layer on the GPU.
+
+    See `forward_mlp_nano` for functional details."""
     """Computes the feed-forward network (MLP) for a Nano layer on the GPU.
 
     See `forward_mlp_nano` for functional details.
@@ -1834,6 +1874,9 @@ fn forward_nano_layer_gpu(
     write_kv: Bool,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
+    """Executes a single Gemma Nano layer on the GPU.
+
+    See `forward_nano_layer` for functional details."""
     """Executes a single Gemma Nano layer on the GPU.
 
     See `forward_nano_layer` for functional details.
@@ -2004,7 +2047,7 @@ fn forward_vision_mlp(
     Typically uses GELU activation.
     """
     var fc1_out_ptr = scratch_ptr
-    
+
     mat_mat_mul(fc1_out_ptr, x_ptr, weights.mlp_fc1.ptr, num_patches, hidden_size, intermediate_size)
 
     # GELU activation: 0.5 * x * (1 + erf(x / sqrt(2)))
@@ -2054,12 +2097,20 @@ fn forward_vision_layer(
     var residual_ptr = scratch_ptr + num_patches * hidden_size * 2
     for p in range(num_patches):
         for i in range(hidden_size):
-            residual_ptr.store(p * hidden_size + i, x_ptr.load(p * hidden_size + i) + attn_out_ptr.load(p * hidden_size + i))
+            residual_ptr.store(
+                p * hidden_size + i, x_ptr.load(p * hidden_size + i) + attn_out_ptr.load(p * hidden_size + i)
+            )
 
     # Pre-MLP norm
     var norm_residual_ptr = scratch_ptr + num_patches * hidden_size * 3
     for p in range(num_patches):
-        rms_norm(norm_residual_ptr + p * hidden_size, residual_ptr + p * hidden_size, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+        rms_norm(
+            norm_residual_ptr + p * hidden_size,
+            residual_ptr + p * hidden_size,
+            weights.post_attention_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
 
     # MLP
     var mlp_out_ptr = scratch_ptr + num_patches * hidden_size * 4
@@ -2077,5 +2128,6 @@ fn forward_vision_layer(
     # Final residual
     for p in range(num_patches):
         for i in range(hidden_size):
-            out_ptr.store(p * hidden_size + i, residual_ptr.load(p * hidden_size + i) + mlp_out_ptr.load(p * hidden_size + i))
-
+            out_ptr.store(
+                p * hidden_size + i, residual_ptr.load(p * hidden_size + i) + mlp_out_ptr.load(p * hidden_size + i)
+            )
