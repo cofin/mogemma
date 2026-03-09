@@ -61,28 +61,20 @@ fn _ensure_embedding_matrix(
     return embeddings
 
 
-fn _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject = None) raises -> TensorInfo:
-    var builtins = Python.import_module("builtins")
-    if not builtins.bool(meta_obj):
-        return TensorInfo(0, 0, 0)
 
-    var meta_tuple = meta_obj
-    var ptr_int = Int(py=meta_tuple[0])
-    var shape_tuple = meta_tuple[1]
+@always_inline
+fn _append_tensor(inout ptrs: List[Int], t: TensorInfo):
+    ptrs.append(t.ptr)
+    ptrs.append(t.scale_ptr)
+    ptrs.append(t.shape_0)
+    ptrs.append(t.shape_1)
 
-    var s0 = 0
-    var s1 = 0
-    if Int(py=builtins.len(shape_tuple)) > 0:
-        s0 = Int(py=shape_tuple[0])
-    if Int(py=builtins.len(shape_tuple)) > 1:
-        s1 = Int(py=shape_tuple[1])
+@always_inline
+fn _hydrate_tensor(ptr_array: UnsafePointer[Int], inout offset: Int) -> TensorInfo:
+    var t = TensorInfo(ptr_array[offset], ptr_array[offset+1], ptr_array[offset+2], ptr_array[offset+3])
+    offset += 4
+    return t
 
-    if builtins.bool(scale_obj):
-        var scale_tuple = scale_obj
-        var scale_ptr_int = Int(py=scale_tuple[0])
-        return TensorInfo(ptr_int, scale_ptr_int, s0, s1)
-
-    return TensorInfo(ptr_int, s0, s1)
 
 
 fn _get_tensor(metadata_obj: PythonObject, name: String) raises -> TensorInfo:
@@ -240,121 +232,188 @@ fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     return runtime
 
 
-fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
+
+fn _flatten_model_weights(m: ModelWeights) -> List[Int]:
+    var ptrs = List[Int]()
+    _append_tensor(ptrs, m.embed_tokens)
+    _append_tensor(ptrs, m.norm)
+    _append_tensor(ptrs, m.lm_head)
+    for i in range(len(m.layers)):
+        var layer = m.layers[i]
+        _append_tensor(ptrs, layer.input_layernorm)
+        _append_tensor(ptrs, layer.post_attention_layernorm)
+        _append_tensor(ptrs, layer.q_proj)
+        _append_tensor(ptrs, layer.k_proj)
+        _append_tensor(ptrs, layer.v_proj)
+        _append_tensor(ptrs, layer.o_proj)
+        _append_tensor(ptrs, layer.gate_proj)
+        _append_tensor(ptrs, layer.up_proj)
+        _append_tensor(ptrs, layer.down_proj)
+        _append_tensor(ptrs, layer.q_norm)
+        _append_tensor(ptrs, layer.k_norm)
+        _append_tensor(ptrs, layer.pre_feedforward_layernorm)
+        _append_tensor(ptrs, layer.post_feedforward_layernorm)
+    return ptrs^
+
+fn _hydrate_model_weights(ptr_array: UnsafePointer[Int], num_layers: Int) -> ModelWeights:
     var m = ModelWeights()
-
-    m.embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    m.norm = _tensor_from_meta(runtime_obj["norm"])
-    m.lm_head = _tensor_from_meta(runtime_obj["lm_head"])
-
-    var layers = runtime_obj["layers"]
-    var num_layers = Int(py=Python.import_module("builtins").len(layers))
-    for i in range(num_layers):
-        var entry = layers[i]
+    var offset = 0
+    m.embed_tokens = _hydrate_tensor(ptr_array, offset)
+    m.norm = _hydrate_tensor(ptr_array, offset)
+    m.lm_head = _hydrate_tensor(ptr_array, offset)
+    for _ in range(num_layers):
         var layer = LayerWeights()
-        layer.input_layernorm = _tensor_from_meta(entry[0])
-        layer.post_attention_layernorm = _tensor_from_meta(entry[1])
-        layer.q_proj = _tensor_from_meta(entry[2], entry[13])
-        layer.k_proj = _tensor_from_meta(entry[3], entry[14])
-        layer.v_proj = _tensor_from_meta(entry[4], entry[15])
-        layer.o_proj = _tensor_from_meta(entry[5], entry[16])
-        layer.gate_proj = _tensor_from_meta(entry[6], entry[17])
-        layer.up_proj = _tensor_from_meta(entry[7], entry[18])
-        layer.down_proj = _tensor_from_meta(entry[8], entry[19])
-        layer.q_norm = _tensor_from_meta(entry[9])
-        layer.k_norm = _tensor_from_meta(entry[10])
-        layer.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
-        layer.post_feedforward_layernorm = _tensor_from_meta(entry[12])
+        layer.input_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.post_attention_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.q_proj = _hydrate_tensor(ptr_array, offset)
+        layer.k_proj = _hydrate_tensor(ptr_array, offset)
+        layer.v_proj = _hydrate_tensor(ptr_array, offset)
+        layer.o_proj = _hydrate_tensor(ptr_array, offset)
+        layer.gate_proj = _hydrate_tensor(ptr_array, offset)
+        layer.up_proj = _hydrate_tensor(ptr_array, offset)
+        layer.down_proj = _hydrate_tensor(ptr_array, offset)
+        layer.q_norm = _hydrate_tensor(ptr_array, offset)
+        layer.k_norm = _hydrate_tensor(ptr_array, offset)
+        layer.pre_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.post_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
         m.layers.append(layer^)
-
     return m^
 
+fn _flatten_nano_model_weights(m: NanoModelWeights) -> List[Int]:
+    var ptrs = List[Int]()
+    _append_tensor(ptrs, m.embed_tokens)
+    _append_tensor(ptrs, m.norm)
+    _append_tensor(ptrs, m.lm_head)
+    _append_tensor(ptrs, m.per_layer_embed)
+    _append_tensor(ptrs, m.per_layer_projection)
+    _append_tensor(ptrs, m.per_layer_norm)
 
-fn _build_nano_model_from_runtime(runtime_obj: PythonObject) raises -> NanoModelWeights:
+    var num_altup = len(m.altup_projections)
+    ptrs.append(num_altup)
+    for i in range(num_altup):
+        _append_tensor(ptrs, m.altup_projections[i])
+        _append_tensor(ptrs, m.altup_unembeds[i])
+
+    for i in range(len(m.layers)):
+        var layer = m.layers[i]
+        _append_tensor(ptrs, layer.base.input_layernorm)
+        _append_tensor(ptrs, layer.base.post_attention_layernorm)
+        _append_tensor(ptrs, layer.base.q_proj)
+        _append_tensor(ptrs, layer.base.k_proj)
+        _append_tensor(ptrs, layer.base.v_proj)
+        _append_tensor(ptrs, layer.base.o_proj)
+        _append_tensor(ptrs, layer.base.gate_proj)
+        _append_tensor(ptrs, layer.base.up_proj)
+        _append_tensor(ptrs, layer.base.down_proj)
+        _append_tensor(ptrs, layer.base.q_norm)
+        _append_tensor(ptrs, layer.base.k_norm)
+        _append_tensor(ptrs, layer.base.pre_feedforward_layernorm)
+        _append_tensor(ptrs, layer.base.post_feedforward_layernorm)
+        
+        _append_tensor(ptrs, layer.altup.router)
+        _append_tensor(ptrs, layer.altup.router_norm)
+        _append_tensor(ptrs, layer.altup.prediction_coefs)
+        _append_tensor(ptrs, layer.altup.correction_coefs)
+        _append_tensor(ptrs, layer.altup.output_scale)
+        
+        _append_tensor(ptrs, layer.laurel.down_proj)
+        _append_tensor(ptrs, layer.laurel.up_proj)
+        _append_tensor(ptrs, layer.laurel.norm)
+        
+        _append_tensor(ptrs, layer.per_layer_map.gate)
+        _append_tensor(ptrs, layer.per_layer_map.projection)
+        _append_tensor(ptrs, layer.per_layer_map.norm)
+    return ptrs^
+
+fn _hydrate_nano_model_weights(ptr_array: UnsafePointer[Int], num_layers: Int) -> NanoModelWeights:
     var m = NanoModelWeights()
+    var offset = 0
+    m.embed_tokens = _hydrate_tensor(ptr_array, offset)
+    m.norm = _hydrate_tensor(ptr_array, offset)
+    m.lm_head = _hydrate_tensor(ptr_array, offset)
+    m.per_layer_embed = _hydrate_tensor(ptr_array, offset)
+    m.per_layer_projection = _hydrate_tensor(ptr_array, offset)
+    m.per_layer_norm = _hydrate_tensor(ptr_array, offset)
 
-    m.embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    m.norm = _tensor_from_meta(runtime_obj["norm"])
-    m.lm_head = _tensor_from_meta(runtime_obj["lm_head"])
-    m.per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
-    m.per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
-    m.per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var num_altup = ptr_array[offset]
+    offset += 1
+    for _ in range(num_altup):
+        m.altup_projections.append(_hydrate_tensor(ptr_array, offset))
+        m.altup_unembeds.append(_hydrate_tensor(ptr_array, offset))
 
-    var altup_projections = runtime_obj["altup_projections"]
-    var altup_unembeds = runtime_obj["altup_unembeds"]
-    for i in range(Int(py=Python.import_module("builtins").len(altup_projections))):
-        m.altup_projections.append(_tensor_from_meta(altup_projections[i]))
-        m.altup_unembeds.append(_tensor_from_meta(altup_unembeds[i]))
-
-    var layers = runtime_obj["layers"]
-    var num_layers = Int(py=Python.import_module("builtins").len(layers))
-    for i in range(num_layers):
-        var entry = layers[i]
+    for _ in range(num_layers):
         var layer = NanoLayerWeights()
-        layer.base.input_layernorm = _tensor_from_meta(entry[0])
-        layer.base.post_attention_layernorm = _tensor_from_meta(entry[1])
-        layer.base.q_proj = _tensor_from_meta(entry[2], entry[24])
-        layer.base.k_proj = _tensor_from_meta(entry[3], entry[25])
-        layer.base.v_proj = _tensor_from_meta(entry[4], entry[26])
-        layer.base.o_proj = _tensor_from_meta(entry[5], entry[27])
-        layer.base.gate_proj = _tensor_from_meta(entry[6], entry[28])
-        layer.base.up_proj = _tensor_from_meta(entry[7], entry[29])
-        layer.base.down_proj = _tensor_from_meta(entry[8], entry[30])
-        layer.base.q_norm = _tensor_from_meta(entry[9])
-        layer.base.k_norm = _tensor_from_meta(entry[10])
-        layer.base.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
-        layer.base.post_feedforward_layernorm = _tensor_from_meta(entry[12])
-        layer.altup.router = _tensor_from_meta(entry[13])
-        layer.altup.router_norm = _tensor_from_meta(entry[14])
-        layer.altup.prediction_coefs = _tensor_from_meta(entry[15])
-        layer.altup.correction_coefs = _tensor_from_meta(entry[16])
-        layer.altup.output_scale = _tensor_from_meta(entry[17])
-        layer.laurel.down_proj = _tensor_from_meta(entry[18])
-        layer.laurel.up_proj = _tensor_from_meta(entry[19])
-        layer.laurel.norm = _tensor_from_meta(entry[20])
-        layer.per_layer_map.gate = _tensor_from_meta(entry[21])
-        layer.per_layer_map.projection = _tensor_from_meta(entry[22])
-        layer.per_layer_map.norm = _tensor_from_meta(entry[23])
+        layer.base.input_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.base.post_attention_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.base.q_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.k_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.v_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.o_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.gate_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.up_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.down_proj = _hydrate_tensor(ptr_array, offset)
+        layer.base.q_norm = _hydrate_tensor(ptr_array, offset)
+        layer.base.k_norm = _hydrate_tensor(ptr_array, offset)
+        layer.base.pre_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.base.post_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
+        
+        layer.altup.router = _hydrate_tensor(ptr_array, offset)
+        layer.altup.router_norm = _hydrate_tensor(ptr_array, offset)
+        layer.altup.prediction_coefs = _hydrate_tensor(ptr_array, offset)
+        layer.altup.correction_coefs = _hydrate_tensor(ptr_array, offset)
+        layer.altup.output_scale = _hydrate_tensor(ptr_array, offset)
+        
+        layer.laurel.down_proj = _hydrate_tensor(ptr_array, offset)
+        layer.laurel.up_proj = _hydrate_tensor(ptr_array, offset)
+        layer.laurel.norm = _hydrate_tensor(ptr_array, offset)
+        
+        layer.per_layer_map.gate = _hydrate_tensor(ptr_array, offset)
+        layer.per_layer_map.projection = _hydrate_tensor(ptr_array, offset)
+        layer.per_layer_map.norm = _hydrate_tensor(ptr_array, offset)
         m.layers.append(layer^)
+    return m^
 
+fn _flatten_vision_model_weights(m: VisionModelWeights) -> List[Int]:
+    var ptrs = List[Int]()
+    _append_tensor(ptrs, m.patch_embedding)
+    _append_tensor(ptrs, m.position_embedding)
+    _append_tensor(ptrs, m.post_norm)
+    for i in range(len(m.layers)):
+        var layer = m.layers[i]
+        _append_tensor(ptrs, layer.q_proj)
+        _append_tensor(ptrs, layer.k_proj)
+        _append_tensor(ptrs, layer.v_proj)
+        _append_tensor(ptrs, layer.o_proj)
+        _append_tensor(ptrs, layer.gate_proj)
+        _append_tensor(ptrs, layer.up_proj)
+        _append_tensor(ptrs, layer.down_proj)
+        _append_tensor(ptrs, layer.input_layernorm)
+        _append_tensor(ptrs, layer.post_attention_layernorm)
+    return ptrs^
+
+fn _hydrate_vision_model_weights(ptr_array: UnsafePointer[Int], num_layers: Int) -> VisionModelWeights:
+    var m = VisionModelWeights()
+    var offset = 0
+    m.patch_embedding = _hydrate_tensor(ptr_array, offset)
+    m.position_embedding = _hydrate_tensor(ptr_array, offset)
+    m.post_norm = _hydrate_tensor(ptr_array, offset)
+    for _ in range(num_layers):
+        var layer = VisionLayerWeights()
+        layer.q_proj = _hydrate_tensor(ptr_array, offset)
+        layer.k_proj = _hydrate_tensor(ptr_array, offset)
+        layer.v_proj = _hydrate_tensor(ptr_array, offset)
+        layer.o_proj = _hydrate_tensor(ptr_array, offset)
+        layer.gate_proj = _hydrate_tensor(ptr_array, offset)
+        layer.up_proj = _hydrate_tensor(ptr_array, offset)
+        layer.down_proj = _hydrate_tensor(ptr_array, offset)
+        layer.input_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.post_attention_layernorm = _hydrate_tensor(ptr_array, offset)
+        m.layers.append(layer^)
     return m^
 
 
-fn _tensor_list_from_meta(meta_list: PythonObject) raises -> List[TensorInfo]:
-    var out = List[TensorInfo]()
-    var builtins = Python.import_module("builtins")
-    for i in range(Int(py=builtins.len(meta_list))):
-        out.append(_tensor_from_meta(meta_list[i]))
-    return out^
 
 
-fn _build_nano_layer_from_runtime_entry(entry: PythonObject) raises -> NanoLayerWeights:
-    var layer = NanoLayerWeights()
-    layer.base.input_layernorm = _tensor_from_meta(entry[0])
-    layer.base.post_attention_layernorm = _tensor_from_meta(entry[1])
-    layer.base.q_proj = _tensor_from_meta(entry[2], entry[24])
-    layer.base.k_proj = _tensor_from_meta(entry[3], entry[25])
-    layer.base.v_proj = _tensor_from_meta(entry[4], entry[26])
-    layer.base.o_proj = _tensor_from_meta(entry[5], entry[27])
-    layer.base.gate_proj = _tensor_from_meta(entry[6], entry[28])
-    layer.base.up_proj = _tensor_from_meta(entry[7], entry[29])
-    layer.base.down_proj = _tensor_from_meta(entry[8], entry[30])
-    layer.base.q_norm = _tensor_from_meta(entry[9])
-    layer.base.k_norm = _tensor_from_meta(entry[10])
-    layer.base.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
-    layer.base.post_feedforward_layernorm = _tensor_from_meta(entry[12])
-    layer.altup.router = _tensor_from_meta(entry[13])
-    layer.altup.router_norm = _tensor_from_meta(entry[14])
-    layer.altup.prediction_coefs = _tensor_from_meta(entry[15])
-    layer.altup.correction_coefs = _tensor_from_meta(entry[16])
-    layer.altup.output_scale = _tensor_from_meta(entry[17])
-    layer.laurel.down_proj = _tensor_from_meta(entry[18])
-    layer.laurel.up_proj = _tensor_from_meta(entry[19])
-    layer.laurel.norm = _tensor_from_meta(entry[20])
-    layer.per_layer_map.gate = _tensor_from_meta(entry[21])
-    layer.per_layer_map.projection = _tensor_from_meta(entry[22])
-    layer.per_layer_map.norm = _tensor_from_meta(entry[23])
-    return layer^
 
 
 fn _build_token_per_layer_inputs_runtime(
@@ -622,7 +681,7 @@ fn _forward_sequence_nano_runtime(
     out_emb_ptr: UnsafePointer[Float32, MutExternalOrigin],
     input_ids_ptr: UnsafePointer[Int32, MutExternalOrigin],
     seq_len: Int,
-    runtime_obj: PythonObject,
+    model_weights: NanoModelWeights,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
@@ -642,20 +701,18 @@ fn _forward_sequence_nano_runtime(
 
     Passes each token sequentially through the Nano layer stack and aggregates the final hidden states using mean pooling to produce the sequence embedding.
     """
-    var builtins = Python.import_module("builtins")
-    var runtime_layers = runtime_obj["layers"]
-    var num_layers = Int(py=builtins.len(runtime_layers))
+    var num_layers = len(model_weights.layers)
     if num_layers == 0:
         raise Error("Invalid Nano runtime: no layers found")
 
-    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    var norm = _tensor_from_meta(runtime_obj["norm"])
-    var per_layer_embed = _tensor_from_meta(runtime_obj["per_layer_embed"])
-    var per_layer_projection = _tensor_from_meta(runtime_obj["per_layer_projection"])
-    var per_layer_norm = _tensor_from_meta(runtime_obj["per_layer_norm"])
+    var embed_tokens = model_weights.embed_tokens
+    var norm = model_weights.norm
+    var per_layer_embed = model_weights.per_layer_embed
+    var per_layer_projection = model_weights.per_layer_projection
+    var per_layer_norm = model_weights.per_layer_norm
     var per_layer_table_layers = per_layer_embed.shape_1
-    var altup_projections = _tensor_list_from_meta(runtime_obj["altup_projections"])
-    var altup_unembeds = _tensor_list_from_meta(runtime_obj["altup_unembeds"])
+    var altup_projections = model_weights.altup_projections
+    var altup_unembeds = model_weights.altup_unembeds
 
     var emb_acc_ptr = scratch_ptr
     var token_hidden_ptr = scratch_ptr + batch_size * hidden_size
@@ -667,9 +724,7 @@ fn _forward_sequence_nano_runtime(
     for i in range(batch_size * hidden_size):
         emb_acc_ptr.store(i, 0.0)
 
-    var typed_layers = List[NanoLayerWeights]()
-    for i in range(num_layers):
-        typed_layers.append(_build_nano_layer_from_runtime_entry(runtime_layers[i]))
+    var typed_layers = model_weights.layers
 
     for t in range(seq_len):
         for b in range(batch_size):
@@ -714,29 +769,12 @@ fn _forward_sequence_nano_runtime(
         out_emb_ptr.store(i, emb_acc_ptr.load(i) * scale)
 
 
-fn _build_standard_layer_from_runtime_entry(entry: PythonObject) raises -> LayerWeights:
-    var layer = LayerWeights()
-    layer.input_layernorm = _tensor_from_meta(entry[0])
-    layer.post_attention_layernorm = _tensor_from_meta(entry[1])
-    layer.q_proj = _tensor_from_meta(entry[2], entry[13])
-    layer.k_proj = _tensor_from_meta(entry[3], entry[14])
-    layer.v_proj = _tensor_from_meta(entry[4], entry[15])
-    layer.o_proj = _tensor_from_meta(entry[5], entry[16])
-    layer.gate_proj = _tensor_from_meta(entry[6], entry[17])
-    layer.up_proj = _tensor_from_meta(entry[7], entry[18])
-    layer.down_proj = _tensor_from_meta(entry[8], entry[19])
-    layer.q_norm = _tensor_from_meta(entry[9])
-    layer.k_norm = _tensor_from_meta(entry[10])
-    layer.pre_feedforward_layernorm = _tensor_from_meta(entry[11])
-    layer.post_feedforward_layernorm = _tensor_from_meta(entry[12])
-    return layer^
-
 
 fn _forward_step_standard_runtime(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     pos: Int,
-    runtime_obj: PythonObject,
+    model_weights: ModelWeights,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
@@ -754,12 +792,10 @@ fn _forward_step_standard_runtime(
 
     Extracts token embeddings and sequentially applies each transformer layer, updating the KV cache and computing the final logits.
     """
-    var builtins = Python.import_module("builtins")
-    var layers = runtime_obj["layers"]
-    var num_layers = Int(py=builtins.len(layers))
-    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    var norm = _tensor_from_meta(runtime_obj["norm"])
-    var lm_head = _tensor_from_meta(runtime_obj["lm_head"])
+    var num_layers = len(model_weights.layers)
+    var embed_tokens = model_weights.embed_tokens
+    var norm = model_weights.norm
+    var lm_head = model_weights.lm_head
 
     var current_state = scratch_ptr
     var next_state = scratch_ptr + hidden_size
@@ -776,7 +812,7 @@ fn _forward_step_standard_runtime(
 
         var token_freqs_cos_ptr = freqs_cos_ptr + pos * head_dim
         var token_freqs_sin_ptr = freqs_sin_ptr + pos * head_dim
-        var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
+        var layer_weights = model_weights.layers[l]
 
         forward_layer(
             next_state,
@@ -807,7 +843,7 @@ fn _forward_sequence_standard_runtime(
     out_emb_ptr: UnsafePointer[Float32, MutExternalOrigin],
     input_ids_ptr: UnsafePointer[Int32, MutExternalOrigin],  # [batch_size, seq_len]
     seq_len: Int,
-    runtime_obj: PythonObject,
+    model_weights: ModelWeights,
     hidden_size: Int,
     num_heads: Int,
     num_kv_heads: Int,
@@ -825,11 +861,9 @@ fn _forward_sequence_standard_runtime(
 
     Passes each token through the transformer layers and aggregates the final hidden states using mean pooling to produce the sequence embedding.
     """
-    var builtins = Python.import_module("builtins")
-    var layers = runtime_obj["layers"]
-    var num_layers = Int(py=builtins.len(layers))
-    var embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"])
-    var norm = _tensor_from_meta(runtime_obj["norm"])
+    var num_layers = len(model_weights.layers)
+    var embed_tokens = model_weights.embed_tokens
+    var norm = model_weights.norm
 
     var current_state = scratch_ptr
     var next_state = scratch_ptr + batch_size * hidden_size
@@ -853,7 +887,7 @@ fn _forward_sequence_standard_runtime(
 
             var token_freqs_cos_ptr = freqs_cos_ptr + t * head_dim
             var token_freqs_sin_ptr = freqs_sin_ptr + t * head_dim
-            var layer_weights = _build_standard_layer_from_runtime_entry(layers[l])
+            var layer_weights = model_weights.layers[l]
 
             forward_layer(
                 next_state,
@@ -961,9 +995,11 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
             raise Error("Invalid Nano model weights: per_layer_map gate dim must be > 0")
         py_dict["kv_share_start"] = _detect_nano_kv_share_start(model_weights)
 
-        var ptr = alloc[NanoModelWeights](1)
-        ptr.init_pointee_move(model_weights^)
-        py_dict["_descriptor_ptr"] = Int(ptr)
+        var ptrs = _flatten_nano_model_weights(model_weights)
+        var ptrs_np = np.zeros(len(ptrs), dtype=np.uint64)
+        for i in range(len(ptrs)):
+            ptrs_np.itemset(i, ptrs[i])
+        py_dict["_tensor_pointers"] = ptrs_np
     else:
         runtime_obj = _build_standard_runtime(metadata_obj)
         var model_weights = _build_model_from_runtime(runtime_obj)
@@ -979,9 +1015,11 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
         intermediate_size = model_weights.layers[0].gate_proj.shape_0
         vocab_size = model_weights.lm_head.shape_0
 
-        var ptr = alloc[ModelWeights](1)
-        ptr.init_pointee_move(model_weights^)
-        py_dict["_descriptor_ptr"] = Int(ptr)
+        var ptrs = _flatten_model_weights(model_weights)
+        var ptrs_np = np.zeros(len(ptrs), dtype=np.uint64)
+        for i in range(len(ptrs)):
+            ptrs_np.itemset(i, ptrs[i])
+        py_dict["_tensor_pointers"] = ptrs_np
         py_dict["kv_share_start"] = num_layers
 
     var max_seq_len = 8192  # default max seq len
@@ -1114,13 +1152,19 @@ fn step_mojo(
 
     var token_id = Int(py=token_id_obj)
 
-    var runtime_obj = llm["runtime"]
-    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
+    var num_layers = Int(py=llm["num_layers"])
+    var tensor_pointers_obj = llm["_tensor_pointers"]
+    var tensor_pointers_ptr = UnsafePointer[Int](
+        unsafe_from_address=Int(py=tensor_pointers_obj.__array_interface__["data"][0])
     )
-    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
-    )
+    
+    var std_model = ModelWeights()
+    var nano_model = NanoModelWeights()
+    if arch == "nano":
+        nano_model = _hydrate_nano_model_weights(tensor_pointers_ptr, num_layers)
+    else:
+        std_model = _hydrate_model_weights(tensor_pointers_ptr, num_layers)
+
     var hidden_size = Int(py=llm["hidden_size"])
     var vocab_size = Int(py=llm["vocab_size"])
     var head_dim = Int(py=llm["head_dim"])
@@ -1285,15 +1329,19 @@ fn generate_embeddings_mojo(
     if max_seq_len == 0:
         raise Error("inputs must contain at least one token")
 
-    var runtime_obj = llm["runtime"]
-    var ptr_std = UnsafePointer[ModelWeights, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
-    )
-    var ptr_nano = UnsafePointer[NanoModelWeights, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm.get("_descriptor_ptr", 0))
-    )
-    var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
+    var tensor_pointers_obj = llm["_tensor_pointers"]
+    var tensor_pointers_ptr = UnsafePointer[Int](
+        unsafe_from_address=Int(py=tensor_pointers_obj.__array_interface__["data"][0])
+    )
+    
+    var std_model = ModelWeights()
+    var nano_model = NanoModelWeights()
+    if arch == "nano":
+        nano_model = _hydrate_nano_model_weights(tensor_pointers_ptr, num_layers)
+    else:
+        std_model = _hydrate_model_weights(tensor_pointers_ptr, num_layers)
+
     var hidden_size = Int(py=llm["hidden_size"])
     var head_dim = Int(py=llm["head_dim"])
     var num_heads = Int(py=llm["num_heads"])
@@ -1361,7 +1409,7 @@ fn generate_embeddings_mojo(
             emb_out_ptr,
             input_ids_ptr,
             seq_len,
-            runtime_obj,
+            nano_model,
             hidden_size,
             num_heads,
             num_kv_heads,
@@ -1388,7 +1436,7 @@ fn generate_embeddings_mojo(
             emb_out_ptr,
             input_ids_ptr,
             seq_len,
-            runtime_obj,
+            std_model,
             hidden_size,
             num_heads,
             num_kv_heads,

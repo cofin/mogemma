@@ -1328,10 +1328,6 @@ fn forward_attention_gpu(
     """Computes Multi-Head/Grouped-Query Attention for the standard model on the GPU.
 
     See `forward_attention` for functional details."""
-    """Computes Multi-Head/Grouped-Query Attention for the standard model on the GPU.
-
-    See `forward_attention` for functional details.
-    """
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -1403,10 +1399,6 @@ fn forward_mlp_gpu(
     """Computes the feed-forward network (MLP) for the standard model on the GPU.
 
     See `forward_mlp` for functional details."""
-    """Computes the feed-forward network (MLP) for the standard model on the GPU.
-
-    See `forward_mlp` for functional details.
-    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -1440,10 +1432,6 @@ fn forward_layer_gpu(
     """Executes a single standard transformer layer on the GPU.
 
     See `forward_layer` for functional details."""
-    """Executes a single standard transformer layer on the GPU.
-
-    See `forward_layer` for functional details.
-    """
     var norm_x_ptr = scratch_ptr
     var attn_out_ptr = scratch_ptr + hidden_size
     var attn_scratch_ptr = scratch_ptr + hidden_size * 2
@@ -1500,10 +1488,6 @@ fn forward_laurel_gpu(
     """Executes the Laurel projection step for the Nano architecture on the GPU.
 
     See `forward_laurel` for functional details."""
-    """Executes the Laurel projection step for the Nano architecture on the GPU.
-
-    See `forward_laurel` for functional details.
-    """
     var down_ptr = scratch_ptr
     var up_ptr = scratch_ptr + bottleneck_dim
     var norm_up_ptr = up_ptr + hidden_size
@@ -1526,10 +1510,6 @@ fn _rms_norm_nano_weighted_gpu(
     """Applies weighted RMSNorm on the GPU.
 
     Normalizes the input vector and scales it by the weight vector."""
-    """Applies weighted RMSNorm on the GPU.
-
-    Normalizes the input vector and scales it by the weight vector.
-    """
     var sum_sq: Float32 = 0.0
     for i in range(size):
         var v = x_ptr.load(i)
@@ -1549,10 +1529,6 @@ fn _rms_norm_nano_unit_gpu(
     """Applies unit RMSNorm on the GPU.
 
     Normalizes the input vector without scaling."""
-    """Applies unit (unweighted) RMSNorm on the GPU.
-
-    Normalizes the input vector without scaling weights.
-    """
     var sum_sq: Float32 = 0.0
     for i in range(size):
         var v = x_ptr.load(i)
@@ -1583,10 +1559,6 @@ fn forward_attention_nano_gpu(
     """Computes Multi-Head/Grouped-Query Attention for the Nano model on the GPU.
 
     See `forward_attention_nano` for functional details."""
-    """Computes Multi-Head/Grouped-Query Attention for the Nano model on the GPU.
-
-    See `forward_attention_nano` for functional details.
-    """
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -1659,10 +1631,6 @@ fn forward_per_layer_mapping_gpu(
     """Applies the per-layer mapping delta for the Nano AltUp architecture on the GPU.
 
     See `forward_per_layer_mapping` for functional details."""
-    """Applies the per-layer mapping delta for the Nano AltUp architecture on the GPU.
-
-    See `forward_per_layer_mapping` for functional details.
-    """
     var gate_out_ptr = scratch_ptr
     var proj_out_ptr = scratch_ptr + per_layer_dim
 
@@ -1689,10 +1657,6 @@ fn _compute_router_modalities_gpu(
     """Computes the router modality probabilities for the AltUp mechanism on the GPU.
 
     See `_compute_router_modalities` for functional details."""
-    """Computes the router modality probabilities for the AltUp mechanism on the GPU.
-
-    See `_compute_router_modalities` for functional details.
-    """
     var router_in_ptr = scratch_ptr
     _rms_norm_nano_weighted_gpu(router_in_ptr, active_ptr, weights.router_norm.ptr, hidden_size, 1e-6)
 
@@ -1717,10 +1681,6 @@ fn forward_altup_predict_gpu(
     """Executes the AltUp prediction phase on the GPU.
 
     See `forward_altup_predict` for functional details."""
-    """Executes the AltUp prediction phase on the GPU.
-
-    See `forward_altup_predict` for functional details.
-    """
     var modalities_ptr = scratch_ptr
     var coef_ptr = modalities_ptr + num_modalities
     var router_scratch_ptr = coef_ptr + num_modalities * num_modalities
@@ -1759,10 +1719,6 @@ fn forward_altup_correct_gpu(
     """Executes the AltUp correction phase on the GPU.
 
     See `forward_altup_correct` for functional details."""
-    """Executes the AltUp correction phase on the GPU.
-
-    See `forward_altup_correct` for functional details.
-    """
     var modalities_ptr = scratch_ptr
     var corr_ptr = modalities_ptr + num_modalities
     var router_scratch_ptr = corr_ptr + num_modalities
@@ -1793,10 +1749,6 @@ fn _apply_nano_activation_sparsity_gpu(
     """Applies activation sparsity to the Nano MLP gate projection on the GPU.
 
     See `_apply_nano_activation_sparsity` for functional details."""
-    """Applies activation sparsity to the Nano MLP gate projection on the GPU.
-
-    See `_apply_nano_activation_sparsity` for functional details.
-    """
     if sparsity <= 0.0:
         return
 
@@ -1833,10 +1785,6 @@ fn forward_mlp_nano_gpu(
     """Computes the feed-forward network (MLP) for a Nano layer on the GPU.
 
     See `forward_mlp_nano` for functional details."""
-    """Computes the feed-forward network (MLP) for a Nano layer on the GPU.
-
-    See `forward_mlp_nano` for functional details.
-    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -1877,10 +1825,6 @@ fn forward_nano_layer_gpu(
     """Executes a single Gemma Nano layer on the GPU.
 
     See `forward_nano_layer` for functional details."""
-    """Executes a single Gemma Nano layer on the GPU.
-
-    See `forward_nano_layer` for functional details.
-    """
     var predictions_ptr = scratch_ptr  # 0..4h
     var corrected_ptr = predictions_ptr + num_modalities * hidden_size  # 4h..8h
     var active_ptr = corrected_ptr + num_modalities * hidden_size  # 8h
