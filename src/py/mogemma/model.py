@@ -287,22 +287,27 @@ def _reset_llm_session_state(llm: object) -> None:
         return
 
     llm["pos"] = 0
-    for cache_key in ("k_cache", "v_cache"):
-        cache = llm.get(cache_key)
-        if cache is None:
-            continue
-        if hasattr(cache, "fill"):
-            cache.fill(0.0)
-            continue
-        if isinstance(cache, list):
-            for i in range(len(cache)):
-                cache[i] = 0.0
-            continue
-        try:
-            np.asarray(cache).fill(0.0)
-        except (TypeError, ValueError, AttributeError, NotImplementedError):
-            # Keep reset best-effort for backend-specific cache containers.
-            continue
+    if _core is not None and hasattr(_core, "reset_cache"):
+        _core.reset_cache(llm)
+    else:
+        # Fallback for legacy core
+        for cache_key in ("k_cache", "v_cache"):
+            cache = llm.get(cache_key)
+            if cache is None:
+                continue
+            if isinstance(cache, (int, float)):
+                continue
+            if hasattr(cache, "fill"):
+                cache.fill(0.0)
+                continue
+            if isinstance(cache, list):
+                for i in range(len(cache)):
+                    cache[i] = 0.0
+                continue
+            try:
+                np.asarray(cache).fill(0.0)
+            except (TypeError, ValueError, AttributeError, NotImplementedError):
+                continue
 
 
 class EmbeddingModel:
@@ -419,6 +424,24 @@ class EmbeddingModel:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
 
+    def close(self) -> None:
+        """Release underlying resources and free the memory arena."""
+        if hasattr(self, "_llm") and self._llm is not None and _core is not None and hasattr(_core, "free_arena"):
+            _core.free_arena(self._llm)
+            self._llm = None
+        if hasattr(self, "_loader"):
+            self._loader.close()
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
+    def __enter__(self) -> "EmbeddingModel":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
 
 class SyncGemmaModel:
     """Python interface for the Gemma 3 text generation engine."""
@@ -531,6 +554,24 @@ class SyncGemmaModel:
     def tokenizer(self) -> _Tokenizer:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
+
+    def close(self) -> None:
+        """Release underlying resources and free the memory arena."""
+        if hasattr(self, "_llm") and self._llm is not None and _core is not None and hasattr(_core, "free_arena"):
+            _core.free_arena(self._llm)
+            self._llm = None
+        if hasattr(self, "_loader"):
+            self._loader.close()
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
+    def __enter__(self) -> "SyncGemmaModel":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
 
 class AsyncGemmaModel:

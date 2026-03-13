@@ -1167,8 +1167,10 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ->
     if emb_scratch_len > max_scratch_len:
         max_scratch_len = emb_scratch_len
     
-    # Total Arena Size: 2x KV + 2x RoPE + Scratch
-    var total_arena_len = (kv_len * 2) + (rope_len * 2) + max_scratch_len
+    # Total Arena Size: 2x KV + 2x RoPE + Scratch + EmbOut
+    var max_batch_size = 1
+    var emb_out_len = max_batch_size * hidden_size
+    var total_arena_len = (kv_len * 2) + (rope_len * 2) + max_scratch_len + emb_out_len
     
     var arena = MemoryArena(total_arena_len)
     var arena_base_ptr = arena.ptr
@@ -1178,6 +1180,7 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ->
     var cos_ptr = v_ptr + kv_len
     var sin_ptr = cos_ptr + rope_len
     var scratch_ptr = sin_ptr + rope_len
+    var emb_out_ptr = scratch_ptr + max_scratch_len
     
     # Pre-compute RoPE
     var base: Float32 = 10000.0
@@ -1197,6 +1200,7 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ->
     py_dict["freqs_cos"] = Int(cos_ptr)
     py_dict["freqs_sin"] = Int(sin_ptr)
     py_dict["step_scratch"] = Int(scratch_ptr)
+    py_dict["emb_out"] = Int(emb_out_ptr)
     
     py_dict["max_seq_len"] = max_seq_len
     py_dict["num_layers"] = num_layers
@@ -1318,45 +1322,24 @@ fn step_mojo(
     var launch_counter = Int(py=llm.get("debug_launch_count", 0))
     llm["debug_launch_count"] = launch_counter + 1
 
-    var k_cache = llm["k_cache"]
-    var v_cache = llm["v_cache"]
-    var freqs_cos = llm["freqs_cos"]
-    var freqs_sin = llm["freqs_sin"]
-
     var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=freqs_cos.__array_interface__["data"][0])
+        unsafe_from_address=Int(py=llm["freqs_cos"])
     )
     var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=freqs_sin.__array_interface__["data"][0])
+        unsafe_from_address=Int(py=llm["freqs_sin"])
     )
 
     var step_scratch_len = Int(py=llm["step_scratch_len"])
-    var scratch_obj = llm["step_scratch"]
-    var scratch_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm["step_scratch"])
+    )
 
-    var kv_cache_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var kv_cache_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
-
-    if step_backend == "cuda" or step_backend == "gpu":
-        kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=k_cache))
-        kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=v_cache))
-        # scratch_obj is a numpy array for scaffolding
-        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0])
-        )
-    else:
-        # standard numpy cache
-        kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(py=k_cache.__array_interface__["data"][0])
-        )
-        kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(py=v_cache.__array_interface__["data"][0])
-        )
-
-        # for cpu, scratch_obj is a numpy array
-        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(py=scratch_obj.__array_interface__["data"][0])
-        )
+    var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm["k_cache"])
+    )
+    var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm["v_cache"])
+    )
 
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](
@@ -1514,16 +1497,25 @@ fn generate_embeddings_mojo(
     var embedding_kv_cache_len = _kv_cache_len(batch_size, num_layers, max_seq_len, num_kv_heads, head_dim)
     var kv_cache_k = _allocate_transient_f32(embedding_kv_cache_len)
     var kv_cache_v = _allocate_transient_f32(embedding_kv_cache_len)
-    var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
-    var scratch = _allocate_transient_f32(batch_size * embedding_scratch_len)  # generous scratch space
-    var emb_out = _allocate_transient_f32(batch_size * hidden_size)
     var input_ids = _allocate_transient_i32(batch_size * max_seq_len)
+
+    # Arena-backed buffers (assuming batch_size=1 fits in arena)
+    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["step_scratch"]))
+    var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["emb_out"]))
+    
+    # Check if we need larger buffers for batch_size > 1
+    var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
+    var scratch_local = List[Float32]()
+    var emb_out_local = List[Float32]()
+    if batch_size > 1:
+        scratch_local = _allocate_transient_f32(batch_size * embedding_scratch_len)
+        emb_out_local = _allocate_transient_f32(batch_size * hidden_size)
+        scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch_local.unsafe_ptr()))
+        emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(emb_out_local.unsafe_ptr()))
 
     # Convert lists to pointers
     var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_k.unsafe_ptr()))
     var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(kv_cache_v.unsafe_ptr()))
-    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(scratch.unsafe_ptr()))
-    var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(emb_out.unsafe_ptr()))
     var input_ids_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(input_ids.unsafe_ptr()))
 
     var seq_len = Int(py=builtins.len(input_array[0]))
@@ -1902,20 +1894,38 @@ fn process_image_mojo(
     return out_np
 
 
-fn _free_arena_impl_mojo(llm: PythonObject) raises:
+def _free_arena_impl_mojo(llm: PythonObject):
     var ptr_addr = Int(py=llm.get("_arena_ptr", 0))
     if ptr_addr == 0:
         return
-    
+
     var size = Int(py=llm.get("_arena_size", 0))
-    var arena = MemoryArena(ArenaPtr(unsafe_from_address=ptr_addr), size)
-    arena.free()
+    var ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=ptr_addr)
+    ptr.free()
     llm["_arena_ptr"] = 0
     llm["_arena_size"] = 0
 
-fn free_arena_mojo(llm: PythonObject) raises:
+
+def free_arena_mojo(llm: PythonObject):
+    """Explicitly frees the memory arena allocated for the model session."""
     _free_arena_impl_mojo(llm)
 
+
+def reset_cache_mojo(llm: PythonObject):
+    """Zeros the KV cache buffers in the memory arena."""
+    var k_ptr_int = Int(py=llm.get("k_cache", 0))
+    var v_ptr_int = Int(py=llm.get("v_cache", 0))
+    var kv_len = Int(py=llm.get("session_kv_cache_len", 0))
+
+    if k_ptr_int != 0:
+        var k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=k_ptr_int)
+        for i in range(kv_len):
+            k_ptr.store(i, 0.0)
+
+    if v_ptr_int != 0:
+        var v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=v_ptr_int)
+        for i in range(kv_len):
+            v_ptr.store(i, 0.0)
 @export
 fn PyInit__core() -> PythonObject:
     try:
@@ -1926,6 +1936,7 @@ fn PyInit__core() -> PythonObject:
         b.def_function[process_image_mojo]("process_image")
         b.def_function[step_mojo]("step")
         b.def_function[free_arena_mojo]("free_arena")
+        b.def_function[reset_cache_mojo]("reset_cache")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
