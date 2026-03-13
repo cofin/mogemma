@@ -1,7 +1,7 @@
 from python import Python, PythonObject
 from python.bindings import PythonModuleBuilder
 from os import abort
-from memory import UnsafePointer, alloc
+from memory import UnsafePointer
 from math import cos, sin, sqrt
 from collections import List
 
@@ -962,7 +962,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
 
     var arch = _detect_architecture(metadata_obj)
     py_dict["arch"] = arch
-    var runtime_obj: PythonObject
+    var std_model: PythonObject
 
     var num_layers: Int
     var head_dim: Int
@@ -976,8 +976,8 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
     var nano_model_build_count = 0
 
     if arch == "nano":
-        runtime_obj = _build_nano_runtime(metadata_obj)
-        var model_weights = _build_nano_model_from_runtime(runtime_obj)
+        std_model = _build_nano_runtime(metadata_obj)
+        var model_weights = _build_nano_model_from_runtime(std_model)
         nano_model_build_count = 1
         num_layers = len(model_weights.layers)
         if num_layers == 0:
@@ -1001,8 +1001,8 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
             ptrs_np.itemset(i, ptrs[i])
         py_dict["_tensor_pointers"] = ptrs_np
     else:
-        runtime_obj = _build_standard_runtime(metadata_obj)
-        var model_weights = _build_model_from_runtime(runtime_obj)
+        std_model = _build_standard_runtime(metadata_obj)
+        var model_weights = _build_model_from_runtime(std_model)
         num_layers = len(model_weights.layers)
         if num_layers == 0:
             raise Error("Invalid standard model weights: no layers found in metadata")
@@ -1080,7 +1080,7 @@ fn _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) rai
     py_dict["step_scratch_len"] = step_scratch_len
     py_dict["embedding_scratch_len"] = _embedding_scratch_len(hidden_size, max_seq_len, num_heads)
     py_dict["per_layer_dim"] = per_layer_dim
-    py_dict["runtime"] = runtime_obj
+    py_dict["runtime"] = std_model
     py_dict["descriptor_build_count"] = 1
     py_dict["nano_model_build_count"] = nano_model_build_count
     py_dict["pos"] = 0
@@ -1240,7 +1240,7 @@ fn step_mojo(
                 out_logits_ptr,
                 token_id,
                 pos,
-                ptr_nano[],
+                nano_model,
                 hidden_size,
                 num_heads,
                 num_kv_heads,
@@ -1261,7 +1261,7 @@ fn step_mojo(
                 out_logits_ptr,
                 token_id,
                 pos,
-                ptr_nano[],
+                nano_model,
                 hidden_size,
                 num_heads,
                 num_kv_heads,
@@ -1285,7 +1285,7 @@ fn step_mojo(
             out_logits_ptr,
             token_id,
             pos,
-            runtime_obj,
+            std_model,
             hidden_size,
             num_heads,
             num_kv_heads,
@@ -1329,6 +1329,7 @@ fn generate_embeddings_mojo(
     if max_seq_len == 0:
         raise Error("inputs must contain at least one token")
 
+    var arch = String(py=llm["arch"])
     var num_layers = Int(py=llm["num_layers"])
     var tensor_pointers_obj = llm["_tensor_pointers"]
     var tensor_pointers_ptr = UnsafePointer[Int](
@@ -1780,25 +1781,11 @@ fn PyInit__core() -> PythonObject:
         b.def_function[generate_embeddings_mojo]("generate_embeddings")
         b.def_function[process_image_mojo]("process_image")
         b.def_function[step_mojo]("step")
-        b.def_function[free_model_mojo]("free_model")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
 
 
-fn free_model_mojo(llm: PythonObject) raises:
-    """Frees the unmanaged memory allocated for the Mojo model descriptor.
-
-    Reads the architecture type and raw pointer address from the runtime dictionary, casts it to the correct pointer type, and frees it to prevent memory leaks.
-    """
-    var arch = String(py=llm["arch"])
-    var ptr_int = Int(py=llm.get("_descriptor_ptr", 0))
-    if ptr_int == 0:
-        return
-    if arch == "nano":
-        var ptr = UnsafePointer[NanoModelWeights, MutExternalOrigin](unsafe_from_address=ptr_int)
-        ptr.destroy_pointee()
-        ptr.free()
     else:
         var ptr = UnsafePointer[ModelWeights, MutExternalOrigin](unsafe_from_address=ptr_int)
         ptr.destroy_pointee()

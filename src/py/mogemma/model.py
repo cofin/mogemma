@@ -338,16 +338,6 @@ class EmbeddingModel:
             architecture_overrides=config.architecture_overrides,
         )
 
-    def __del__(self) -> None:
-        """Free underlying unmanaged runtime state."""
-        if (
-            hasattr(self, "_backend")
-            and hasattr(self, "_llm")
-            and self._llm is not None
-            and hasattr(self._backend, "free_model")
-        ):
-            self._backend.free_model(self._llm)
-
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
@@ -463,16 +453,6 @@ class SyncGemmaModel:
             model_type="generation",
             architecture_overrides=config.architecture_overrides,
         )
-
-    def __del__(self) -> None:
-        """Free underlying unmanaged runtime state."""
-        if (
-            hasattr(self, "_backend")
-            and hasattr(self, "_llm")
-            and self._llm is not None
-            and hasattr(self._backend, "free_model")
-        ):
-            self._backend.free_model(self._llm)
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:

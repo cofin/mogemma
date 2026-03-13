@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
+import numpy as np
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -66,15 +68,11 @@ class CoreModuleContract(Protocol):
         """Initialize a backend model session from tensor metadata."""
         ...
 
-    def free_model(self, llm: object) -> None:
-        """Free memory allocated by the backend."""
-        ...
-
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Run one token step and return logits."""
         ...
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray]) -> None:
+    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
         """Process multimodal images through the vision encoder."""
         ...
 
@@ -92,15 +90,11 @@ class GenerationBackend(Protocol):
         """Initialize backend runtime state from tensor metadata."""
         ...
 
-    def free_model(self, llm: object) -> None:
-        """Free memory allocated by the backend."""
-        ...
-
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Run one autoregressive step and return logits."""
         ...
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray]) -> None:
+    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
         """Process multimodal images through the vision encoder."""
         ...
 
@@ -112,10 +106,6 @@ class EmbeddingBackend(Protocol):
 
     def init_model(self, metadata: TensorMetadata) -> object:
         """Initialize backend runtime state from tensor metadata."""
-        ...
-
-    def free_model(self, llm: object) -> None:
-        """Free memory allocated by the backend."""
         ...
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
@@ -135,16 +125,11 @@ class CoreBackend:
         """Initialize the model context inside the core backend."""
         return self._core.init_model(metadata)
 
-    def free_model(self, llm: object) -> None:
-        """Free any unmanaged memory held by the backend."""
-        if hasattr(self._core, "free_model"):
-            self._core.free_model(llm)
-
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Step the LLM context to decode the next token logits."""
         return self._core.step(llm, token_id, temp, top_k, top_p)
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray]) -> None:
+    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
         """Process multimodal images through the vision encoder."""
         if hasattr(self._core, "process_image"):
             for image in images:

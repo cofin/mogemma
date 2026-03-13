@@ -12,6 +12,7 @@ from mogemma.model import (
     TensorInfo,
 )
 from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul, mat_mat_mul_i8
+from mogemma.ops_gpu import vec_mat_mul_gpu, rope_rotate_gpu, softmax_gpu, rms_norm_gpu, geglu_gpu
 
 
 @always_inline
