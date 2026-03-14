@@ -30,6 +30,10 @@ version = "0.2.0"
 Issue = "https://github.com/cofin/mogemma/issues/"
 Source = "https://github.com/cofin/mogemma"
 
+[[tool.uv.index]]
+name = "modular-nightly"
+url = "https://whl.modular.com/nightly/simple/"
+
 [project.optional-dependencies]
 llm = ["sentencepiece>=0.2.0"]
 telemetry = ["opentelemetry-api>=1.35.0"]

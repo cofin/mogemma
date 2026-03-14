@@ -44,6 +44,7 @@ def test_mojo_core_init_standard() -> None:
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
 
     llm = _core.init_model(metadata)
+    _core.test_ffi(llm, 1, 0.0, 0, 0.0)
     assert llm["arch"] == "standard"
     assert llm["num_layers"] == 1
     assert llm["head_dim"] == _EXPECTED_HEAD_DIM
@@ -144,7 +145,9 @@ def test_mojo_core_step_standard() -> None:
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
     llm = _core.init_model(metadata)
 
+    print("Executing step...")
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
+    print("Step finished!")
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
     assert llm.get("descriptor_build_count", 1) == 1
@@ -469,7 +472,9 @@ def test_mojo_core_step_nano() -> None:
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
     llm = _core.init_model(metadata)
 
+    print("Executing step...")
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
+    print("Step finished!")
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
 

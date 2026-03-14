@@ -31,7 +31,7 @@ fn _gemm_dispatch(
 
 
 @always_inline
-fn forward_layer(
+fn forward_attention(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
@@ -59,9 +59,9 @@ fn forward_layer(
     var k_ptr = scratch_ptr + batch_size * q_size
     var v_ptr = scratch_ptr + batch_size * q_size + batch_size * kv_size
 
-    _gemm_dispatch(q_ptr, norm_x_ptr, weights.q_proj, batch_size, hidden_size, q_size)
-    _gemm_dispatch(k_ptr, norm_x_ptr, weights.k_proj, batch_size, hidden_size, kv_size)
-    _gemm_dispatch(v_ptr, norm_x_ptr, weights.v_proj, batch_size, hidden_size, kv_size)
+    _gemm_dispatch(q_ptr, x_ptr, weights.q_proj, batch_size, hidden_size, q_size)
+    _gemm_dispatch(k_ptr, x_ptr, weights.k_proj, batch_size, hidden_size, kv_size)
+    _gemm_dispatch(v_ptr, x_ptr, weights.v_proj, batch_size, hidden_size, kv_size)
 
     for b in range(batch_size):
         var b_q_ptr = q_ptr + b * q_size

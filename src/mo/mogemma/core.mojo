@@ -88,16 +88,25 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
 
 @always_inline
 fn _append_tensor(mut ptrs: List[Int], t: TensorInfo):
-    ptrs.append(Int(t.ptr))
+    if t.is_quantized:
+        ptrs.append(Int(t.i8_ptr))
+    else:
+        ptrs.append(Int(t.ptr))
     ptrs.append(Int(t.scale_ptr))
     ptrs.append(t.shape_0)
     ptrs.append(t.shape_1)
 
 @always_inline
-fn _hydrate_tensor(ptr_array: UnsafePointer[Int], mut offset: Int) -> TensorInfo:
-    var t = TensorInfo(ptr_array[offset], ptr_array[offset+1], ptr_array[offset+2], ptr_array[offset+3])
+fn _hydrate_tensor(ptr_array: UnsafePointer[Int, MutExternalOrigin], mut offset: Int) -> TensorInfo:
+    var p = ptr_array[offset]
+    var scale = ptr_array[offset+1]
+    var s0 = ptr_array[offset+2]
+    var s1 = ptr_array[offset+3]
     offset += 4
-    return t
+    if scale == 0:
+        return TensorInfo(p, s0, s1)
+    else:
+        return TensorInfo(p, scale, s0, s1)
 
 
 
@@ -339,180 +348,180 @@ def _build_nano_model_from_runtime(runtime_obj: PythonObject) -> NanoModelWeight
 
 
 fn _flatten_model_weights(m: ModelWeights) -> List[Int]:
-    var ptrs = List[Int]()
-    _append_tensor(ptrs, m.embed_tokens)
-    _append_tensor(ptrs, m.norm)
-    _append_tensor(ptrs, m.lm_head)
+    var appender = Appender()
+    appender.append(m.embed_tokens)
+    appender.append(m.norm)
+    appender.append(m.lm_head)
     for i in range(len(m.layers)):
         var layer = m.layers[i]
-        _append_tensor(ptrs, layer.input_layernorm)
-        _append_tensor(ptrs, layer.post_attention_layernorm)
-        _append_tensor(ptrs, layer.q_proj)
-        _append_tensor(ptrs, layer.k_proj)
-        _append_tensor(ptrs, layer.v_proj)
-        _append_tensor(ptrs, layer.o_proj)
-        _append_tensor(ptrs, layer.gate_proj)
-        _append_tensor(ptrs, layer.up_proj)
-        _append_tensor(ptrs, layer.down_proj)
-        _append_tensor(ptrs, layer.q_norm)
-        _append_tensor(ptrs, layer.k_norm)
-        _append_tensor(ptrs, layer.pre_feedforward_layernorm)
-        _append_tensor(ptrs, layer.post_feedforward_layernorm)
-    return ptrs^
+        appender.append(layer.input_layernorm)
+        appender.append(layer.post_attention_layernorm)
+        appender.append(layer.q_proj)
+        appender.append(layer.k_proj)
+        appender.append(layer.v_proj)
+        appender.append(layer.o_proj)
+        appender.append(layer.gate_proj)
+        appender.append(layer.up_proj)
+        appender.append(layer.down_proj)
+        appender.append(layer.q_norm)
+        appender.append(layer.k_norm)
+        appender.append(layer.pre_feedforward_layernorm)
+        appender.append(layer.post_feedforward_layernorm)
+    return appender.ptrs
 
 fn _hydrate_model_weights(ptr_array: UnsafePointer[Int], num_layers: Int) -> ModelWeights:
     var m = ModelWeights()
-    var offset = 0
-    m.embed_tokens = _hydrate_tensor(ptr_array, offset)
-    m.norm = _hydrate_tensor(ptr_array, offset)
-    m.lm_head = _hydrate_tensor(ptr_array, offset)
+    var h = Hydrator(ptr_array)
+    m.embed_tokens = h.next()
+    m.norm = h.next()
+    m.lm_head = h.next()
     for _ in range(num_layers):
         var layer = LayerWeights()
-        layer.input_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.post_attention_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.q_proj = _hydrate_tensor(ptr_array, offset)
-        layer.k_proj = _hydrate_tensor(ptr_array, offset)
-        layer.v_proj = _hydrate_tensor(ptr_array, offset)
-        layer.o_proj = _hydrate_tensor(ptr_array, offset)
-        layer.gate_proj = _hydrate_tensor(ptr_array, offset)
-        layer.up_proj = _hydrate_tensor(ptr_array, offset)
-        layer.down_proj = _hydrate_tensor(ptr_array, offset)
-        layer.q_norm = _hydrate_tensor(ptr_array, offset)
-        layer.k_norm = _hydrate_tensor(ptr_array, offset)
-        layer.pre_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.post_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.input_layernorm = h.next()
+        layer.post_attention_layernorm = h.next()
+        layer.q_proj = h.next()
+        layer.k_proj = h.next()
+        layer.v_proj = h.next()
+        layer.o_proj = h.next()
+        layer.gate_proj = h.next()
+        layer.up_proj = h.next()
+        layer.down_proj = h.next()
+        layer.q_norm = h.next()
+        layer.k_norm = h.next()
+        layer.pre_feedforward_layernorm = h.next()
+        layer.post_feedforward_layernorm = h.next()
         m.layers.append(layer^)
     return m^
 
 fn _flatten_nano_model_weights(m: NanoModelWeights) -> List[Int]:
-    var ptrs = List[Int]()
-    _append_tensor(ptrs, m.embed_tokens)
-    _append_tensor(ptrs, m.norm)
-    _append_tensor(ptrs, m.lm_head)
-    _append_tensor(ptrs, m.per_layer_embed)
-    _append_tensor(ptrs, m.per_layer_projection)
-    _append_tensor(ptrs, m.per_layer_norm)
+    var appender = Appender()
+    appender.append(m.embed_tokens)
+    appender.append(m.norm)
+    appender.append(m.lm_head)
+    appender.append(m.per_layer_embed)
+    appender.append(m.per_layer_projection)
+    appender.append(m.per_layer_norm)
 
     var num_altup = len(m.altup_projections)
     ptrs.append(num_altup)
     for i in range(num_altup):
-        _append_tensor(ptrs, m.altup_projections[i])
-        _append_tensor(ptrs, m.altup_unembeds[i])
+        appender.append(m.altup_projections[i])
+        appender.append(m.altup_unembeds[i])
 
     for i in range(len(m.layers)):
         var layer = m.layers[i]
-        _append_tensor(ptrs, layer.base.input_layernorm)
-        _append_tensor(ptrs, layer.base.post_attention_layernorm)
-        _append_tensor(ptrs, layer.base.q_proj)
-        _append_tensor(ptrs, layer.base.k_proj)
-        _append_tensor(ptrs, layer.base.v_proj)
-        _append_tensor(ptrs, layer.base.o_proj)
-        _append_tensor(ptrs, layer.base.gate_proj)
-        _append_tensor(ptrs, layer.base.up_proj)
-        _append_tensor(ptrs, layer.base.down_proj)
-        _append_tensor(ptrs, layer.base.q_norm)
-        _append_tensor(ptrs, layer.base.k_norm)
-        _append_tensor(ptrs, layer.base.pre_feedforward_layernorm)
-        _append_tensor(ptrs, layer.base.post_feedforward_layernorm)
+        appender.append(layer.base.input_layernorm)
+        appender.append(layer.base.post_attention_layernorm)
+        appender.append(layer.base.q_proj)
+        appender.append(layer.base.k_proj)
+        appender.append(layer.base.v_proj)
+        appender.append(layer.base.o_proj)
+        appender.append(layer.base.gate_proj)
+        appender.append(layer.base.up_proj)
+        appender.append(layer.base.down_proj)
+        appender.append(layer.base.q_norm)
+        appender.append(layer.base.k_norm)
+        appender.append(layer.base.pre_feedforward_layernorm)
+        appender.append(layer.base.post_feedforward_layernorm)
         
-        _append_tensor(ptrs, layer.altup.router)
-        _append_tensor(ptrs, layer.altup.router_norm)
-        _append_tensor(ptrs, layer.altup.prediction_coefs)
-        _append_tensor(ptrs, layer.altup.correction_coefs)
-        _append_tensor(ptrs, layer.altup.output_scale)
+        appender.append(layer.altup.router)
+        appender.append(layer.altup.router_norm)
+        appender.append(layer.altup.prediction_coefs)
+        appender.append(layer.altup.correction_coefs)
+        appender.append(layer.altup.output_scale)
         
-        _append_tensor(ptrs, layer.laurel.down_proj)
-        _append_tensor(ptrs, layer.laurel.up_proj)
-        _append_tensor(ptrs, layer.laurel.norm)
+        appender.append(layer.laurel.down_proj)
+        appender.append(layer.laurel.up_proj)
+        appender.append(layer.laurel.norm)
         
-        _append_tensor(ptrs, layer.per_layer_map.gate)
-        _append_tensor(ptrs, layer.per_layer_map.projection)
-        _append_tensor(ptrs, layer.per_layer_map.norm)
-    return ptrs^
+        appender.append(layer.per_layer_map.gate)
+        appender.append(layer.per_layer_map.projection)
+        appender.append(layer.per_layer_map.norm)
+    return appender.ptrs
 
 fn _hydrate_nano_model_weights(ptr_array: UnsafePointer[Int], num_layers: Int) -> NanoModelWeights:
     var m = NanoModelWeights()
-    var offset = 0
-    m.embed_tokens = _hydrate_tensor(ptr_array, offset)
-    m.norm = _hydrate_tensor(ptr_array, offset)
-    m.lm_head = _hydrate_tensor(ptr_array, offset)
-    m.per_layer_embed = _hydrate_tensor(ptr_array, offset)
-    m.per_layer_projection = _hydrate_tensor(ptr_array, offset)
-    m.per_layer_norm = _hydrate_tensor(ptr_array, offset)
+    var h = Hydrator(ptr_array)
+    m.embed_tokens = h.next()
+    m.norm = h.next()
+    m.lm_head = h.next()
+    m.per_layer_embed = h.next()
+    m.per_layer_projection = h.next()
+    m.per_layer_norm = h.next()
 
-    var num_altup = ptr_array[offset]
-    offset += 1
+    var num_altup = ptr_array[h.offset]
+    h.offset += 1
     for _ in range(num_altup):
-        m.altup_projections.append(_hydrate_tensor(ptr_array, offset))
-        m.altup_unembeds.append(_hydrate_tensor(ptr_array, offset))
+        m.altup_projections.append(h.next())
+        m.altup_unembeds.append(h.next())
 
     for _ in range(num_layers):
         var layer = NanoLayerWeights()
-        layer.base.input_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.base.post_attention_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.base.q_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.k_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.v_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.o_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.gate_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.up_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.down_proj = _hydrate_tensor(ptr_array, offset)
-        layer.base.q_norm = _hydrate_tensor(ptr_array, offset)
-        layer.base.k_norm = _hydrate_tensor(ptr_array, offset)
-        layer.base.pre_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.base.post_feedforward_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.base.input_layernorm = h.next()
+        layer.base.post_attention_layernorm = h.next()
+        layer.base.q_proj = h.next()
+        layer.base.k_proj = h.next()
+        layer.base.v_proj = h.next()
+        layer.base.o_proj = h.next()
+        layer.base.gate_proj = h.next()
+        layer.base.up_proj = h.next()
+        layer.base.down_proj = h.next()
+        layer.base.q_norm = h.next()
+        layer.base.k_norm = h.next()
+        layer.base.pre_feedforward_layernorm = h.next()
+        layer.base.post_feedforward_layernorm = h.next()
         
-        layer.altup.router = _hydrate_tensor(ptr_array, offset)
-        layer.altup.router_norm = _hydrate_tensor(ptr_array, offset)
-        layer.altup.prediction_coefs = _hydrate_tensor(ptr_array, offset)
-        layer.altup.correction_coefs = _hydrate_tensor(ptr_array, offset)
-        layer.altup.output_scale = _hydrate_tensor(ptr_array, offset)
+        layer.altup.router = h.next()
+        layer.altup.router_norm = h.next()
+        layer.altup.prediction_coefs = h.next()
+        layer.altup.correction_coefs = h.next()
+        layer.altup.output_scale = h.next()
         
-        layer.laurel.down_proj = _hydrate_tensor(ptr_array, offset)
-        layer.laurel.up_proj = _hydrate_tensor(ptr_array, offset)
-        layer.laurel.norm = _hydrate_tensor(ptr_array, offset)
+        layer.laurel.down_proj = h.next()
+        layer.laurel.up_proj = h.next()
+        layer.laurel.norm = h.next()
         
-        layer.per_layer_map.gate = _hydrate_tensor(ptr_array, offset)
-        layer.per_layer_map.projection = _hydrate_tensor(ptr_array, offset)
-        layer.per_layer_map.norm = _hydrate_tensor(ptr_array, offset)
+        layer.per_layer_map.gate = h.next()
+        layer.per_layer_map.projection = h.next()
+        layer.per_layer_map.norm = h.next()
         m.layers.append(layer^)
     return m^
 
 fn _flatten_vision_model_weights(m: VisionModelWeights) -> List[Int]:
-    var ptrs = List[Int]()
-    _append_tensor(ptrs, m.patch_embedding)
-    _append_tensor(ptrs, m.position_embedding)
-    _append_tensor(ptrs, m.post_norm)
+    var appender = Appender()
+    appender.append(m.patch_embedding)
+    appender.append(m.position_embedding)
+    appender.append(m.post_norm)
     for i in range(len(m.layers)):
         var layer = m.layers[i]
-        _append_tensor(ptrs, layer.q_proj)
-        _append_tensor(ptrs, layer.k_proj)
-        _append_tensor(ptrs, layer.v_proj)
-        _append_tensor(ptrs, layer.o_proj)
-        _append_tensor(ptrs, layer.gate_proj)
-        _append_tensor(ptrs, layer.up_proj)
-        _append_tensor(ptrs, layer.down_proj)
-        _append_tensor(ptrs, layer.input_layernorm)
-        _append_tensor(ptrs, layer.post_attention_layernorm)
-    return ptrs^
+        appender.append(layer.q_proj)
+        appender.append(layer.k_proj)
+        appender.append(layer.v_proj)
+        appender.append(layer.o_proj)
+        appender.append(layer.gate_proj)
+        appender.append(layer.up_proj)
+        appender.append(layer.down_proj)
+        appender.append(layer.input_layernorm)
+        appender.append(layer.post_attention_layernorm)
+    return appender.ptrs
 
 fn _hydrate_vision_model_weights(ptr_array: UnsafePointer[Int], num_layers: Int) -> VisionModelWeights:
     var m = VisionModelWeights()
-    var offset = 0
-    m.patch_embedding = _hydrate_tensor(ptr_array, offset)
-    m.position_embedding = _hydrate_tensor(ptr_array, offset)
-    m.post_norm = _hydrate_tensor(ptr_array, offset)
+    var h = Hydrator(ptr_array)
+    m.patch_embedding = h.next()
+    m.position_embedding = h.next()
+    m.post_norm = h.next()
     for _ in range(num_layers):
         var layer = VisionLayerWeights()
-        layer.q_proj = _hydrate_tensor(ptr_array, offset)
-        layer.k_proj = _hydrate_tensor(ptr_array, offset)
-        layer.v_proj = _hydrate_tensor(ptr_array, offset)
-        layer.o_proj = _hydrate_tensor(ptr_array, offset)
-        layer.gate_proj = _hydrate_tensor(ptr_array, offset)
-        layer.up_proj = _hydrate_tensor(ptr_array, offset)
-        layer.down_proj = _hydrate_tensor(ptr_array, offset)
-        layer.input_layernorm = _hydrate_tensor(ptr_array, offset)
-        layer.post_attention_layernorm = _hydrate_tensor(ptr_array, offset)
+        layer.q_proj = h.next()
+        layer.k_proj = h.next()
+        layer.v_proj = h.next()
+        layer.o_proj = h.next()
+        layer.gate_proj = h.next()
+        layer.up_proj = h.next()
+        layer.down_proj = h.next()
+        layer.input_layernorm = h.next()
+        layer.post_attention_layernorm = h.next()
         m.layers.append(layer^)
     return m^
 
