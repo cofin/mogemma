@@ -1,3 +1,5 @@
+import ctypes
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -145,9 +147,7 @@ def test_mojo_core_step_standard() -> None:
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
     llm = _core.init_model(metadata)
 
-    print("Executing step...")
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
-    print("Step finished!")
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
     assert llm.get("descriptor_build_count", 1) == 1
@@ -472,9 +472,7 @@ def test_mojo_core_step_nano() -> None:
     metadata = {k: (_get_ptr(v), v.shape) for k, v in tensors.items()}
     llm = _core.init_model(metadata)
 
-    print("Executing step...")
     logits = _core.step(llm, 1, 0.0, 0, 0.0)
-    print("Step finished!")
     assert logits.shape == (_EXPECTED_VOCAB_SIZE,)
     assert llm["pos"] == 1
 
@@ -645,12 +643,10 @@ def test_mojo_core_step_nano_kv_share_keeps_shared_layer_cache_slots_pristine() 
 
     layer_span = llm["max_seq_len"] * llm["num_kv_heads"] * llm["head_dim"]
     kv_len = llm["session_kv_cache_len"]
-    
-    import ctypes
-    
+
     k_cache_ptr = ctypes.cast(llm["k_cache"], ctypes.POINTER(ctypes.c_float))
     v_cache_ptr = ctypes.cast(llm["v_cache"], ctypes.POINTER(ctypes.c_float))
-    
+
     k_cache = np.ctypeslib.as_array(k_cache_ptr, shape=(kv_len,))
     v_cache = np.ctypeslib.as_array(v_cache_ptr, shape=(kv_len,))
 

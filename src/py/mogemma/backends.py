@@ -6,11 +6,10 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
-import numpy as np
-
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    import numpy as np
     import numpy.typing as npt
 
 TensorMetadata = dict[str, tuple[int, tuple[int, ...], str]]
@@ -70,6 +69,10 @@ class CoreModuleContract(Protocol):
 
     def step(self, llm: object, token_id: int, temp: float, top_k: int, top_p: float) -> npt.ArrayLike:
         """Run one token step and return logits."""
+        ...
+
+    def process_image(self, llm: object, image_array: bytes | npt.NDArray[np.generic]) -> npt.ArrayLike:
+        """Process a single image through the vision encoder."""
         ...
 
     def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:

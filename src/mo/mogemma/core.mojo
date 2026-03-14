@@ -89,7 +89,6 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
         return TensorInfo(0, 0, 0)
 
 
-
 @always_inline
 fn _append_tensor(mut ptrs: List[Int], t: TensorInfo):
     if t.is_quantized:
@@ -100,18 +99,18 @@ fn _append_tensor(mut ptrs: List[Int], t: TensorInfo):
     ptrs.append(t.shape_0)
     ptrs.append(t.shape_1)
 
+
 @always_inline
 fn _hydrate_tensor(ptr_array: UnsafePointer[Int, MutExternalOrigin], mut offset: Int) -> TensorInfo:
     var p = ptr_array[offset]
-    var scale = ptr_array[offset+1]
-    var s0 = ptr_array[offset+2]
-    var s1 = ptr_array[offset+3]
+    var scale = ptr_array[offset + 1]
+    var s0 = ptr_array[offset + 2]
+    var s1 = ptr_array[offset + 3]
     offset += 4
     if scale == 0:
         return TensorInfo(p, s0, s1)
     else:
         return TensorInfo(p, scale, s0, s1)
-
 
 
 def _get_tensor(metadata_obj: PythonObject, name: String) -> TensorInfo:
@@ -120,7 +119,6 @@ def _get_tensor(metadata_obj: PythonObject, name: String) -> TensorInfo:
         return _tensor_from_meta(metadata_obj.get(name), metadata_obj.get(scale_name))
     except e:
         return TensorInfo(0, 0, 0)
-
 
 
 @always_inline
@@ -150,6 +148,7 @@ fn _allocate_session_f32(np: PythonObject, length: Int) raises -> PythonObject:
 fn _allocate_transient_f32(length: Int) -> List[Float32]:
     var values = List[Float32](length=length, fill=0.0)
     return values^
+
 
 @always_inline
 fn _allocate_transient_i32(length: Int) -> List[Int32]:
@@ -200,7 +199,6 @@ struct Hydrator:
         var val = self.ptr[self.offset]
         self.offset += 1
         return val
-
 
 
 fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
@@ -319,9 +317,7 @@ fn _build_nano_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     return runtime
 
 
-
 fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
-
     var m = ModelWeights()
 
     m.embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"], PythonObject())
@@ -352,7 +348,6 @@ fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
 
 
 fn _build_nano_model_from_runtime(runtime_obj: PythonObject) raises -> NanoModelWeights:
-
     var m = NanoModelWeights()
 
     m.embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"], PythonObject())
@@ -424,6 +419,7 @@ fn _flatten_model_weights(m: ModelWeights) -> List[Int]:
         appender.append(layer.post_feedforward_layernorm)
     return appender.finish()
 
+
 fn _hydrate_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> ModelWeights:
     var m = ModelWeights()
     var h = Hydrator(ptr_array)
@@ -447,6 +443,7 @@ fn _hydrate_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_
         layer.post_feedforward_layernorm = h.next()
         m.layers.append(layer^)
     return m^
+
 
 fn _flatten_nano_model_weights(m: NanoModelWeights) -> List[Int]:
     var appender = Appender()
@@ -478,21 +475,22 @@ fn _flatten_nano_model_weights(m: NanoModelWeights) -> List[Int]:
         appender.append(layer.base.k_norm)
         appender.append(layer.base.pre_feedforward_layernorm)
         appender.append(layer.base.post_feedforward_layernorm)
-        
+
         appender.append(layer.altup.router)
         appender.append(layer.altup.router_norm)
         appender.append(layer.altup.prediction_coefs)
         appender.append(layer.altup.correction_coefs)
         appender.append(layer.altup.output_scale)
-        
+
         appender.append(layer.laurel.down_proj)
         appender.append(layer.laurel.up_proj)
         appender.append(layer.laurel.norm)
-        
+
         appender.append(layer.per_layer_map.gate)
         appender.append(layer.per_layer_map.projection)
         appender.append(layer.per_layer_map.norm)
     return appender.finish()
+
 
 fn _hydrate_nano_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> NanoModelWeights:
     var m = NanoModelWeights()
@@ -524,22 +522,23 @@ fn _hydrate_nano_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin],
         layer.base.k_norm = h.next()
         layer.base.pre_feedforward_layernorm = h.next()
         layer.base.post_feedforward_layernorm = h.next()
-        
+
         layer.altup.router = h.next()
         layer.altup.router_norm = h.next()
         layer.altup.prediction_coefs = h.next()
         layer.altup.correction_coefs = h.next()
         layer.altup.output_scale = h.next()
-        
+
         layer.laurel.down_proj = h.next()
         layer.laurel.up_proj = h.next()
         layer.laurel.norm = h.next()
-        
+
         layer.per_layer_map.gate = h.next()
         layer.per_layer_map.projection = h.next()
         layer.per_layer_map.norm = h.next()
         m.layers.append(layer^)
     return m^
+
 
 fn _flatten_vision_model_weights(m: VisionModelWeights) -> List[Int]:
     var appender = Appender()
@@ -559,7 +558,10 @@ fn _flatten_vision_model_weights(m: VisionModelWeights) -> List[Int]:
         appender.append(layer.post_attention_layernorm)
     return appender.finish()
 
-fn _hydrate_vision_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> VisionModelWeights:
+
+fn _hydrate_vision_model_weights(
+    ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int
+) -> VisionModelWeights:
     var m = VisionModelWeights()
     var h = Hydrator(ptr_array)
     m.patch_embedding = h.next()
@@ -578,10 +580,6 @@ fn _hydrate_vision_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin
         layer.post_attention_layernorm = h.next()
         m.layers.append(layer^)
     return m^
-
-
-
-
 
 
 fn _build_token_per_layer_inputs_runtime(
@@ -937,7 +935,6 @@ fn _forward_sequence_nano_runtime(
         out_emb_ptr.store(i, emb_acc_ptr.load(i) * scale)
 
 
-
 fn _forward_step_standard_runtime(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
@@ -1117,8 +1114,8 @@ fn _detect_nano_kv_share_start(model_weights: NanoModelWeights) -> Int:
     return num_layers
 
 
-
 comptime ArenaPtr = UnsafePointer[Float32, MutExternalOrigin]
+
 
 struct MemoryArena:
     var ptr: ArenaPtr
@@ -1223,27 +1220,27 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ra
     var rope_len = _rope_cache_len(max_seq_len, head_dim)
     var step_scratch_len = _step_scratch_len(hidden_size, max_seq_len, num_heads)
     var emb_scratch_len = _embedding_scratch_len(hidden_size, max_seq_len, num_heads)
-    
+
     # We allocate for the larger of the two scratch spaces
     var max_scratch_len = step_scratch_len
     if emb_scratch_len > max_scratch_len:
         max_scratch_len = emb_scratch_len
-    
+
     # Total Arena Size: 2x KV + 2x RoPE + Scratch + EmbOut
     var max_batch_size = 1
     var emb_out_len = max_batch_size * hidden_size
     var total_arena_len = (kv_len * 2) + (rope_len * 2) + max_scratch_len + emb_out_len
-    
+
     var arena = MemoryArena(total_arena_len)
     var arena_base_ptr = arena.ptr
-    
+
     var k_ptr = arena_base_ptr
     var v_ptr = k_ptr + kv_len
     var cos_ptr = v_ptr + kv_len
     var sin_ptr = cos_ptr + rope_len
     var scratch_ptr = sin_ptr + rope_len
     var emb_out_ptr = scratch_ptr + max_scratch_len
-    
+
     # Pre-compute RoPE
     var base: Float32 = 10000.0
     for t in range(max_seq_len):
@@ -1256,7 +1253,7 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ra
 
     py_dict["_arena_ptr"] = Int(arena_base_ptr)
     py_dict["_arena_size"] = total_arena_len
-    
+
     # Expose as numpy views for easier Python integration/testing
     var k_cache_np = np.zeros(kv_len, dtype=np.float32)
     var v_cache_np = np.zeros(kv_len, dtype=np.float32)
@@ -1264,9 +1261,9 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ra
     # For now, let's just use the pointers but rename the keys to indicate they are raw pointers.
     py_dict["k_cache_ptr"] = Int(k_ptr)
     py_dict["v_cache_ptr"] = Int(v_ptr)
-    
+
     # For compatibility with existing tests that expect numpy-like objects,
-    # we can use ctypes or a similar bridge if available, but for now let's just 
+    # we can use ctypes or a similar bridge if available, but for now let's just
     # fix the test to understand these are raw pointers or provide a helper.
     # Actually, let's keep them as integers and fix the test.
     py_dict["k_cache"] = Int(k_ptr)
@@ -1275,7 +1272,7 @@ def _init_model_impl_mojo(metadata_obj: PythonObject, device_backend: String) ra
     py_dict["freqs_sin"] = Int(sin_ptr)
     py_dict["step_scratch"] = Int(scratch_ptr)
     py_dict["emb_out"] = Int(emb_out_ptr)
-    
+
     py_dict["max_seq_len"] = max_seq_len
     py_dict["num_layers"] = num_layers
     py_dict["num_heads"] = num_heads
@@ -1368,7 +1365,7 @@ fn step_mojo(
     var tensor_pointers_ptr = UnsafePointer[Int, MutExternalOrigin](
         unsafe_from_address=Int(py=tensor_pointers_obj.__array_interface__["data"][0])
     )
-    
+
     var std_model = ModelWeights()
     var nano_model = NanoModelWeights()
     if arch == "nano":
@@ -1400,24 +1397,14 @@ fn step_mojo(
     var launch_counter = Int(py=builtins.getattr(llm, "get")("debug_launch_count", 0))
     llm["debug_launch_count"] = launch_counter + 1
 
-    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm["freqs_cos"])
-    )
-    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm["freqs_sin"])
-    )
+    var freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["freqs_cos"]))
+    var freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["freqs_sin"]))
 
     var step_scratch_len = Int(py=llm["step_scratch_len"])
-    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm["step_scratch"])
-    )
+    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["step_scratch"]))
 
-    var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm["k_cache"])
-    )
-    var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=llm["v_cache"])
-    )
+    var kv_cache_k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["k_cache"]))
+    var kv_cache_v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["v_cache"]))
 
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](
@@ -1526,7 +1513,7 @@ fn generate_embeddings_mojo(
     var tensor_pointers_ptr = UnsafePointer[Int, MutExternalOrigin](
         unsafe_from_address=Int(py=tensor_pointers_obj.__array_interface__["data"][0])
     )
-    
+
     var std_model = ModelWeights()
     var nano_model = NanoModelWeights()
     if arch == "nano":
@@ -1551,12 +1538,8 @@ fn generate_embeddings_mojo(
     var freqs_cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var freqs_sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
     if max_seq_len <= runtime_max_seq_len:
-        freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(py=freqs_cos)
-        )
-        freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(py=freqs_sin)
-        )
+        freqs_cos_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_cos))
+        freqs_sin_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=freqs_sin))
     else:
         freqs_cos_local = List[Float32](length=max_seq_len * head_dim, fill=0.0)
         freqs_sin_local = List[Float32](length=max_seq_len * head_dim, fill=0.0)
@@ -1580,7 +1563,7 @@ fn generate_embeddings_mojo(
     # Arena-backed buffers (assuming batch_size=1 fits in arena)
     var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["step_scratch"]))
     var emb_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["emb_out"]))
-    
+
     # Check if we need larger buffers for batch_size > 1
     var embedding_scratch_len = Int(py=llm["embedding_scratch_len"])
     var scratch_local = List[Float32]()
@@ -1997,6 +1980,8 @@ def reset_cache_mojo(llm: PythonObject) raises:
         var v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=v_ptr_int)
         for i in range(kv_len):
             v_ptr.store(i, 0.0)
+
+
 fn test_ffi_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,

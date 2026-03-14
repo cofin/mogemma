@@ -9,6 +9,7 @@ from typing import Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import Self
 
 from .backends import DeviceSelection, EmbeddingBackend, GenerationBackend, resolve_device_selection
 from .backends import resolve_embedding_backend as _resolve_embedding_backend_impl
@@ -436,10 +437,12 @@ class EmbeddingModel:
         """Cleanup on garbage collection."""
         self.close()
 
-    def __enter__(self) -> "EmbeddingModel":
+    def __enter__(self) -> Self:
+        """Enter the context manager."""
         return self
 
     def __exit__(self, *args: object) -> None:
+        """Exit the context manager and release resources."""
         self.close()
 
 
@@ -492,12 +495,12 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
-    def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None) -> str:
+    def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None) -> str:
         """Generate text from the given prompt."""
         return "".join(list(self.generate_stream(prompt, images=images)))
 
     def generate_stream(
-        self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None
+        self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
@@ -567,10 +570,12 @@ class SyncGemmaModel:
         """Cleanup on garbage collection."""
         self.close()
 
-    def __enter__(self) -> "SyncGemmaModel":
+    def __enter__(self) -> Self:
+        """Enter the context manager."""
         return self
 
     def __exit__(self, *args: object) -> None:
+        """Exit the context manager and release resources."""
         self.close()
 
 
@@ -585,12 +590,12 @@ class AsyncGemmaModel:
         """
         self._model = SyncGemmaModel(config)
 
-    async def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None) -> str:
+    async def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None) -> str:
         """Generate text asynchronously."""
         return await asyncio.to_thread(self._model.generate, prompt, images)
 
     async def generate_stream(
-        self, prompt: str, images: Sequence[bytes | npt.NDArray] | None = None
+        self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None
     ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
         generator = self._model.generate_stream(prompt, images=images)

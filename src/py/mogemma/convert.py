@@ -63,7 +63,7 @@ def _to_f32(arr: npt.NDArray[np.generic]) -> npt.NDArray[np.float32]:
 
 def _quantize_int8_symmetric(arr: npt.NDArray[np.float32]) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.float32]]:
     """Perform symmetric per-tensor int8 quantization.
-    
+
     Returns (quantized_array, scale) where:
     - quantized_array is the original array mapped to [-127, 127]
     - scale is the float32 value used to restore the original magnitude
@@ -71,32 +71,37 @@ def _quantize_int8_symmetric(arr: npt.NDArray[np.float32]) -> tuple[npt.NDArray[
     max_val = float(np.max(np.abs(arr)))
     if max_val == 0.0:
         return np.zeros_like(arr, dtype=np.int8), np.array([1.0], dtype=np.float32)
-        
+
     scale = max_val / 127.0
     quantized = np.clip(np.round(arr / scale), -127, 127).astype(np.int8)
     return quantized, np.array([scale], dtype=np.float32)
 
 
 def _apply_quantization_if_requested(
-    out: dict[str, npt.NDArray[np.generic]], 
-    quantize_int8: bool
+    out: dict[str, npt.NDArray[np.generic]],
+    quantize_int8: bool,  # noqa: FBT001
 ) -> None:
     """If requested, quantizes specific linear layer weight matrices to int8."""
     if not quantize_int8:
         return
-        
+
     linear_suffixes = (
-        "q_proj.weight", "k_proj.weight", "v_proj.weight", "o_proj.weight",
-        "gate_proj.weight", "up_proj.weight", "down_proj.weight"
+        "q_proj.weight",
+        "k_proj.weight",
+        "v_proj.weight",
+        "o_proj.weight",
+        "gate_proj.weight",
+        "up_proj.weight",
+        "down_proj.weight",
     )
-    
-    keys_to_quantize = [k for k in out.keys() if k.endswith(linear_suffixes)]
-    
+
+    keys_to_quantize = [k for k in out if k.endswith(linear_suffixes)]
+
     for key in keys_to_quantize:
         arr = out[key]
         if not isinstance(arr, np.ndarray) or arr.dtype != np.float32:
             continue
-            
+
         quantized, scale = _quantize_int8_symmetric(arr)  # type: ignore[arg-type]
         out[key] = quantized
         out[f"{key}_scale"] = scale
@@ -111,7 +116,7 @@ def _detect_model_family(orbax_keys: list[str]) -> str:
 
 
 def _convert_norms(
-    orbax: Mapping[str, npt.NDArray[np.generic]], out: dict[str, npt.NDArray[np.float32]], prefix: str, hf: str
+    orbax: Mapping[str, npt.NDArray[np.generic]], out: dict[str, npt.NDArray[np.generic]], prefix: str, hf: str
 ) -> None:
     out[f"{hf}.input_layernorm.weight"] = _to_f32(orbax[f"{prefix}/pre_attention_norm.scale"])
     out[f"{hf}.post_attention_layernorm.weight"] = _to_f32(orbax[f"{prefix}/post_attention_norm.scale"])
@@ -121,7 +126,7 @@ def _convert_norms(
 
 def _convert_attention_layer(  # noqa: PLR0913
     orbax: Mapping[str, npt.NDArray[np.generic]],
-    out: dict[str, npt.NDArray[np.float32]],
+    out: dict[str, npt.NDArray[np.generic]],
     prefix: str,
     hf: str,
     q_norm_key: str,
@@ -148,7 +153,7 @@ def _convert_attention_layer(  # noqa: PLR0913
 
 def _convert_mlp_layer(  # noqa: PLR0913
     orbax: Mapping[str, npt.NDArray[np.generic]],
-    out: dict[str, npt.NDArray[np.float32]],
+    out: dict[str, npt.NDArray[np.generic]],
     prefix: str,
     hf: str,
     gating_key: str,
@@ -165,7 +170,7 @@ def _convert_mlp_layer(  # noqa: PLR0913
 
 def _convert_gemma3(
     orbax: Mapping[str, npt.NDArray[np.generic]],
-    quantize_int8: bool = False
+    quantize_int8: bool = False,  # noqa: FBT001, FBT002
 ) -> dict[str, npt.NDArray[np.generic]]:
     """Convert a standard Gemma 3 Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.generic]] = {}
@@ -187,9 +192,9 @@ def _convert_gemma3(
         prefix = f"transformer/layer_{n}"
         hf = f"model.layers.{n}"
 
-        _convert_norms(orbax, out, prefix, hf) # type: ignore[arg-type]
-        _convert_attention_layer(orbax, out, prefix, hf, "_query_norm", "_key_norm") # type: ignore[arg-type]
-        _convert_mlp_layer(orbax, out, prefix, hf, "gating_einsum.w", "linear.w") # type: ignore[arg-type]
+        _convert_norms(orbax, out, prefix, hf)  # type: ignore[arg-type]
+        _convert_attention_layer(orbax, out, prefix, hf, "_query_norm", "_key_norm")  # type: ignore[arg-type]
+        _convert_mlp_layer(orbax, out, prefix, hf, "gating_einsum.w", "linear.w")  # type: ignore[arg-type]
 
     _apply_quantization_if_requested(out, quantize_int8)
     return out
@@ -197,7 +202,7 @@ def _convert_gemma3(
 
 def _convert_gemma3_nano(  # noqa: C901, PLR0915
     orbax: Mapping[str, npt.NDArray[np.generic]],
-    quantize_int8: bool = False
+    quantize_int8: bool = False,  # noqa: FBT001, FBT002
 ) -> dict[str, npt.NDArray[np.generic]]:
     """Convert a Gemma 3 Nano Orbax checkpoint to HuggingFace layout."""
     out: dict[str, npt.NDArray[np.generic]] = {}
@@ -287,7 +292,7 @@ def _convert_gemma3_nano(  # noqa: C901, PLR0915
         out[f"{hf}.laurel.up_proj.weight"] = _to_f32(get_orbax(f"{prefix}/laurel.linear_right.w").T)
         out[f"{hf}.laurel.norm.weight"] = _to_f32(get_orbax(f"{prefix}/post_laurel_norm.scale"))
 
-    _validate_nano_layout(out) # type: ignore[arg-type]
+    _validate_nano_layout(out)  # type: ignore[arg-type]
     _apply_quantization_if_requested(out, quantize_int8)
     return out
 
@@ -390,7 +395,7 @@ def _validate_nano_layout(  # noqa: C901
 # ---------------------------------------------------------------------------
 
 
-def convert_orbax_to_safetensors(model_path: Path, quantize_int8: bool = False) -> Path:
+def convert_orbax_to_safetensors(model_path: Path, quantize_int8: bool = False) -> Path:  # noqa: FBT001, FBT002
     """Convert an Orbax checkpoint at *model_path* to safetensors in-place.
 
     Returns the path to the generated ``model.safetensors`` file.
