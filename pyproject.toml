@@ -42,7 +42,7 @@ telemetry = ["opentelemetry-api>=1.35.0"]
 [build-system]
 requires = [
     "hatchling",
-    "hatch-mojo>=0.1.8",
+    "hatch-mojo @ file://localhost/home/cody/code/c/hatch-mojo",
     "mojo>=0.26.1a1",
     "patchelf>=0.17.2.4; platform_system == 'Linux'",
 ]
