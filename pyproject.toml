@@ -43,7 +43,7 @@ telemetry = ["opentelemetry-api>=1.35.0"]
 requires = [
     "hatchling",
     "hatch-mojo>=0.1.8",
-    "mojo>=0.26.1",
+    "mojo>=0.26.1a1",
     "patchelf>=0.17.2.4; platform_system == 'Linux'",
 ]
 build-backend = "hatchling.build"
@@ -173,7 +173,7 @@ dev = [
     { include-group = "test" },
     { include-group = "build" },
 ]
-build = ["bump-my-version>=0.31.1", "mojo>=0.26.1"]
+build = ["bump-my-version>=0.31.1", "mojo>=0.26.1a1"]
 lint = ["mypy>=1.13.0", "pyright>=1.1.386", "ruff>=0.14.14"]
 test = [
     "obstore>=0.2.08",
