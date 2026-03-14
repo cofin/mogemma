@@ -1,4 +1,4 @@
-from memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc
 from mogemma.model import VisionLayerWeights
 from mogemma.layers import forward_vision_attention, forward_vision_mlp, forward_vision_layer
 

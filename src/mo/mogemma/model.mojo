@@ -1,5 +1,5 @@
-from memory import UnsafePointer
-from collections import List
+from std.memory import UnsafePointer
+from std.collections import List
 
 # Model Weight Definitions for Gemma 3
 
@@ -22,6 +22,14 @@ struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
         self.is_quantized = False
         self.shape_0 = s0
         self.shape_1 = s1
+
+    fn __init__(out self):
+        self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
+        self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
+        self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=0)
+        self.is_quantized = False
+        self.shape_0 = 0
+        self.shape_1 = 0
 
     fn __init__(out self, i8_p: Int, scale_p: Int, s0: Int, s1: Int):
         self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
@@ -99,8 +107,9 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var k_proj: TensorInfo
     var v_proj: TensorInfo
     var o_proj: TensorInfo
-    var mlp_fc1: TensorInfo
-    var mlp_fc2: TensorInfo
+    var gate_proj: TensorInfo
+    var up_proj: TensorInfo
+    var down_proj: TensorInfo
     var input_layernorm: TensorInfo
     var post_attention_layernorm: TensorInfo
 
@@ -109,8 +118,9 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.k_proj = TensorInfo(0, 0, 0)
         self.v_proj = TensorInfo(0, 0, 0)
         self.o_proj = TensorInfo(0, 0, 0)
-        self.mlp_fc1 = TensorInfo(0, 0, 0)
-        self.mlp_fc2 = TensorInfo(0, 0, 0)
+        self.gate_proj = TensorInfo(0, 0, 0)
+        self.up_proj = TensorInfo(0, 0, 0)
+        self.down_proj = TensorInfo(0, 0, 0)
         self.input_layernorm = TensorInfo(0, 0, 0)
         self.post_attention_layernorm = TensorInfo(0, 0, 0)
 
@@ -119,15 +129,15 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
 struct VisionModelWeights(Movable):
     """Top-level container for all Gemma vision model weights."""
 
-    var patch_embeddings: TensorInfo
-    var position_embeddings: TensorInfo
-    var norm: TensorInfo
+    var patch_embedding: TensorInfo
+    var position_embedding: TensorInfo
+    var post_norm: TensorInfo
     var layers: List[VisionLayerWeights]
 
     fn __init__(out self):
-        self.patch_embeddings = TensorInfo(0, 0, 0)
-        self.position_embeddings = TensorInfo(0, 0, 0)
-        self.norm = TensorInfo(0, 0, 0)
+        self.patch_embedding = TensorInfo(0, 0, 0)
+        self.position_embedding = TensorInfo(0, 0, 0)
+        self.post_norm = TensorInfo(0, 0, 0)
         self.layers = List[VisionLayerWeights]()
 
 

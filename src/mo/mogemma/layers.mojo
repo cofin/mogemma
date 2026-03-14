@@ -1,5 +1,5 @@
-from memory import UnsafePointer
-from math import sqrt, erf, tanh
+from std.memory import UnsafePointer
+from std.math import sqrt, erf, tanh
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
@@ -777,7 +777,7 @@ fn forward_altup_correct(
             out_corrected_ptr.store(base_idx, predictions_ptr.load(base_idx) + innovation * corr_ptr.load(out_m))
 
 
-from collections import List
+from std.collections import List
 
 
 @always_inline
@@ -1993,7 +1993,7 @@ fn forward_vision_mlp(
     """
     var fc1_out_ptr = scratch_ptr
 
-    mat_mat_mul(fc1_out_ptr, x_ptr, weights.mlp_fc1.ptr, num_patches, hidden_size, intermediate_size)
+    mat_mat_mul(fc1_out_ptr, x_ptr, weights.gate_proj.ptr, num_patches, hidden_size, intermediate_size)
 
     # GELU activation: 0.5 * x * (1 + erf(x / sqrt(2)))
     var sqrt_2: Float32 = 1.4142135623730951
@@ -2002,7 +2002,7 @@ fn forward_vision_mlp(
         var x = fc1_out_ptr.load(i)
         fc1_out_ptr.store(i, 0.5 * x * (1.0 + erf(x / sqrt_2)))
 
-    mat_mat_mul(out_ptr, fc1_out_ptr, weights.mlp_fc2.ptr, num_patches, intermediate_size, hidden_size)
+    mat_mat_mul(out_ptr, fc1_out_ptr, weights.down_proj.ptr, num_patches, intermediate_size, hidden_size)
 
 
 @always_inline

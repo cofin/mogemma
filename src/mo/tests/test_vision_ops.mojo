@@ -1,4 +1,4 @@
-from memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc
 from mogemma.vision_ops import normalize_rgb_bytes, bilinear_resize_rgb, extract_patches, add_positional_embeddings
 
 

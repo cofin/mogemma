@@ -644,8 +644,15 @@ def test_mojo_core_step_nano_kv_share_keeps_shared_layer_cache_slots_pristine() 
     _ = _core.step(llm, 1, 0.0, 0, 0.0)
 
     layer_span = llm["max_seq_len"] * llm["num_kv_heads"] * llm["head_dim"]
-    k_cache = np.asarray(llm["k_cache"], dtype=np.float32)
-    v_cache = np.asarray(llm["v_cache"], dtype=np.float32)
+    kv_len = llm["session_kv_cache_len"]
+    
+    import ctypes
+    
+    k_cache_ptr = ctypes.cast(llm["k_cache"], ctypes.POINTER(ctypes.c_float))
+    v_cache_ptr = ctypes.cast(llm["v_cache"], ctypes.POINTER(ctypes.c_float))
+    
+    k_cache = np.ctypeslib.as_array(k_cache_ptr, shape=(kv_len,))
+    v_cache = np.ctypeslib.as_array(v_cache_ptr, shape=(kv_len,))
 
     assert np.count_nonzero(k_cache[:layer_span]) > 0
     assert np.count_nonzero(v_cache[:layer_span]) > 0

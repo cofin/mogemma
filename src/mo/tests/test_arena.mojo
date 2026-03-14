@@ -1,8 +1,8 @@
-from memory import *
+from std.memory import *
 from mogemma.core import MemoryArena
-from testing import assert_equal
+from std.testing import assert_equal
 
-def test_arena_allocation():
+fn test_arena_allocation() raises:
     var size = 1024
     var arena = MemoryArena(size)
     assert_equal(arena.size, size)
@@ -22,7 +22,7 @@ def test_arena_allocation():
     arena.free()
     print("test_arena_allocation passed")
 
-def main():
+fn main():
     try:
         test_arena_allocation()
     except e:

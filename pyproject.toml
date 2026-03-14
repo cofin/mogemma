@@ -18,6 +18,9 @@ dependencies = [
     "typing_extensions",
     "safetensors>=0.4.5",
     "tensorstore>=0.1.78",
+    "sentencepiece>=0.2.1",
+    "opentelemetry-api>=1.40.0",
+    "opentelemetry-sdk>=1.40.0",
 ]
 description = "Python/Mojo interface for Google Gemma 3"
 license = { file = "LICENSE" }

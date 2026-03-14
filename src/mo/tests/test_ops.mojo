@@ -1,7 +1,7 @@
-from collections import List
+from std.collections import List
 from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax
 from mogemma.ops_gpu import rms_norm_gpu, geglu_gpu, rope_rotate_gpu, vec_mat_mul_gpu, softmax_gpu
-from memory import UnsafePointer
+from std.memory import UnsafePointer
 from testing import assert_almost_equal
 
 

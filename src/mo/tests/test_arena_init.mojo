@@ -1,11 +1,11 @@
-from python import Python, PythonObject
+from std.python import Python, PythonObject
 from mogemma.core import init_model_mojo, free_arena_mojo
-from testing import assert_equal
+from std.testing import assert_equal
 
-def wrap_tensor(arr: PythonObject) -> PythonObject:
+fn wrap_tensor(arr: PythonObject) raises -> PythonObject:
     return Python.tuple(Int(py=arr.__array_interface__["data"][0]), arr.shape, "float32")
 
-def test_init_with_arena():
+fn test_init_with_arena() raises:
     var np = Python.import_module("numpy")
     var metadata = Python.dict()
     # Minimal metadata for standard model
@@ -53,7 +53,7 @@ def test_init_with_arena():
     assert_equal(Int(py=llm["_arena_ptr"]), 0)
     print("test_init_with_arena passed")
 
-def main():
+fn main():
     try:
         test_init_with_arena()
     except e:

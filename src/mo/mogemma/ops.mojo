@@ -1,5 +1,5 @@
-from math import sqrt, erf, exp
-from memory import UnsafePointer
+from std.math import sqrt, erf, exp
+from std.memory import UnsafePointer
 
 
 @always_inline
@@ -226,7 +226,7 @@ fn rms_norm[
         sum_sq += val * val
         i += 1
 
-    var mean_sq = sum_sq / size
+    var mean_sq = sum_sq / Float32(size)
     var inv_rms = 1.0 / sqrt(mean_sq + eps)
 
     i = 0

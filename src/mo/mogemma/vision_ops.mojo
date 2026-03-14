@@ -1,4 +1,4 @@
-from memory import UnsafePointer
+from std.memory import UnsafePointer
 
 # Pre-computed ImageNet normalization constants
 # mean = [0.48145466, 0.4578275, 0.40821073]
