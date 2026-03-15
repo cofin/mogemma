@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import obstore as obs
+from obstore.store import LocalStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,39 @@ class HubManager:
         return cache_root / model_id.replace("/", "--")
 
     @staticmethod
+    def _get_store_and_path(path: Path | str) -> tuple[LocalStore, str]:
+        # obstore LocalStore("/") treats paths as relative to root, 
+        # so we strip leading slash from absolute paths.
+        p = Path(path).resolve()
+        return LocalStore("/"), str(p).lstrip("/")
+
+    @staticmethod
     def _has_safetensors(path: Path) -> bool:
         """Return ``True`` when *path* contains ready-to-use safetensors files."""
-        return (path / "model.safetensors").exists() or (path / "model.safetensors.index.json").exists()
+        store, p = HubManager._get_store_and_path(path)
+        try:
+            obs.head(store, f"{p}/model.safetensors")
+            return True
+        except Exception:
+            try:
+                obs.head(store, f"{p}/model.safetensors.index.json")
+                return True
+            except Exception:
+                return False
 
     @staticmethod
     def _has_orbax(path: Path) -> bool:
         """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
-        return (path / "ocdbt.process_0").is_dir() and (path / "manifest.ocdbt").exists()
+        store, p = HubManager._get_store_and_path(path)
+        try:
+            # Check manifest
+            obs.head(store, f"{p}/manifest.ocdbt")
+            # For directory check, we can list with limit 1
+            for _ in obs.list(store, f"{p}/ocdbt.process_0"):
+                return True
+            return False
+        except Exception:
+            return False
 
     @classmethod
     def _has_model_files(cls, path: Path) -> bool:
@@ -60,17 +86,37 @@ class HubManager:
     ) -> Path:
         """Resolve a model ID to a local path."""
         local_path = Path(model_id)
-        if local_path.exists() and local_path.is_dir():
+        store, p = HubManager._get_store_and_path(local_path)
+        
+        # Check if it's a direct local directory
+        is_dir = False
+        try:
+            # We use list with limit 1 to check if it's a directory in obstore terms
+            for _ in obs.list(store, p):
+                is_dir = True
+                break
+        except Exception:
+            pass
+
+        if is_dir:
             return local_path
 
-        if local_path.exists() and not local_path.is_dir():
+        # Check if it exists but not a directory
+        exists = False
+        try:
+            obs.head(store, p)
+            exists = True
+        except Exception:
+            pass
+
+        if exists:
             msg = f"Model path '{model_id}' exists but is not a directory."
             if strict:
                 raise ValueError(msg)
             return local_path
 
         cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
-        if cached_path.exists() and cached_path.is_dir() and self._has_model_files(cached_path):
+        if self._has_model_files(cached_path):
             self._ensure_safetensors(cached_path)
             return cached_path
 
@@ -104,6 +150,15 @@ class HubManager:
     @staticmethod
     def _cleanup_dir(path: Path) -> None:
         """Remove *path* recursively when it exists."""
+        store, p = HubManager._get_store_and_path(path)
+        try:
+            # obstore.list is recursive by default if we don't specify delimiter
+            for page in obs.list(store, p):
+                for item in HubManager._normalize_list_page(page):
+                    obs.delete(store, item["path"])  # type: ignore[index]
+        except Exception:
+            pass
+        # We still use shutil for final directory removal as obstore only handles objects
         if path.exists():
             shutil.rmtree(path)
 
@@ -153,8 +208,8 @@ class HubManager:
 
     @staticmethod
     def _write_file(destination: Path, data: bytes) -> None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(data)
+        store, p = HubManager._get_store_and_path(destination)
+        obs.put(store, p, data)
 
     def _finalize_download(
         self, clean_id: str, local_dir: Path, staging_dir: Path, *, tokenizer_required: bool
@@ -195,7 +250,8 @@ class HubManager:
             try:
                 for remote_path in paths_to_download:
                     result = obs.get(store, remote_path)
-                    data = result.bytes().to_bytes()
+                    # result.bytes() returns obstore.Bytes, wrap in bytes() for a standard copy
+                    data = bytes(result.bytes())
                     rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
                     self._write_file(staging_dir / rel_path, data)
                 return self._finalize_download(
@@ -230,7 +286,7 @@ class HubManager:
             try:
                 for remote_path in paths_to_download:
                     result = await obs.get_async(store, remote_path)
-                    data = (await result.bytes_async()).to_bytes()
+                    data = bytes(await result.bytes_async())
                     rel_path = "tokenizer.model" if remote_path == tokenizer_path else remote_path.removeprefix(prefix)
                     await asyncio.to_thread(self._write_file, staging_dir / rel_path, data)
                 return await asyncio.to_thread(

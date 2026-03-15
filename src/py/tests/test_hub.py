@@ -71,8 +71,9 @@ def test_resolve_model_cached_path_ocdbt(tmp_path: Path) -> None:
     cached_dir = tmp_path / "gemma3n-e2b-it"
     cached_dir.mkdir()
     (cached_dir / "manifest.ocdbt").touch()
-    (cached_dir / "ocdbt.process_0").mkdir()
-
+    ocdbt_dir = cached_dir / "ocdbt.process_0"
+    ocdbt_dir.mkdir()
+    (ocdbt_dir / "data.json").touch()
     hub = HubManager(cache_path=tmp_path)
 
     with patch.object(HubManager, "_ensure_safetensors"):

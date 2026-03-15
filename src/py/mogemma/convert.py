@@ -431,21 +431,34 @@ def convert_orbax_to_safetensors(model_path: Path, quantize_int8: bool = False) 
     logger.info("Wrote %d tensors to %s", len(contiguous), out_path)
 
     # Cleanup original Orbax files
+    import obstore as obs
+    from obstore.store import LocalStore
+    store = LocalStore()
+    
     freed_bytes = 0
+    try:
+        for page in obs.list(store, str(model_path)):
+            for item in page:
+                path = item["path"]
+                name = path.split("/")[-1]
+                if name in ("tokenizer.model", "model.safetensors", "config.json"):
+                    continue
+                
+                size = item.get("size", 0)
+                try:
+                    obs.delete(store, path)
+                    freed_bytes += size
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning("Failed to clean up Orbax source files via obstore: %s", e)
+
+    # Final directory cleanup if any empty ones remain
     for item in original_items:
         if item.name in ("tokenizer.model", "model.safetensors", "config.json"):
             continue
-        try:
-            if item.is_file() or item.is_symlink():
-                size = item.stat().st_size
-                item.unlink()
-                freed_bytes += size
-            elif item.is_dir():
-                size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
-                shutil.rmtree(item)
-                freed_bytes += size
-        except OSError as e:
-            logger.warning("Failed to clean up %s: %s", item, e)
+        if item.exists() and item.is_dir():
+            shutil.rmtree(item)
 
     if freed_bytes > 0:
         logger.info("Cleaned up Orbax source files, freed %d bytes (%.2f MB)", freed_bytes, freed_bytes / (1024 * 1024))
