@@ -395,7 +395,7 @@ wheels = [
 
 [[package]]
 name = "mblack"
-version = "26.3.0.dev2026031405"
+version = "26.3.0.dev2026031505"
 source = { registry = "https://whl.modular.com/nightly/simple/" }
 dependencies = [
     { name = "click" },
@@ -405,7 +405,7 @@ dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 wheels = [
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mblack/mblack-26.3.0.dev2026031405-py3-none-any.whl", hash = "sha256:369e33eaa6d2142a7a5d2a9bef8b2b2d59ae87e8c80fdcf3df603f83601a4c37" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mblack/mblack-26.3.0.dev2026031505-py3-none-any.whl", hash = "sha256:14da6022011a7f14f18495398fc3bd4da25dcf4c7cf4d39ff6b719ea9c47bd0c" },
 ]
 
 [[package]]
@@ -465,16 +465,13 @@ wheels = [
 
 [[package]]
 name = "mogemma"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "obstore" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
     { name = "safetensors" },
-    { name = "sentencepiece" },
     { name = "tensorstore", version = "0.1.78", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "tensorstore", version = "0.1.82", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "typing-extensions" },
@@ -520,15 +517,12 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "obstore", specifier = ">=0.2.8" },
-    { name = "opentelemetry-api", specifier = ">=1.40.0" },
-    { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.35.0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.40.0" },
-    { name = "safetensors", specifier = ">=0.4.5" },
-    { name = "sentencepiece", specifier = ">=0.2.1" },
-    { name = "sentencepiece", marker = "extra == 'llm'", specifier = ">=0.2.0" },
-    { name = "tensorstore", specifier = ">=0.1.78" },
+    { name = "numpy" },
+    { name = "obstore" },
+    { name = "opentelemetry-api", marker = "extra == 'telemetry'" },
+    { name = "safetensors" },
+    { name = "sentencepiece", marker = "extra == 'llm'" },
+    { name = "tensorstore" },
     { name = "typing-extensions" },
 ]
 provides-extras = ["llm", "telemetry"]
@@ -542,7 +536,7 @@ dev = [
     { name = "bump-my-version", specifier = ">=0.31.1" },
     { name = "mojo", specifier = ">=0.26.1a1" },
     { name = "mypy", specifier = ">=1.13.0" },
-    { name = "obstore", specifier = ">=0.2.8" },
+    { name = "obstore", specifier = ">=0.3.8" },
     { name = "pyright", specifier = ">=1.1.386" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
@@ -556,7 +550,7 @@ lint = [
     { name = "ruff", specifier = ">=0.14.14" },
 ]
 test = [
-    { name = "obstore", specifier = ">=0.2.8" },
+    { name = "obstore", specifier = ">=0.3.8" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=4.0.0" },
@@ -565,7 +559,7 @@ test = [
 
 [[package]]
 name = "mojo"
-version = "0.26.3.0.dev2026031405"
+version = "0.26.3.0.dev2026031505"
 source = { registry = "https://whl.modular.com/nightly/simple/" }
 dependencies = [
     { name = "mblack" },
@@ -573,40 +567,40 @@ dependencies = [
     { name = "mojo-lldb-libs" },
 ]
 wheels = [
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026031405-py3-none-macosx_13_0_arm64.whl", hash = "sha256:cdb7833ae754ab13431e20ec877197c7b113370bd273b3d8a88aa2bd2fd725ed" },
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026031405-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:ba424f172bd038e4151cea1332919c2bedd138095e06948d484efbd7b818f660" },
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026031405-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:b8b9733c71c8e06133473bd8be307b9e2c885f201b1bcc9619e27ea651b2a815" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026031505-py3-none-macosx_13_0_arm64.whl", hash = "sha256:c5d198e3e36bc1bafa547848152b7c4cda7cd0dadcb8fb9d49012ffd7037958f" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026031505-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:7051e21859771bace811325ed15d3deb31f3abf4e94b592357be452c6d8eb157" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo/mojo-0.26.3.0.dev2026031505-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:eb977a97429d79c2c1a3bd5b952080dc833297dcaf21c97f2f01d3706b75ebb8" },
 ]
 
 [[package]]
 name = "mojo-compiler"
-version = "0.26.3.0.dev2026031405"
+version = "0.26.3.0.dev2026031505"
 source = { registry = "https://whl.modular.com/nightly/simple/" }
 dependencies = [
     { name = "mojo-compiler-mojo-libs" },
 ]
 wheels = [
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026031405-py3-none-macosx_13_0_arm64.whl", hash = "sha256:0828c15c9e989e8b2c4635a3b3dcda99ab0f8a2b0f9921138356de2244e90692" },
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026031405-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:2dc3632f4dcba4302be06600604082f65ec1b0514375bac235bf495a31c668dc" },
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026031405-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:fcf27fd074231ee60afb099fe3cdb7581a1ff2e289d1abb9224e571c5213d00b" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026031505-py3-none-macosx_13_0_arm64.whl", hash = "sha256:0e62c7c042465fd00e6292ff66f8994da0a11f7342eb44e341756759a5678d05" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026031505-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:2015f8be14c51a8c5b5bd487b4b55a70c43f10ef94a9952b680a778309a8680e" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler/mojo_compiler-0.26.3.0.dev2026031505-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:9fbff7f950106e0b8da5763dc9053a230ab40c7ea06e7ff2dcb428df745dd269" },
 ]
 
 [[package]]
 name = "mojo-compiler-mojo-libs"
-version = "0.26.3.0.dev2026031405"
+version = "0.26.3.0.dev2026031505"
 source = { registry = "https://whl.modular.com/nightly/simple/" }
 wheels = [
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler-mojo-libs/mojo_compiler_mojo_libs-0.26.3.0.dev2026031405-py3-none-any.whl", hash = "sha256:b61eaad4195118940e84eb5617493787d672e2ca4b707b4883a8882d365c3601" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-compiler-mojo-libs/mojo_compiler_mojo_libs-0.26.3.0.dev2026031505-py3-none-any.whl", hash = "sha256:2616f19540c61849cc8269064778d9f08cc1c903e6f4126f36f69fb2e84528b2" },
 ]
 
 [[package]]
 name = "mojo-lldb-libs"
-version = "0.26.3.0.dev2026031405"
+version = "0.26.3.0.dev2026031505"
 source = { registry = "https://whl.modular.com/nightly/simple/" }
 wheels = [
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026031405-py3-none-macosx_13_0_arm64.whl", hash = "sha256:eb8c7c7444bcaee1b7b125883d42a74996a50dd825931154a7ec1269107ecbfa" },
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026031405-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:36bc4b3900742b75841bf39d77a3045b568798381837f1691a93e92b77fa47f9" },
-    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026031405-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:3ea09c012aeb867e72840bd3432bf7904c045798ff5dd0116c96d71efbbe5e63" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026031505-py3-none-macosx_13_0_arm64.whl", hash = "sha256:2a50da025849dd421412c80ab5cbd6aa4487150324b807888165f20c2db7cb2b" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026031505-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:ca64f14db79e9d45a47df7e471ffd5e92954da60adde1ac7ad41c2d740aae3ff" },
+    { url = "https://us-central1-python.pkg.dev/distribution-prod-0a7c7b3/nightly/mojo-lldb-libs/mojo_lldb_libs-0.26.3.0.dev2026031505-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:899dfc1b400791b615fe90bae95166d0d8e2e0d6571b52f6519b766c7cf7b801" },
 ]
 
 [[package]]
@@ -908,33 +902,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2c/1d/4049a9e8698361cc1a1aa03a6c59e4fa4c71e0c0f94a30f988a6876a2ae6/opentelemetry_api-1.40.0.tar.gz", hash = "sha256:159be641c0b04d11e9ecd576906462773eb97ae1b657730f0ecf64d32071569f", size = 70851, upload-time = "2026-03-04T14:17:21.555Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/bf/93795954016c522008da367da292adceed71cca6ee1717e1d64c83089099/opentelemetry_api-1.40.0-py3-none-any.whl", hash = "sha256:82dd69331ae74b06f6a874704be0cfaa49a1650e1537d4a813b86ecef7d0ecf9", size = 68676, upload-time = "2026-03-04T14:17:01.24Z" },
-]
-
-[[package]]
-name = "opentelemetry-sdk"
-version = "1.40.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/58/fd/3c3125b20ba18ce2155ba9ea74acb0ae5d25f8cd39cfd37455601b7955cc/opentelemetry_sdk-1.40.0.tar.gz", hash = "sha256:18e9f5ec20d859d268c7cb3c5198c8d105d073714db3de50b593b8c1345a48f2", size = 184252, upload-time = "2026-03-04T14:17:31.87Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/c5/6a852903d8bfac758c6dc6e9a68b015d3c33f2f1be5e9591e0f4b69c7e0a/opentelemetry_sdk-1.40.0-py3-none-any.whl", hash = "sha256:787d2154a71f4b3d81f20524a8ce061b7db667d24e46753f32a7bc48f1c1f3f1", size = 141951, upload-time = "2026-03-04T14:17:17.961Z" },
-]
-
-[[package]]
-name = "opentelemetry-semantic-conventions"
-version = "0.61b0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/c0/4ae7973f3c2cfd2b6e321f1675626f0dab0a97027cc7a297474c9c8f3d04/opentelemetry_semantic_conventions-0.61b0.tar.gz", hash = "sha256:072f65473c5d7c6dc0355b27d6c9d1a679d63b6d4b4b16a9773062cb7e31192a", size = 145755, upload-time = "2026-03-04T14:17:32.664Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/37/cc6a55e448deaa9b27377d087da8615a3416d8ad523d5960b78dbeadd02a/opentelemetry_semantic_conventions-0.61b0-py3-none-any.whl", hash = "sha256:fa530a96be229795f8cef353739b618148b0fe2b4b3f005e60e262926c4d38e2", size = 231621, upload-time = "2026-03-04T14:17:19.33Z" },
 ]
 
 [[package]]
