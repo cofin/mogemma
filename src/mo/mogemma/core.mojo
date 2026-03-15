@@ -1899,6 +1899,84 @@ fn _forward_vision_tower_runtime(
         )
 
 
+from std.algorithm import parallelize
+
+@always_inline
+fn _resize_bilinear_rgb(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    in_ptr: UnsafePointer[UInt8, MutExternalOrigin],
+    in_h: Int,
+    in_w: Int,
+    out_h: Int,
+    out_w: Int,
+):
+    """Resizes an RGB image using bilinear interpolation with pixel-center alignment.
+    
+    Fuses normalization (0-255 -> 0.0-1.0) into the resize loop.
+    """
+    var row_scale = Float32(in_h) / Float32(out_h)
+    var col_scale = Float32(in_w) / Float32(out_w)
+
+    @parameter
+    fn process_row(y: Int):
+        var src_y = (Float32(y) + 0.5) * row_scale - 0.5
+        src_y = max(Float32(0.0), min(src_y, Float32(in_h - 1)))
+        
+        var y_low = Int(src_y)
+        var y_high = min(y_low + 1, in_h - 1)
+        var y_weight = src_y - Float32(y_low)
+
+        for x in range(out_w):
+            var src_x = (Float32(x) + 0.5) * col_scale - 0.5
+            src_x = max(Float32(0.0), min(src_x, Float32(in_w - 1)))
+            
+            var x_low = Int(src_x)
+            var x_high = min(x_low + 1, in_w - 1)
+            var x_weight = src_x - Float32(x_low)
+
+            var p00 = SIMD[DType.float32, 4](
+                Float32(in_ptr.load((y_low * in_w + x_low) * 3 + 0)),
+                Float32(in_ptr.load((y_low * in_w + x_low) * 3 + 1)),
+                Float32(in_ptr.load((y_low * in_w + x_low) * 3 + 2)),
+                0.0
+            )
+            var p01 = SIMD[DType.float32, 4](
+                Float32(in_ptr.load((y_low * in_w + x_high) * 3 + 0)),
+                Float32(in_ptr.load((y_low * in_w + x_high) * 3 + 1)),
+                Float32(in_ptr.load((y_low * in_w + x_high) * 3 + 2)),
+                0.0
+            )
+            var p10 = SIMD[DType.float32, 4](
+                Float32(in_ptr.load((y_high * in_w + x_low) * 3 + 0)),
+                Float32(in_ptr.load((y_high * in_w + x_low) * 3 + 1)),
+                Float32(in_ptr.load((y_high * in_w + x_low) * 3 + 2)),
+                0.0
+            )
+            var p11 = SIMD[DType.float32, 4](
+                Float32(in_ptr.load((y_high * in_w + x_high) * 3 + 0)),
+                Float32(in_ptr.load((y_high * in_w + x_high) * 3 + 1)),
+                Float32(in_ptr.load((y_high * in_w + x_high) * 3 + 2)),
+                0.0
+            )
+
+            # Interpolate horizontally
+            var top = p00 * (1.0 - x_weight) + p01 * x_weight
+            var bottom = p10 * (1.0 - x_weight) + p11 * x_weight
+
+            # Interpolate vertically
+            var res = top * (1.0 - y_weight) + bottom * y_weight
+            
+            # Normalize
+            var normalized = res / 255.0
+            
+            # Store 3 channels
+            out_ptr.store((y * out_w + x) * 3 + 0, normalized[0])
+            out_ptr.store((y * out_w + x) * 3 + 1, normalized[1])
+            out_ptr.store((y * out_w + x) * 3 + 2, normalized[2])
+
+    parallelize[process_row](out_h, out_h)
+
+
 fn process_image_mojo(
     llm: PythonObject,
     image_array: PythonObject,
