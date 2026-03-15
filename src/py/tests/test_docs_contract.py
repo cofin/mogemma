@@ -24,3 +24,16 @@ def test_performance_baselines_has_backend_normalization() -> None:
     assert "## Runner Normalization" in content
     assert "## Regression Interpretation and Acceptance Thresholds" in content
     assert "`accelerator` value" in content
+
+
+def test_readme_documents_vision_install_contract() -> None:
+    root = Path(__file__).resolve().parents[3]
+    readme_path = root / "README.md"
+
+    content = readme_path.read_text(encoding="utf-8")
+
+    assert "Recommended for most users:" in content
+    assert content.index("pip install 'mogemma[llm]'") < content.index("pip install 'mogemma[llm,vision]'")
+    assert "pip install 'mogemma[vision]'" in content
+    assert "pip install 'mogemma[llm,vision]'" in content
+    assert "This enables the tokenizer-backed text generation and embedding examples shown below." in content

@@ -484,6 +484,10 @@ llm = [
 telemetry = [
     { name = "opentelemetry-api" },
 ]
+vision = [
+    { name = "pillow" },
+    { name = "sentencepiece" },
+]
 
 [package.dev-dependencies]
 build = [
@@ -510,6 +514,7 @@ lint = [
 ]
 test = [
     { name = "obstore" },
+    { name = "pillow" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -521,12 +526,14 @@ requires-dist = [
     { name = "numpy" },
     { name = "obstore" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'" },
+    { name = "pillow", marker = "extra == 'vision'" },
     { name = "safetensors" },
     { name = "sentencepiece", marker = "extra == 'llm'" },
+    { name = "sentencepiece", marker = "extra == 'vision'" },
     { name = "tensorstore" },
     { name = "typing-extensions" },
 ]
-provides-extras = ["llm", "telemetry"]
+provides-extras = ["llm", "telemetry", "vision"]
 
 [package.metadata.requires-dev]
 build = [
@@ -553,6 +560,7 @@ lint = [
 ]
 test = [
     { name = "obstore", specifier = ">=0.3.8" },
+    { name = "pillow", specifier = ">=12.1.1" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=4.0.0" },

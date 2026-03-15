@@ -1,13 +1,19 @@
+"""Image hydration utilities for multimodal model inputs."""
+
 from __future__ import annotations
 
+import importlib
+import io
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import obstore as obs
 from obstore.store import LocalStore
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import numpy.typing as npt
 
 
@@ -15,6 +21,7 @@ class ImageHydrator:
     """Handles loading and decoding of images from various sources using obstore."""
 
     def __init__(self) -> None:
+        """Initialize the local object store used for path-based hydration."""
         self._store = LocalStore()
 
     def hydrate(self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]) -> list[npt.NDArray[np.uint8]]:
@@ -41,18 +48,22 @@ class ImageHydrator:
         return bytes(result.bytes())
 
     def _decode(self, data: bytes) -> npt.NDArray[np.uint8]:
-        """Decode image bytes into a numpy array. 
-        
-        Currently uses Pillow as the engine. If Pillow is missing, 
-        attempts a basic raw extraction or raises a helpful error.
+        """Decode image bytes into a numpy array.
+
+        Automatic hydration of path and byte inputs requires Pillow via the
+        optional ``mogemma[vision]`` extra. Pre-decoded ndarray inputs bypass
+        this decoding path entirely.
         """
         try:
-            from PIL import Image
-            import io
-            
-            img = Image.open(io.BytesIO(data)).convert("RGB")
+            image_module = importlib.import_module("PIL.Image")
+            img = image_module.open(io.BytesIO(data)).convert("RGB")
             return np.asarray(img)
-        except ImportError:
-            # Fallback or error
-            msg = "Pillow is required for JPEG/PNG decoding. Install with: pip install 'mogemma[vision]'"
+        except ModuleNotFoundError as exc:
+            if exc.name is not None and not exc.name.startswith("PIL"):
+                raise
+            msg = (
+                "Automatic image decoding requires Pillow. "
+                "Install with: pip install 'mogemma[vision]'. "
+                "Pre-decoded numpy uint8 RGB arrays do not require the vision extra."
+            )
             raise ImportError(msg) from None

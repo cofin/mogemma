@@ -22,9 +22,17 @@ For text generation (requires tokenizer):
 pip install 'mogemma[llm]'
 ```
 
+For multimodal generation with automatic image decoding from `str`, `Path`, or raw `bytes` inputs:
+
+```bash
+pip install 'mogemma[vision]'
+```
+
 ## Quick Start
 
 ### Text Generation
+
+The default getting-started path is `mogemma[llm]`.
 
 ```python
 from mogemma import SyncGemmaModel
@@ -35,27 +43,17 @@ print(model.generate("Write a haiku about a robot discovering coffee:"))
 
 ### Multimodal Vision
 
-MoGemma supports Gemma 3 multimodal vision models. Pass images as a list of numpy arrays or raw bytes.
+MoGemma supports Gemma 3 multimodal vision models.
 
-**Requirements for Numpy Arrays:**
-- **Shape:** `(Height, Width, 3)`
-- **Dtype:** `uint8` (0-255)
-- **Order:** RGB
+- Install `mogemma[vision]` to pass image file paths or raw image bytes directly.
 
 ```python
 from mogemma import SyncGemmaModel
-from PIL import Image
-import numpy as np
 
 # Initialize a vision-capable model
 model = SyncGemmaModel("gemma3-4b-it")
 
-# Load and format the image
-img = Image.open("input.jpg").convert("RGB")
-image_data = np.asarray(img)
-
-# Generate with multimodal context
-response = model.generate("Describe this image in detail:", images=[image_data])
+response = model.generate("Describe this image in detail:", images=["input.jpg"])
 print(response)
 ```
 
