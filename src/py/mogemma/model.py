@@ -16,6 +16,7 @@ from .backends import resolve_embedding_backend as _resolve_embedding_backend_im
 from .backends import resolve_generation_backend as _resolve_generation_backend_impl
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
+from .hydration import ImageHydrator
 from .loader import ModelLoader, auto_loader
 from .telemetry import tracer
 from .typing import SENTENCEPIECE_INSTALLED, _SPProcessorImpl
@@ -495,12 +496,12 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
-    def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None) -> str:
+    def generate(self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None) -> str:
         """Generate text from the given prompt."""
         return "".join(list(self.generate_stream(prompt, images=images)))
 
     def generate_stream(
-        self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
@@ -520,7 +521,8 @@ class SyncGemmaModel:
         _reset_llm_session_state(self._llm)
 
         if images is not None:
-            self._backend.process_images(self._llm, images)
+            hydrated = ImageHydrator().hydrate(images)
+            self._backend.process_images(self._llm, hydrated)
 
         for t in tokens[:-1]:
             self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
@@ -590,12 +592,12 @@ class AsyncGemmaModel:
         """
         self._model = SyncGemmaModel(config)
 
-    async def generate(self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None) -> str:
+    async def generate(self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None) -> str:
         """Generate text asynchronously."""
         return await asyncio.to_thread(self._model.generate, prompt, images)
 
     async def generate_stream(
-        self, prompt: str, images: Sequence[bytes | npt.NDArray[np.generic]] | None = None
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
     ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
         generator = self._model.generate_stream(prompt, images=images)
