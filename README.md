@@ -35,19 +35,27 @@ print(model.generate("Write a haiku about a robot discovering coffee:"))
 
 ### Multimodal Vision
 
-MoGemma supports Gemma 3 multimodal vision models. Pass raw image bytes or numpy arrays to the `generate` or `generate_stream` methods.
+MoGemma supports Gemma 3 multimodal vision models. Pass images as a list of numpy arrays or raw bytes.
+
+**Requirements for Numpy Arrays:**
+- **Shape:** `(Height, Width, 3)`
+- **Dtype:** `uint8` (0-255)
+- **Order:** RGB
 
 ```python
 from mogemma import SyncGemmaModel
+from PIL import Image
 import numpy as np
 
 # Initialize a vision-capable model
 model = SyncGemmaModel("gemma3-4b-it")
 
-# Pass an image (e.g., as a numpy array)
-# images = [np.zeros((3, 384, 384), dtype=np.uint8)]
+# Load and format the image
+img = Image.open("input.jpg").convert("RGB")
+image_data = np.asarray(img)
 
-response = model.generate("Describe this image in detail:", images=images)
+# Generate with multimodal context
+response = model.generate("Describe this image in detail:", images=[image_data])
 print(response)
 ```
 
