@@ -6,6 +6,7 @@ Python/Mojo interface for Google Gemma 3.
 
 - **Embeddings** — Dense vector embeddings via a pure Mojo backend.
 - **Text generation** — Synchronous and async streaming with configurable sampling.
+- **Multimodal Vision** — Native support for Gemma 3 Vision models with zero-copy image processing.
 - **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
 - **OpenTelemetry** — Optional tracing instrumentation.
 
@@ -30,6 +31,24 @@ from mogemma import SyncGemmaModel
 
 model = SyncGemmaModel()
 print(model.generate("Write a haiku about a robot discovering coffee:"))
+```
+
+### Multimodal Vision
+
+MoGemma supports Gemma 3 multimodal vision models. Pass raw image bytes or numpy arrays to the `generate` or `generate_stream` methods.
+
+```python
+from mogemma import SyncGemmaModel
+import numpy as np
+
+# Initialize a vision-capable model
+model = SyncGemmaModel("gemma3-4b-it")
+
+# Pass an image (e.g., as a numpy array)
+# images = [np.zeros((3, 384, 384), dtype=np.uint8)]
+
+response = model.generate("Describe this image in detail:", images=images)
+print(response)
 ```
 
 ### Async Streaming
@@ -112,16 +131,28 @@ embeddings = EmbeddingModel(
 )
 ```
 
-Explicit GPU requests are validated strictly:
+## Runtime Requirements
 
-```python
-from mogemma import GenerationConfig, SyncGemmaModel
+MoGemma leverages the latest Mojo features for maximum performance.
 
-config = GenerationConfig(
-    model_path="gemma3-1b-it",
-    device="gpu:0",
-)
-model = SyncGemmaModel(config)
+- **Mojo Nightly:** Version `0.26.3.0.dev` or later is required for building from source.
+- **Python:** 3.10+
+
+## Development & Architecture
+
+### Architecture Specific Builds
+
+MoGemma automatically optimizes its Mojo core for your specific CPU architecture during the build process.
+
+- **x86_64:** Uses `--target-cpu x86-64-v3` for optimized vector instructions.
+- **aarch64:** Uses native ARM optimizations.
+
+### Local Development
+
+To build the Mojo extension locally:
+
+```bash
+make build
 ```
 
 ## License
