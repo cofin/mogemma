@@ -33,7 +33,7 @@ def test_readme_documents_vision_install_contract() -> None:
     content = readme_path.read_text(encoding="utf-8")
 
     assert "Recommended for most users:" in content
-    assert content.index("pip install 'mogemma[llm]'") < content.index("pip install 'mogemma[llm,vision]'")
+    assert content.index("pip install 'mogemma[llm]'") < content.index("pip install 'mogemma[vision]'")
     assert "pip install 'mogemma[vision]'" in content
-    assert "pip install 'mogemma[llm,vision]'" in content
-    assert "This enables the tokenizer-backed text generation and embedding examples shown below." in content
+    assert "This enables the text generation and embedding examples shown below." in content
+    assert "Use the base package if you're already preparing tokens or image arrays yourself." in content

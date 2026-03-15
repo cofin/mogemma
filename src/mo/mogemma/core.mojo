@@ -1874,12 +1874,12 @@ fn _forward_vision_tower_runtime(
     # 1. Patchify and Linear Projection (Patch Embedding)
     # We apply patch_embedding weight [hidden_size, patch_pixels] to each patch
     var patch_weights_ptr = ptr_vision[].patch_embedding.ptr
-    
+
     @parameter
     fn process_patch(p: Int):
         var py = p // num_patches_x
         var px = p % num_patches_x
-        
+
         # Flatten patch into a stack-allocated buffer or just iterate
         # For simplicity and to avoid stack overflow, we'll do a fused patch-projection loop
         for h in range(hidden_size):
@@ -1890,10 +1890,10 @@ fn _forward_vision_tower_runtime(
                         var img_y = py * patch_size + i
                         var img_x = px * patch_size + j
                         var pixel_val = in_image_ptr.load((img_y * out_w + img_x) * 3 + c)
-                        
+
                         var patch_pixel_idx = (i * patch_size + j) * 3 + c
                         acc += pixel_val * patch_weights_ptr.load(h * patch_pixels + patch_pixel_idx)
-            
+
             # Add position embedding
             acc += ptr_vision[].position_embedding.ptr.load(p * hidden_size + h)
             current_state.store(p * hidden_size + h, acc)
@@ -1932,6 +1932,7 @@ fn _forward_vision_tower_runtime(
 
 from std.algorithm import parallelize
 
+
 @always_inline
 fn _resize_bilinear_rgb(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -1942,7 +1943,7 @@ fn _resize_bilinear_rgb(
     out_w: Int,
 ):
     """Resizes an RGB image using bilinear interpolation with pixel-center alignment.
-    
+
     Fuses normalization (0-255 -> 0.0-1.0) into the resize loop.
     """
     var row_scale = Float32(in_h) / Float32(out_h)
@@ -1952,7 +1953,7 @@ fn _resize_bilinear_rgb(
     fn process_row(y: Int):
         var src_y = (Float32(y) + 0.5) * row_scale - 0.5
         src_y = max(Float32(0.0), min(src_y, Float32(in_h - 1)))
-        
+
         var y_low = Int(src_y)
         var y_high = min(y_low + 1, in_h - 1)
         var y_weight = src_y - Float32(y_low)
@@ -1960,7 +1961,7 @@ fn _resize_bilinear_rgb(
         for x in range(out_w):
             var src_x = (Float32(x) + 0.5) * col_scale - 0.5
             src_x = max(Float32(0.0), min(src_x, Float32(in_w - 1)))
-            
+
             var x_low = Int(src_x)
             var x_high = min(x_low + 1, in_w - 1)
             var x_weight = src_x - Float32(x_low)
@@ -1969,25 +1970,25 @@ fn _resize_bilinear_rgb(
                 Float32(in_ptr.load((y_low * in_w + x_low) * 3 + 0)),
                 Float32(in_ptr.load((y_low * in_w + x_low) * 3 + 1)),
                 Float32(in_ptr.load((y_low * in_w + x_low) * 3 + 2)),
-                0.0
+                0.0,
             )
             var p01 = SIMD[DType.float32, 4](
                 Float32(in_ptr.load((y_low * in_w + x_high) * 3 + 0)),
                 Float32(in_ptr.load((y_low * in_w + x_high) * 3 + 1)),
                 Float32(in_ptr.load((y_low * in_w + x_high) * 3 + 2)),
-                0.0
+                0.0,
             )
             var p10 = SIMD[DType.float32, 4](
                 Float32(in_ptr.load((y_high * in_w + x_low) * 3 + 0)),
                 Float32(in_ptr.load((y_high * in_w + x_low) * 3 + 1)),
                 Float32(in_ptr.load((y_high * in_w + x_low) * 3 + 2)),
-                0.0
+                0.0,
             )
             var p11 = SIMD[DType.float32, 4](
                 Float32(in_ptr.load((y_high * in_w + x_high) * 3 + 0)),
                 Float32(in_ptr.load((y_high * in_w + x_high) * 3 + 1)),
                 Float32(in_ptr.load((y_high * in_w + x_high) * 3 + 2)),
-                0.0
+                0.0,
             )
 
             # Interpolate horizontally
@@ -1996,10 +1997,10 @@ fn _resize_bilinear_rgb(
 
             # Interpolate vertically
             var res = top * (1.0 - y_weight) + bottom * y_weight
-            
+
             # Normalize
             var normalized = res / 255.0
-            
+
             # Store 3 channels
             out_ptr.store((y * out_w + x) * 3 + 0, normalized[0])
             out_ptr.store((y * out_w + x) * 3 + 1, normalized[1])
@@ -2064,14 +2065,7 @@ fn process_image_mojo(
     var tower_scratch_ptr = vision_scratch + resized_len
 
     # 1. Resize and Normalize
-    _resize_bilinear_rgb(
-        resized_ptr,
-        image_ptr,
-        h,
-        w,
-        out_h,
-        out_w
-    )
+    _resize_bilinear_rgb(resized_ptr, image_ptr, h, w, out_h, out_w)
 
     # 2. Run Vision Tower
     var out_patches_np = np.zeros(Python.tuple(num_patches, hidden_size), dtype=np.float32)

@@ -12,21 +12,27 @@ Python/Mojo interface for Google Gemma 3.
 
 ## Installation
 
-```bash
-pip install mogemma
-```
-
-For text generation (requires tokenizer):
+Recommended for most users:
 
 ```bash
 pip install 'mogemma[llm]'
 ```
+
+This enables the text generation and embedding examples shown below.
 
 For multimodal generation with automatic image decoding from `str`, `Path`, or raw `bytes` inputs:
 
 ```bash
 pip install 'mogemma[vision]'
 ```
+
+Base package only:
+
+```bash
+pip install mogemma
+```
+
+Use the base package if you're already preparing tokens or image arrays yourself.
 
 ## Quick Start
 

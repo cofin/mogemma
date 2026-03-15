@@ -13,6 +13,7 @@ import obstore as obs
 from obstore.store import LocalStore
 
 logger = logging.getLogger(__name__)
+_ObjectStore = LocalStore | obs.store.GCSStore
 
 
 class HubManager:
@@ -43,38 +44,44 @@ class HubManager:
 
     @staticmethod
     def _get_store_and_path(path: Path | str) -> tuple[LocalStore, str]:
-        # obstore LocalStore("/") treats paths as relative to root, 
+        # obstore LocalStore("/") treats paths as relative to root,
         # so we strip leading slash from absolute paths.
         p = Path(path).resolve()
         return LocalStore("/"), str(p).lstrip("/")
 
     @staticmethod
+    def _head_exists(store: _ObjectStore, path: str) -> bool:
+        try:
+            obs.head(store, path)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("obstore head failed for %s", path, exc_info=exc)
+            return False
+        else:
+            return True
+
+    @staticmethod
+    def _listing_has_entries(store: _ObjectStore, path: str) -> bool:
+        try:
+            return any(True for _ in obs.list(store, path))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("obstore list failed for %s", path, exc_info=exc)
+            return False
+
+    @staticmethod
     def _has_safetensors(path: Path) -> bool:
         """Return ``True`` when *path* contains ready-to-use safetensors files."""
         store, p = HubManager._get_store_and_path(path)
-        try:
-            obs.head(store, f"{p}/model.safetensors")
-            return True
-        except Exception:
-            try:
-                obs.head(store, f"{p}/model.safetensors.index.json")
-                return True
-            except Exception:
-                return False
+        return HubManager._head_exists(store, f"{p}/model.safetensors") or HubManager._head_exists(
+            store, f"{p}/model.safetensors.index.json"
+        )
 
     @staticmethod
     def _has_orbax(path: Path) -> bool:
         """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
         store, p = HubManager._get_store_and_path(path)
-        try:
-            # Check manifest
-            obs.head(store, f"{p}/manifest.ocdbt")
-            # For directory check, we can list with limit 1
-            for _ in obs.list(store, f"{p}/ocdbt.process_0"):
-                return True
-            return False
-        except Exception:
-            return False
+        return HubManager._head_exists(store, f"{p}/manifest.ocdbt") and HubManager._listing_has_entries(
+            store, f"{p}/ocdbt.process_0"
+        )
 
     @classmethod
     def _has_model_files(cls, path: Path) -> bool:
@@ -87,29 +94,16 @@ class HubManager:
         """Resolve a model ID to a local path."""
         local_path = Path(model_id)
         store, p = HubManager._get_store_and_path(local_path)
-        
-        # Check if it's a direct local directory
-        is_dir = False
-        try:
-            # We use list with limit 1 to check if it's a directory in obstore terms
-            for _ in obs.list(store, p):
-                is_dir = True
-                break
-        except Exception:
-            pass
+        is_dir = self._listing_has_entries(store, p)
 
         if is_dir:
             return local_path
 
-        # Check if it exists but not a directory
-        exists = False
-        try:
-            obs.head(store, p)
-            exists = True
-        except Exception:
-            pass
+        exists = self._head_exists(store, p)
 
         if exists:
+            if local_path.is_file() and local_path.suffix == ".safetensors":
+                return local_path
             msg = f"Model path '{model_id}' exists but is not a directory."
             if strict:
                 raise ValueError(msg)
@@ -156,8 +150,8 @@ class HubManager:
             for page in obs.list(store, p):
                 for item in HubManager._normalize_list_page(page):
                     obs.delete(store, item["path"])  # type: ignore[index]
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("best-effort cleanup failed for %s", path, exc_info=exc)
         # We still use shutil for final directory removal as obstore only handles objects
         if path.exists():
             shutil.rmtree(path)

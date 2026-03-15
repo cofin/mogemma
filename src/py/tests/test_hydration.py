@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
 import pytest
 
-import mogemma.hydration as hydration_module
 from mogemma.hydration import ImageHydrator
 
 
 def _block_pillow_import(monkeypatch: pytest.MonkeyPatch) -> None:
-    original_import_module = hydration_module.importlib.import_module
+    original_import_module = importlib.import_module
     missing_pillow = "No module named 'PIL'"
 
     def fake_import_module(name: str) -> object:
@@ -18,7 +19,7 @@ def _block_pillow_import(monkeypatch: pytest.MonkeyPatch) -> None:
             raise ModuleNotFoundError(missing_pillow)
         return original_import_module(name)
 
-    monkeypatch.setattr(hydration_module.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
 
 
 def test_hydrate_bytes_requires_vision_extra_without_pillow(monkeypatch: pytest.MonkeyPatch) -> None:

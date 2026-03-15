@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -74,7 +74,7 @@ def _build_model(tmp_path: Path) -> SyncGemmaModel:
         patch("mogemma.model._initialize_llm", return_value=_mock_llm_state()),
         patch("mogemma.model.auto_loader", return_value=MagicMock()),
     ):
-        return SyncGemmaModel(config, tokenizer=_StubTokenizer())
+        return SyncGemmaModel(config, tokenizer=cast("Any", _StubTokenizer()))
 
 
 def _assert_hydrated_image(

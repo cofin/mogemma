@@ -496,7 +496,9 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
-    def generate(self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None) -> str:
+    def generate(
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    ) -> str:
         """Generate text from the given prompt."""
         return "".join(list(self.generate_stream(prompt, images=images)))
 
@@ -592,7 +594,9 @@ class AsyncGemmaModel:
         """
         self._model = SyncGemmaModel(config)
 
-    async def generate(self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None) -> str:
+    async def generate(
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    ) -> str:
         """Generate text asynchronously."""
         return await asyncio.to_thread(self._model.generate, prompt, images)
 

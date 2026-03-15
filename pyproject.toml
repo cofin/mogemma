@@ -37,7 +37,7 @@ url = "https://whl.modular.com/nightly/simple/"
 [project.optional-dependencies]
 llm = ["sentencepiece"]
 telemetry = ["opentelemetry-api"]
-vision = ["pillow", "sentencepiece"]
+vision = ["pillow>=12.1.1", "sentencepiece"]
 
 
 [build-system]
@@ -62,7 +62,7 @@ test-requires = [
     "sentencepiece",
     "obstore",
     "opentelemetry-api",
-    "pillow",
+    "pillow>=12.1.1",
     "tomli",
 ]
 

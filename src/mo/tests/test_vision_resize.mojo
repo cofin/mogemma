@@ -2,12 +2,13 @@ from std.memory import UnsafePointer, alloc
 from std.testing import assert_almost_equal
 from mogemma.core import _resize_bilinear_rgb
 
+
 fn test_resize_2x2_to_1x1() raises:
     # 2x2 RGB image (interleaved)
     var in_h = 2
     var in_w = 2
     var in_ptr = alloc[UInt8](in_h * in_w * 3)
-    
+
     # Pixel 0,0: black
     in_ptr.store(0, 0)
     in_ptr.store(1, 0)
@@ -29,14 +30,7 @@ fn test_resize_2x2_to_1x1() raises:
     var out_w = 1
     var out_ptr = alloc[Float32](out_h * out_w * 3)
 
-    _resize_bilinear_rgb(
-        out_ptr,
-        in_ptr,
-        in_h,
-        in_w,
-        out_h,
-        out_w
-    )
+    _resize_bilinear_rgb(out_ptr, in_ptr, in_h, in_w, out_h, out_w)
 
     assert_almost_equal(out_ptr.load(0), Float32(0.5))
     assert_almost_equal(out_ptr.load(1), Float32(0.5))
@@ -45,6 +39,7 @@ fn test_resize_2x2_to_1x1() raises:
     in_ptr.free()
     out_ptr.free()
     print("test_resize_2x2_to_1x1 passed")
+
 
 fn main():
     try:

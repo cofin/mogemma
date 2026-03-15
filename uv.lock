@@ -526,7 +526,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "obstore" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'" },
-    { name = "pillow", marker = "extra == 'vision'" },
+    { name = "pillow", marker = "extra == 'vision'", specifier = ">=12.1.1" },
     { name = "safetensors" },
     { name = "sentencepiece", marker = "extra == 'llm'" },
     { name = "sentencepiece", marker = "extra == 'vision'" },
