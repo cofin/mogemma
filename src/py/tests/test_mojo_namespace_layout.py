@@ -26,11 +26,13 @@ def test_build_targets_point_to_namespaced_core() -> None:
         config = tomllib.load(f)
 
     jobs = config["tool"]["hatch"]["build"]["targets"]["wheel"]["hooks"]["mojo"]["jobs"]
-    core_job = next(j for j in jobs if j["name"] == "core")
+    core_jobs = [j for j in jobs if j["name"].startswith("core")]
+    assert core_jobs, "No core jobs found in pyproject.toml"
 
-    assert core_job["input"] == "src/mo/mogemma/core.mojo"
-    assert core_job["module"] == "mogemma._core"
-    assert "src/mo" in core_job["include-dirs"]
+    for core_job in core_jobs:
+        assert core_job["input"] == "src/mo/mogemma/core.mojo"
+        assert core_job["module"] == "mogemma._core"
+        assert "src/mo" in core_job["include-dirs"]
 
 
 def test_cibuildwheel_linux_repair_command() -> None:

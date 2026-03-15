@@ -1,6 +1,6 @@
 from testing import assert_true, assert_almost_equal
-from memory import UnsafePointer
-from collections import List
+from std.memory import UnsafePointer
+from std.collections import List
 
 from mogemma.model import LaurelWeights, PerLayerMapWeights, AltUpWeights, TensorInfo, NanoLayerWeights, LayerWeights
 from mogemma.layers import (

@@ -1,7 +1,7 @@
 from testing import assert_true, assert_almost_equal
-from memory import UnsafePointer
-from math import sqrt
-from collections import List
+from std.memory import UnsafePointer
+from std.math import sqrt
+from std.collections import List
 
 from mogemma.model import LayerWeights, TensorInfo
 from mogemma.layers import (

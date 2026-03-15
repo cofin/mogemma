@@ -1,5 +1,5 @@
-from memory import UnsafePointer
-from math import sqrt, erf, tanh
+from std.memory import UnsafePointer
+from std.math import sqrt, erf, tanh
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
@@ -8,10 +8,26 @@ from mogemma.model import (
     PerLayerMapWeights,
     NanoLayerWeights,
     NanoModelWeights,
+    VisionLayerWeights,
     TensorInfo,
 )
-from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul
+from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul, mat_mat_mul_i8
 from mogemma.ops_gpu import vec_mat_mul_gpu, rope_rotate_gpu, softmax_gpu, rms_norm_gpu, geglu_gpu
+
+
+@always_inline
+fn _gemm_dispatch(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    w: TensorInfo,
+    batch_size: Int,
+    in_dim: Int,
+    out_dim: Int,
+):
+    if w.is_quantized:
+        mat_mat_mul_i8(out_ptr, x_ptr, w.i8_ptr, w.scale_ptr, batch_size, in_dim, out_dim)
+    else:
+        mat_mat_mul(out_ptr, x_ptr, w.ptr, batch_size, in_dim, out_dim)
 
 
 @always_inline
@@ -43,9 +59,9 @@ fn forward_attention(
     var k_ptr = scratch_ptr + batch_size * q_size
     var v_ptr = scratch_ptr + batch_size * q_size + batch_size * kv_size
 
-    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, batch_size, hidden_size, q_size)
-    mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, batch_size, hidden_size, kv_size)
-    mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, batch_size, hidden_size, kv_size)
+    _gemm_dispatch(q_ptr, x_ptr, weights.q_proj, batch_size, hidden_size, q_size)
+    _gemm_dispatch(k_ptr, x_ptr, weights.k_proj, batch_size, hidden_size, kv_size)
+    _gemm_dispatch(v_ptr, x_ptr, weights.v_proj, batch_size, hidden_size, kv_size)
 
     for b in range(batch_size):
         var b_q_ptr = q_ptr + b * q_size
@@ -112,7 +128,7 @@ fn forward_attention(
 
     # 5. Output Projection
     var batched_attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size)
-    mat_mat_mul(out_ptr, batched_attn_out_ptr, weights.o_proj.ptr, batch_size, q_size, hidden_size)
+    _gemm_dispatch(out_ptr, batched_attn_out_ptr, weights.o_proj, batch_size, q_size, hidden_size)
 
 
 @always_inline
@@ -133,8 +149,8 @@ fn forward_mlp(
     var up_ptr = scratch_ptr + batch_size * intermediate_size
     var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    mat_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, batch_size, hidden_size, intermediate_size)
-    mat_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(gate_ptr, x_ptr, weights.gate_proj, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(up_ptr, x_ptr, weights.up_proj, batch_size, hidden_size, intermediate_size)
 
     for b in range(batch_size):
         geglu(
@@ -144,7 +160,7 @@ fn forward_mlp(
             intermediate_size,
         )
 
-    mat_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, batch_size, intermediate_size, hidden_size)
+    _gemm_dispatch(out_ptr, geglu_out_ptr, weights.down_proj, batch_size, intermediate_size, hidden_size)
 
 
 @always_inline
@@ -200,12 +216,12 @@ fn forward_mlp_nano(
     var up_ptr = scratch_ptr + batch_size * intermediate_size
     var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    mat_mat_mul(gate_ptr, x_ptr, weights.gate_proj.ptr, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(gate_ptr, x_ptr, weights.gate_proj, batch_size, hidden_size, intermediate_size)
     # Gemma3n defaults: first 10 layers use 0.95 activation sparsity, rest dense.
     if layer_idx < 10:
         for b in range(batch_size):
             _apply_nano_activation_sparsity(gate_ptr + b * intermediate_size, intermediate_size, 0.95)
-    mat_mat_mul(up_ptr, x_ptr, weights.up_proj.ptr, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(up_ptr, x_ptr, weights.up_proj, batch_size, hidden_size, intermediate_size)
 
     for b in range(batch_size):
         geglu(
@@ -215,7 +231,7 @@ fn forward_mlp_nano(
             intermediate_size,
         )
 
-    mat_mat_mul(out_ptr, geglu_out_ptr, weights.down_proj.ptr, batch_size, intermediate_size, hidden_size)
+    _gemm_dispatch(out_ptr, geglu_out_ptr, weights.down_proj, batch_size, intermediate_size, hidden_size)
 
 
 @always_inline
@@ -534,10 +550,10 @@ fn forward_attention_nano(
     var k_ptr = scratch_ptr + batch_size * q_size
     var v_ptr = scratch_ptr + batch_size * (q_size + kv_size)
 
-    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, batch_size, hidden_size, q_size)
+    _gemm_dispatch(q_ptr, x_ptr, weights.q_proj, batch_size, hidden_size, q_size)
     if write_kv:
-        mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, batch_size, hidden_size, kv_size)
-        mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, batch_size, hidden_size, kv_size)
+        _gemm_dispatch(k_ptr, x_ptr, weights.k_proj, batch_size, hidden_size, kv_size)
+        _gemm_dispatch(v_ptr, x_ptr, weights.v_proj, batch_size, hidden_size, kv_size)
 
     for b in range(batch_size):
         var b_q_ptr = q_ptr + b * q_size
@@ -599,7 +615,7 @@ fn forward_attention_nano(
                     out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
 
     var batched_attn_out_ptr = scratch_ptr + batch_size * (q_size + kv_size + kv_size)
-    mat_mat_mul(out_ptr, batched_attn_out_ptr, weights.o_proj.ptr, batch_size, q_size, hidden_size)
+    _gemm_dispatch(out_ptr, batched_attn_out_ptr, weights.o_proj, batch_size, q_size, hidden_size)
 
 
 @always_inline
@@ -651,8 +667,8 @@ fn forward_laurel(
     var norm_up_ptr = up_ptr + batch_size * hidden_size
 
     # laurel(hidden) = hidden + rms_norm(up(down(hidden)))
-    mat_mat_mul(down_ptr, hidden_ptr, weights.down_proj.ptr, batch_size, hidden_size, bottleneck_dim)
-    mat_mat_mul(up_ptr, down_ptr, weights.up_proj.ptr, batch_size, bottleneck_dim, hidden_size)
+    _gemm_dispatch(down_ptr, hidden_ptr, weights.down_proj, batch_size, hidden_size, bottleneck_dim)
+    _gemm_dispatch(up_ptr, down_ptr, weights.up_proj, batch_size, bottleneck_dim, hidden_size)
     for b in range(batch_size):
         _rms_norm_nano_weighted(
             norm_up_ptr + b * hidden_size, up_ptr + b * hidden_size, weights.norm.ptr, hidden_size, 1e-6
@@ -761,7 +777,7 @@ fn forward_altup_correct(
             out_corrected_ptr.store(base_idx, predictions_ptr.load(base_idx) + innovation * corr_ptr.load(out_m))
 
 
-from collections import List
+from std.collections import List
 
 
 @always_inline
@@ -1312,8 +1328,7 @@ fn forward_attention_gpu(
 ):
     """Computes Multi-Head/Grouped-Query Attention for the standard model on the GPU.
 
-    See `forward_attention` for functional details.
-    """
+    See `forward_attention` for functional details."""
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -1384,8 +1399,7 @@ fn forward_mlp_gpu(
 ):
     """Computes the feed-forward network (MLP) for the standard model on the GPU.
 
-    See `forward_mlp` for functional details.
-    """
+    See `forward_mlp` for functional details."""
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -1418,8 +1432,7 @@ fn forward_layer_gpu(
 ):
     """Executes a single standard transformer layer on the GPU.
 
-    See `forward_layer` for functional details.
-    """
+    See `forward_layer` for functional details."""
     var norm_x_ptr = scratch_ptr
     var attn_out_ptr = scratch_ptr + hidden_size
     var attn_scratch_ptr = scratch_ptr + hidden_size * 2
@@ -1475,8 +1488,7 @@ fn forward_laurel_gpu(
 ):
     """Executes the Laurel projection step for the Nano architecture on the GPU.
 
-    See `forward_laurel` for functional details.
-    """
+    See `forward_laurel` for functional details."""
     var down_ptr = scratch_ptr
     var up_ptr = scratch_ptr + bottleneck_dim
     var norm_up_ptr = up_ptr + hidden_size
@@ -1498,8 +1510,7 @@ fn _rms_norm_nano_weighted_gpu(
 ):
     """Applies weighted RMSNorm on the GPU.
 
-    Normalizes the input vector and scales it by the weight vector.
-    """
+    Normalizes the input vector and scales it by the weight vector."""
     var sum_sq: Float32 = 0.0
     for i in range(size):
         var v = x_ptr.load(i)
@@ -1516,10 +1527,9 @@ fn _rms_norm_nano_unit_gpu(
     size: Int,
     eps: Float32 = 1e-6,
 ):
-    """Applies unit (unweighted) RMSNorm on the GPU.
+    """Applies unit RMSNorm on the GPU.
 
-    Normalizes the input vector without scaling weights.
-    """
+    Normalizes the input vector without scaling."""
     var sum_sq: Float32 = 0.0
     for i in range(size):
         var v = x_ptr.load(i)
@@ -1549,8 +1559,7 @@ fn forward_attention_nano_gpu(
 ):
     """Computes Multi-Head/Grouped-Query Attention for the Nano model on the GPU.
 
-    See `forward_attention_nano` for functional details.
-    """
+    See `forward_attention_nano` for functional details."""
     var q_size = num_heads * head_dim
     var kv_size = num_kv_heads * head_dim
     var q_ptr = scratch_ptr
@@ -1622,8 +1631,7 @@ fn forward_per_layer_mapping_gpu(
 ):
     """Applies the per-layer mapping delta for the Nano AltUp architecture on the GPU.
 
-    See `forward_per_layer_mapping` for functional details.
-    """
+    See `forward_per_layer_mapping` for functional details."""
     var gate_out_ptr = scratch_ptr
     var proj_out_ptr = scratch_ptr + per_layer_dim
 
@@ -1649,8 +1657,7 @@ fn _compute_router_modalities_gpu(
 ):
     """Computes the router modality probabilities for the AltUp mechanism on the GPU.
 
-    See `_compute_router_modalities` for functional details.
-    """
+    See `_compute_router_modalities` for functional details."""
     var router_in_ptr = scratch_ptr
     _rms_norm_nano_weighted_gpu(router_in_ptr, active_ptr, weights.router_norm.ptr, hidden_size, 1e-6)
 
@@ -1674,8 +1681,7 @@ fn forward_altup_predict_gpu(
 ):
     """Executes the AltUp prediction phase on the GPU.
 
-    See `forward_altup_predict` for functional details.
-    """
+    See `forward_altup_predict` for functional details."""
     var modalities_ptr = scratch_ptr
     var coef_ptr = modalities_ptr + num_modalities
     var router_scratch_ptr = coef_ptr + num_modalities * num_modalities
@@ -1713,8 +1719,7 @@ fn forward_altup_correct_gpu(
 ):
     """Executes the AltUp correction phase on the GPU.
 
-    See `forward_altup_correct` for functional details.
-    """
+    See `forward_altup_correct` for functional details."""
     var modalities_ptr = scratch_ptr
     var corr_ptr = modalities_ptr + num_modalities
     var router_scratch_ptr = corr_ptr + num_modalities
@@ -1744,8 +1749,7 @@ fn _apply_nano_activation_sparsity_gpu(
 ):
     """Applies activation sparsity to the Nano MLP gate projection on the GPU.
 
-    See `_apply_nano_activation_sparsity` for functional details.
-    """
+    See `_apply_nano_activation_sparsity` for functional details."""
     if sparsity <= 0.0:
         return
 
@@ -1781,8 +1785,7 @@ fn forward_mlp_nano_gpu(
 ):
     """Computes the feed-forward network (MLP) for a Nano layer on the GPU.
 
-    See `forward_mlp_nano` for functional details.
-    """
+    See `forward_mlp_nano` for functional details."""
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
@@ -1822,8 +1825,7 @@ fn forward_nano_layer_gpu(
 ):
     """Executes a single Gemma Nano layer on the GPU.
 
-    See `forward_nano_layer` for functional details.
-    """
+    See `forward_nano_layer` for functional details."""
     var predictions_ptr = scratch_ptr  # 0..4h
     var corrected_ptr = predictions_ptr + num_modalities * hidden_size  # 4h..8h
     var active_ptr = corrected_ptr + num_modalities * hidden_size  # 8h
@@ -1914,3 +1916,163 @@ fn forward_nano_layer_gpu(
         for i in range(hidden_size):
             var idx = m * hidden_size + i
             out_streams_ptr.store(idx, corrected_ptr.load(idx) + delta_ptr.load(i))
+
+
+@always_inline
+fn forward_vision_attention(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    weights: VisionLayerWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Computes bidirectional Self-Attention for the Vision Transformer (SigLIP)."""
+    var q_size = num_heads * head_dim
+    var q_ptr = scratch_ptr
+    var k_ptr = scratch_ptr + num_patches * q_size
+    var v_ptr = scratch_ptr + num_patches * q_size * 2
+
+    # 1. Project Q, K, V for all patches
+    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, num_patches, hidden_size, q_size)
+    mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, num_patches, hidden_size, q_size)
+    mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, num_patches, hidden_size, q_size)
+
+    # 2. Compute Attention for each head (Bidirectional)
+    var scale = 1.0 / sqrt(Float32(head_dim))
+    var attn_out_ptr = scratch_ptr + num_patches * q_size * 3
+
+    for h in range(num_heads):
+        var scores_ptr = attn_out_ptr + num_patches * q_size
+
+        for p_q in range(num_patches):
+            var q_head_ptr = q_ptr + p_q * q_size + h * head_dim
+            var p_scores_ptr = scores_ptr + p_q * num_patches
+
+            # Scores against all other patches
+            for p_k in range(num_patches):
+                var k_head_ptr = k_ptr + p_k * q_size + h * head_dim
+                var score: Float32 = 0.0
+                for d in range(head_dim):
+                    score += q_head_ptr.load(d) * k_head_ptr.load(d)
+                p_scores_ptr.store(p_k, score * scale)
+
+            # Softmax over all patches
+            softmax(p_scores_ptr, num_patches)
+
+            # Weighted sum of V
+            var out_head_ptr = attn_out_ptr + p_q * q_size + h * head_dim
+            for d in range(head_dim):
+                out_head_ptr.store(d, 0.0)
+
+            for p_v in range(num_patches):
+                var v_head_ptr = v_ptr + p_v * q_size + h * head_dim
+                var prob = p_scores_ptr.load(p_v)
+                for d in range(head_dim):
+                    var acc = out_head_ptr.load(d)
+                    out_head_ptr.store(d, acc + prob * v_head_ptr.load(d))
+
+    # 3. Output Projection
+    mat_mat_mul(out_ptr, attn_out_ptr, weights.o_proj.ptr, num_patches, q_size, hidden_size)
+
+
+@always_inline
+fn forward_vision_mlp(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    weights: VisionLayerWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Computes the feed-forward network (MLP) for the Vision Transformer (SigLIP).
+    Typically uses GELU activation.
+    """
+    var fc1_out_ptr = scratch_ptr
+
+    mat_mat_mul(fc1_out_ptr, x_ptr, weights.gate_proj.ptr, num_patches, hidden_size, intermediate_size)
+
+    # GELU activation: 0.5 * x * (1 + erf(x / sqrt(2)))
+    var sqrt_2: Float32 = 1.4142135623730951
+    var total_elements = num_patches * intermediate_size
+    for i in range(total_elements):
+        var x = fc1_out_ptr.load(i)
+        fc1_out_ptr.store(i, 0.5 * x * (1.0 + erf(x / sqrt_2)))
+
+    mat_mat_mul(out_ptr, fc1_out_ptr, weights.down_proj.ptr, num_patches, intermediate_size, hidden_size)
+
+
+@always_inline
+fn forward_vision_layer(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    weights: VisionLayerWeights,
+    num_patches: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
+):
+    """Executes a single vision transformer layer (Attention + MLP) with residual connections."""
+    var norm_x_ptr = scratch_ptr
+    var attn_out_ptr = scratch_ptr + num_patches * hidden_size
+    var attn_scratch_ptr = scratch_ptr + num_patches * hidden_size * 2
+
+    # Pre-attention norm
+    for p in range(num_patches):
+        rms_norm(norm_x_ptr + p * hidden_size, x_ptr + p * hidden_size, weights.input_layernorm.ptr, hidden_size, 1e-6)
+
+    # Attention
+    forward_vision_attention(
+        attn_out_ptr,
+        norm_x_ptr,
+        weights,
+        num_patches,
+        hidden_size,
+        num_heads,
+        head_dim,
+        attn_scratch_ptr,
+    )
+
+    # Residual
+    var residual_ptr = scratch_ptr + num_patches * hidden_size * 2
+    for p in range(num_patches):
+        for i in range(hidden_size):
+            residual_ptr.store(
+                p * hidden_size + i, x_ptr.load(p * hidden_size + i) + attn_out_ptr.load(p * hidden_size + i)
+            )
+
+    # Pre-MLP norm
+    var norm_residual_ptr = scratch_ptr + num_patches * hidden_size * 3
+    for p in range(num_patches):
+        rms_norm(
+            norm_residual_ptr + p * hidden_size,
+            residual_ptr + p * hidden_size,
+            weights.post_attention_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
+
+    # MLP
+    var mlp_out_ptr = scratch_ptr + num_patches * hidden_size * 4
+    var mlp_scratch_ptr = scratch_ptr + num_patches * hidden_size * 5
+    forward_vision_mlp(
+        mlp_out_ptr,
+        norm_residual_ptr,
+        weights,
+        num_patches,
+        hidden_size,
+        intermediate_size,
+        mlp_scratch_ptr,
+    )
+
+    # Final residual
+    for p in range(num_patches):
+        for i in range(hidden_size):
+            out_ptr.store(
+                p * hidden_size + i, residual_ptr.load(p * hidden_size + i) + mlp_out_ptr.load(p * hidden_size + i)
+            )

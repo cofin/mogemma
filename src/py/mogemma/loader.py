@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import mmap
 import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
+import obstore as obs
+from obstore.store import LocalStore
 from typing_extensions import Self
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+logger = logging.getLogger(__name__)
 
 
 class SafetensorsLoader:
@@ -32,28 +37,53 @@ class SafetensorsLoader:
 
         self._load_index()
 
+    @staticmethod
+    def _get_store_and_path(path: Path | str) -> tuple[LocalStore, str]:
+        # obstore LocalStore("/") treats paths as relative to root,
+        # so we strip leading slash from absolute paths.
+        p = Path(path).resolve()
+        return LocalStore("/"), str(p).lstrip("/")
+
+    @staticmethod
+    def _head_exists(store: LocalStore, path: str) -> bool:
+        try:
+            obs.head(store, path)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("obstore head failed for %s", path, exc_info=exc)
+            return False
+        else:
+            return True
+
     def _load_index(self) -> None:
-        if self.model_path.is_file():
+        store, p = self._get_store_and_path(self.model_path)
+        is_file = self._head_exists(store, p)
+
+        if is_file:
             self._mmap_file(self.model_path.name, self.model_path)
             return
 
         index_file = self.model_path / "model.safetensors.index.json"
-        if index_file.exists():
-            with index_file.open("r", encoding="utf-8") as f:
-                index = json.load(f)
+        _, p_index = self._get_store_and_path(index_file)
+        index_exists = self._head_exists(store, p_index)
+
+        if index_exists:
+            result = obs.get(store, p_index)
+            index = json.loads(bytes(result.bytes()))
             self.tensor_file_map = index.get("weight_map", {})
             unique_files = set(self.tensor_file_map.values())
             for file_name in unique_files:
                 file_path = self.model_path / file_name
-                if not file_path.exists():
+                _, p_file = self._get_store_and_path(file_path)
+                if not self._head_exists(store, p_file):
                     msg = f"Missing weights file: {file_path}"
-                    raise FileNotFoundError(msg)
+                    raise FileNotFoundError(msg) from None
                 self._mmap_file(file_name, file_path)
         else:
             single_file = self.model_path / "model.safetensors"
-            if not single_file.exists():
+            _, p_single = self._get_store_and_path(single_file)
+            if not self._head_exists(store, p_single):
                 msg = f"No model.safetensors or index found in {self.model_path}"
-                raise FileNotFoundError(msg)
+                raise FileNotFoundError(msg) from None
             self._mmap_file("model.safetensors", single_file)
 
     def _mmap_file(self, file_name: str, file_path: Path) -> None:
@@ -121,9 +151,11 @@ class SafetensorsLoader:
         """Return ``True`` when *model_path* contains safetensors files."""
         if model_path.is_file() and model_path.suffix == ".safetensors":
             return True
-        if not model_path.is_dir():
-            return False
-        return (model_path / "model.safetensors").exists() or (model_path / "model.safetensors.index.json").exists()
+
+        store, p = SafetensorsLoader._get_store_and_path(model_path)
+        return SafetensorsLoader._head_exists(store, f"{p}/model.safetensors") or SafetensorsLoader._head_exists(
+            store, f"{p}/model.safetensors.index.json"
+        )
 
     def close(self) -> None:
         """Close memory maps and files."""

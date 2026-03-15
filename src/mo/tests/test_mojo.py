@@ -12,7 +12,15 @@ UNSTABLE_MOJO_TESTS = {"test_layers.mojo", "test_nano_layers.mojo"}
 
 @pytest.mark.parametrize(
     "test_file",
-    ["test_layers.mojo", "test_model.mojo", "test_ops.mojo", "test_nano_layers.mojo", "test_altup_contract.mojo"],
+    [
+        "test_layers.mojo",
+        "test_model.mojo",
+        "test_ops.mojo",
+        "test_nano_layers.mojo",
+        "test_altup_contract.mojo",
+        "test_arena.mojo",
+        "test_arena_init.mojo",
+    ],
 )
 def test_mojo_unit_tests(test_file: str) -> None:
     if test_file in UNSTABLE_MOJO_TESTS and not RUN_UNSTABLE_MOJO_TESTS:

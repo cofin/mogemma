@@ -1,4 +1,4 @@
-from memory import UnsafePointer
+from std.memory import UnsafePointer
 from mogemma.ops import geglu, rope_rotate, vec_mat_mul, rms_norm, softmax
 
 

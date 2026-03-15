@@ -9,12 +9,14 @@ from typing import Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import Self
 
 from .backends import DeviceSelection, EmbeddingBackend, GenerationBackend, resolve_device_selection
 from .backends import resolve_embedding_backend as _resolve_embedding_backend_impl
 from .backends import resolve_generation_backend as _resolve_generation_backend_impl
 from .config import EmbeddingConfig, GenerationConfig
 from .hub import HubManager
+from .hydration import ImageHydrator
 from .loader import ModelLoader, auto_loader
 from .telemetry import tracer
 from .typing import SENTENCEPIECE_INSTALLED, _SPProcessorImpl
@@ -287,22 +289,27 @@ def _reset_llm_session_state(llm: object) -> None:
         return
 
     llm["pos"] = 0
-    for cache_key in ("k_cache", "v_cache"):
-        cache = llm.get(cache_key)
-        if cache is None:
-            continue
-        if hasattr(cache, "fill"):
-            cache.fill(0.0)
-            continue
-        if isinstance(cache, list):
-            for i in range(len(cache)):
-                cache[i] = 0.0
-            continue
-        try:
-            np.asarray(cache).fill(0.0)
-        except (TypeError, ValueError, AttributeError, NotImplementedError):
-            # Keep reset best-effort for backend-specific cache containers.
-            continue
+    if _core is not None and hasattr(_core, "reset_cache"):
+        _core.reset_cache(llm)
+    else:
+        # Fallback for legacy core
+        for cache_key in ("k_cache", "v_cache"):
+            cache = llm.get(cache_key)
+            if cache is None:
+                continue
+            if isinstance(cache, (int, float)):
+                continue
+            if hasattr(cache, "fill"):
+                cache.fill(0.0)
+                continue
+            if isinstance(cache, list):
+                for i in range(len(cache)):
+                    cache[i] = 0.0
+                continue
+            try:
+                np.asarray(cache).fill(0.0)
+            except (TypeError, ValueError, AttributeError, NotImplementedError):
+                continue
 
 
 class EmbeddingModel:
@@ -337,16 +344,6 @@ class EmbeddingModel:
             model_type="embedding",
             architecture_overrides=config.architecture_overrides,
         )
-
-    def __del__(self) -> None:
-        """Free underlying unmanaged runtime state."""
-        if (
-            hasattr(self, "_backend")
-            and hasattr(self, "_llm")
-            and self._llm is not None
-            and hasattr(self._backend, "free_model")
-        ):
-            self._backend.free_model(self._llm)
 
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
@@ -429,6 +426,26 @@ class EmbeddingModel:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
 
+    def close(self) -> None:
+        """Release underlying resources and free the memory arena."""
+        if hasattr(self, "_llm") and self._llm is not None and _core is not None and hasattr(_core, "free_arena"):
+            _core.free_arena(self._llm)
+            self._llm = None
+        if hasattr(self, "_loader"):
+            self._loader.close()
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
+    def __enter__(self) -> Self:
+        """Enter the context manager."""
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        """Exit the context manager and release resources."""
+        self.close()
+
 
 class SyncGemmaModel:
     """Python interface for the Gemma 3 text generation engine."""
@@ -464,16 +481,6 @@ class SyncGemmaModel:
             architecture_overrides=config.architecture_overrides,
         )
 
-    def __del__(self) -> None:
-        """Free underlying unmanaged runtime state."""
-        if (
-            hasattr(self, "_backend")
-            and hasattr(self, "_llm")
-            and self._llm is not None
-            and hasattr(self._backend, "free_model")
-        ):
-            self._backend.free_model(self._llm)
-
     def _ensure_tokenizer(self) -> _Tokenizer:
         if self._tokenizer is not None:
             return self._tokenizer
@@ -489,11 +496,15 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
-    def generate(self, prompt: str) -> str:
+    def generate(
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    ) -> str:
         """Generate text from the given prompt."""
-        return "".join(list(self.generate_stream(prompt)))
+        return "".join(list(self.generate_stream(prompt, images=images)))
 
-    def generate_stream(self, prompt: str) -> Generator[str, None, None]:
+    def generate_stream(
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
         prompt_to_encode = _format_instruction_prompt(prompt) if self._instruction_tuned else prompt
@@ -510,6 +521,10 @@ class SyncGemmaModel:
             raise RuntimeError(_core_unavailable_message("generation"))
 
         _reset_llm_session_state(self._llm)
+
+        if images is not None:
+            hydrated = ImageHydrator().hydrate(images)
+            self._backend.process_images(self._llm, hydrated)
 
         for t in tokens[:-1]:
             self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
@@ -547,6 +562,26 @@ class SyncGemmaModel:
         """Access the tokenizer (loads lazily)."""
         return self._ensure_tokenizer()
 
+    def close(self) -> None:
+        """Release underlying resources and free the memory arena."""
+        if hasattr(self, "_llm") and self._llm is not None and _core is not None and hasattr(_core, "free_arena"):
+            _core.free_arena(self._llm)
+            self._llm = None
+        if hasattr(self, "_loader"):
+            self._loader.close()
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
+    def __enter__(self) -> Self:
+        """Enter the context manager."""
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        """Exit the context manager and release resources."""
+        self.close()
+
 
 class AsyncGemmaModel:
     """Asynchronous wrapper for SyncGemmaModel."""
@@ -559,13 +594,17 @@ class AsyncGemmaModel:
         """
         self._model = SyncGemmaModel(config)
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    ) -> str:
         """Generate text asynchronously."""
-        return await asyncio.to_thread(self._model.generate, prompt)
+        return await asyncio.to_thread(self._model.generate, prompt, images)
 
-    async def generate_stream(self, prompt: str) -> AsyncIterator[str]:
+    async def generate_stream(
+        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
-        generator = self._model.generate_stream(prompt)
+        generator = self._model.generate_stream(prompt, images=images)
 
         def get_next() -> str | None:
             try:

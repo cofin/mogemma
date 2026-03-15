@@ -6,30 +6,61 @@ Python/Mojo interface for Google Gemma 3.
 
 - **Embeddings** — Dense vector embeddings via a pure Mojo backend.
 - **Text generation** — Synchronous and async streaming with configurable sampling.
+- **Multimodal Vision** — Native support for Gemma 3 Vision models with zero-copy image processing.
 - **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
 - **OpenTelemetry** — Optional tracing instrumentation.
 
 ## Installation
 
-```bash
-pip install mogemma
-```
-
-For text generation (requires tokenizer):
+Recommended for most users:
 
 ```bash
 pip install 'mogemma[llm]'
 ```
 
+This enables the text generation and embedding examples shown below.
+
+For multimodal generation with automatic image decoding from `str`, `Path`, or raw `bytes` inputs:
+
+```bash
+pip install 'mogemma[vision]'
+```
+
+Base package only:
+
+```bash
+pip install mogemma
+```
+
+Use the base package if you're already preparing tokens or image arrays yourself.
+
 ## Quick Start
 
 ### Text Generation
+
+The default getting-started path is `mogemma[llm]`.
 
 ```python
 from mogemma import SyncGemmaModel
 
 model = SyncGemmaModel()
 print(model.generate("Write a haiku about a robot discovering coffee:"))
+```
+
+### Multimodal Vision
+
+MoGemma supports Gemma 3 multimodal vision models.
+
+- Install `mogemma[vision]` to pass image file paths or raw image bytes directly.
+
+```python
+from mogemma import SyncGemmaModel
+
+# Initialize a vision-capable model
+model = SyncGemmaModel("gemma3-4b-it")
+
+response = model.generate("Describe this image in detail:", images=["input.jpg"])
+print(response)
 ```
 
 ### Async Streaming
@@ -112,16 +143,28 @@ embeddings = EmbeddingModel(
 )
 ```
 
-Explicit GPU requests are validated strictly:
+## Runtime Requirements
 
-```python
-from mogemma import GenerationConfig, SyncGemmaModel
+MoGemma leverages the latest Mojo features for maximum performance.
 
-config = GenerationConfig(
-    model_path="gemma3-1b-it",
-    device="gpu:0",
-)
-model = SyncGemmaModel(config)
+- **Mojo Nightly:** Version `0.26.3.0.dev` or later is required for building from source.
+- **Python:** 3.10+
+
+## Development & Architecture
+
+### Architecture Specific Builds
+
+MoGemma automatically optimizes its Mojo core for your specific CPU architecture during the build process.
+
+- **x86_64:** Uses `--target-cpu x86-64-v3` for optimized vector instructions.
+- **aarch64:** Uses native ARM optimizations.
+
+### Local Development
+
+To build the Mojo extension locally:
+
+```bash
+make build
 ```
 
 ## License
