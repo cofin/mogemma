@@ -1851,7 +1851,7 @@ fn _forward_step_nano_gpu_runtime(
 @always_inline
 fn _forward_vision_tower_runtime(
     out_patches_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
-    in_patches_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, hidden_size]
+    in_image_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [out_h, out_w, 3] normalized
     ptr_vision: UnsafePointer[VisionModelWeights, MutExternalOrigin],
     num_patches: Int,
     hidden_size: Int,
@@ -1861,16 +1861,47 @@ fn _forward_vision_tower_runtime(
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],  # temp memory
 ):
     """Executes the full forward pass of the vision tower over a sequence of image patches."""
-    var num_layers = len(ptr_vision[].layers)
+    var patch_size = 14
+    var out_h = 384
+    var out_w = 384
+    var num_patches_x = out_w // patch_size
+    var patch_pixels = patch_size * patch_size * 3
+
     var current_state = scratch_ptr
     var next_state = scratch_ptr + num_patches * hidden_size
     var layer_scratch = scratch_ptr + num_patches * hidden_size * 2
 
-    # Load initial patches
-    for i in range(num_patches * hidden_size):
-        current_state.store(i, in_patches_ptr.load(i))
+    # 1. Patchify and Linear Projection (Patch Embedding)
+    # We apply patch_embedding weight [hidden_size, patch_pixels] to each patch
+    var patch_weights_ptr = ptr_vision[].patch_embedding.ptr
+    
+    @parameter
+    fn process_patch(p: Int):
+        var py = p // num_patches_x
+        var px = p % num_patches_x
+        
+        # Flatten patch into a stack-allocated buffer or just iterate
+        # For simplicity and to avoid stack overflow, we'll do a fused patch-projection loop
+        for h in range(hidden_size):
+            var acc: Float32 = 0.0
+            for i in range(patch_size):
+                for j in range(patch_size):
+                    for c in range(3):
+                        var img_y = py * patch_size + i
+                        var img_x = px * patch_size + j
+                        var pixel_val = in_image_ptr.load((img_y * out_w + img_x) * 3 + c)
+                        
+                        var patch_pixel_idx = (i * patch_size + j) * 3 + c
+                        acc += pixel_val * patch_weights_ptr.load(h * patch_pixels + patch_pixel_idx)
+            
+            # Add position embedding
+            acc += ptr_vision[].position_embedding.ptr.load(p * hidden_size + h)
+            current_state.store(p * hidden_size + h, acc)
 
-    # Pass through vision layers
+    parallelize[process_patch](num_patches, num_patches)
+
+    # 2. Pass through vision transformer layers
+    var num_layers = len(ptr_vision[].layers)
     for l in range(num_layers):
         forward_vision_layer(
             next_state,
@@ -1888,7 +1919,7 @@ fn _forward_vision_tower_runtime(
         for i in range(num_patches * hidden_size):
             current_state.store(i, next_state.load(i))
 
-    # Final vision normalization
+    # 3. Final vision normalization
     for p in range(num_patches):
         rms_norm(
             out_patches_ptr + p * hidden_size,
@@ -2010,19 +2041,58 @@ fn process_image_mojo(
     var head_dim = 256
     var intermediate_size = ptr_vision[].layers[0].up_proj.shape_0
 
-    var out_h = 384  # siglip size, maybe configure later?
+    # Target dimensions for SigLIP
+    var out_h = 384
     var out_w = 384
-
     var num_patches_y = out_h // patch_size
     var num_patches_x = out_w // patch_size
     var num_patches = num_patches_y * num_patches_x
 
-    # Needs to be implemented with proper pipeline, just scaffolding to compile and execute basic flow
-    # In full implementation, we need: normalize -> resize -> patchify -> vision_tower
+    # Allocation for resized image and tower scratch
+    # Resized: 384 * 384 * 3 float32
+    # Tower needs current_state, next_state, and layer_scratch.
+    # current_state: num_patches * hidden_size
+    # next_state: num_patches * hidden_size
+    # layer_scratch: varies but max is usually patches * intermediate
+    var resized_len = out_h * out_w * 3
+    var tower_state_len = num_patches * hidden_size
+    var layer_scratch_len = num_patches * intermediate_size
+    var total_vision_scratch_len = resized_len + (tower_state_len * 2) + layer_scratch_len
 
-    var out_np = np.zeros(Python.tuple(num_patches, hidden_size), dtype=np.float32)
+    var vision_scratch = alloc[Float32](total_vision_scratch_len)
+    var resized_ptr = vision_scratch
+    var tower_scratch_ptr = vision_scratch + resized_len
 
-    return out_np
+    # 1. Resize and Normalize
+    _resize_bilinear_rgb(
+        resized_ptr,
+        image_ptr,
+        h,
+        w,
+        out_h,
+        out_w
+    )
+
+    # 2. Run Vision Tower
+    var out_patches_np = np.zeros(Python.tuple(num_patches, hidden_size), dtype=np.float32)
+    var out_patches_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=out_patches_np.__array_interface__["data"][0])
+    )
+
+    _forward_vision_tower_runtime(
+        out_patches_ptr,
+        resized_ptr,
+        ptr_vision,
+        num_patches,
+        hidden_size,
+        num_heads,
+        head_dim,
+        intermediate_size,
+        tower_scratch_ptr,
+    )
+
+    vision_scratch.free()
+    return out_patches_np
 
 
 def _free_arena_impl_mojo(llm: PythonObject) raises:
