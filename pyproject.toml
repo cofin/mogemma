@@ -92,12 +92,21 @@ packages = ["src/py/mogemma"]
 bundle-libs = true
 
 [[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]
-name = "core"
+name = "core-x86_64"
+arch = ["x86_64", "amd64"]
 input = "src/mo/mogemma/core.mojo"
 emit = "python-extension"
 module = "mogemma._core"
 include-dirs = ["src/mo"]
 flags = ["--target-cpu", "x86-64-v3"]
+
+[[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]
+name = "core-aarch64"
+arch = ["aarch64", "arm64"]
+input = "src/mo/mogemma/core.mojo"
+emit = "python-extension"
+module = "mogemma._core"
+include-dirs = ["src/mo"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/py/tests", "src/mo/tests"]
