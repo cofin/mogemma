@@ -18,7 +18,7 @@ dependencies = [
     "typing_extensions",
     "safetensors",
 ]
-description = "Python/Mojo interface for Google Gemma 3"
+description = "Python/Mojo interface for Google Gemma 4"
 license = { file = "LICENSE" }
 name = "mogemma"
 readme = "README.md"

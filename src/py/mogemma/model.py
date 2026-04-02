@@ -1,4 +1,4 @@
-"""Model wrappers for Gemma 3 inference."""
+"""Model wrappers for Gemma 4 inference."""
 
 import asyncio
 import contextlib
@@ -353,7 +353,7 @@ def _reset_llm_session_state(llm: object) -> None:
 
 
 class EmbeddingModel:
-    """Python interface for the Gemma 3 embedding engine."""
+    """Python interface for the Gemma 4 embedding engine."""
 
     def __init__(self, config: EmbeddingConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
         """Initialize the embedding model.
@@ -488,7 +488,7 @@ class EmbeddingModel:
 
 
 class SyncGemmaModel:
-    """Python interface for the Gemma 3 text generation engine."""
+    """Python interface for the Gemma 4 text generation engine."""
 
     def __init__(self, config: GenerationConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
         """Initialize the text model.
