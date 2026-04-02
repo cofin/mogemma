@@ -1,4 +1,4 @@
-"""Weight loading utilities for Safetensors and Orbax/OCDBT checkpoints."""
+"""Weight loading utilities for Safetensors checkpoints."""
 
 from __future__ import annotations
 
@@ -170,7 +170,7 @@ class SafetensorsLoader:
 
 
 class ModelLoader(Protocol):
-    """Structural protocol for weight loaders (SafetensorsLoader, OrbaxLoader)."""
+    """Structural protocol for weight loaders."""
 
     model_path: Path
 
@@ -185,18 +185,10 @@ class ModelLoader(Protocol):
 
 def auto_loader(model_path: str | Path) -> ModelLoader:
     """Detect the checkpoint format at *model_path* and return the appropriate loader."""
-    from .orbax_loader import OrbaxLoader  # noqa: PLC0415
-
     path = Path(model_path)
 
     if SafetensorsLoader.can_load(path):
         return SafetensorsLoader(path)
 
-    if OrbaxLoader.can_load(path):
-        return OrbaxLoader(path)
-
-    msg = (
-        f"No supported model format found in {path}. "
-        "Expected safetensors files (model.safetensors) or an Orbax/OCDBT checkpoint (ocdbt.process_0/)."
-    )
+    msg = f"No supported model format found in {path}. Expected safetensors files (model.safetensors)."
     raise FileNotFoundError(msg)

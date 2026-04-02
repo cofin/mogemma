@@ -75,18 +75,10 @@ class HubManager:
             store, f"{p}/model.safetensors.index.json"
         )
 
-    @staticmethod
-    def _has_orbax(path: Path) -> bool:
-        """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
-        store, p = HubManager._get_store_and_path(path)
-        return HubManager._head_exists(store, f"{p}/manifest.ocdbt") and HubManager._listing_has_entries(
-            store, f"{p}/ocdbt.process_0"
-        )
-
     @classmethod
     def _has_model_files(cls, path: Path) -> bool:
-        """Return ``True`` when *path* contains safetensors or OCDBT model files."""
-        return cls._has_safetensors(path) or cls._has_orbax(path)
+        """Return ``True`` when *path* contains safetensors model files."""
+        return cls._has_safetensors(path)
 
     def resolve_model(
         self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **_kwargs: object
@@ -111,7 +103,6 @@ class HubManager:
 
         cached_path = self._cache_dir_for_model_id(self.cache_path, model_id)
         if self._has_model_files(cached_path):
-            self._ensure_safetensors(cached_path)
             return cached_path
 
         if download_if_missing:
@@ -220,7 +211,6 @@ class HubManager:
         if local_dir.exists():
             self._cleanup_dir(local_dir)
         staging_dir.rename(local_dir)
-        self._ensure_safetensors(local_dir)
         return local_dir
 
     def download_sync(self, model_id: str) -> Path:
@@ -326,7 +316,6 @@ class HubManager:
         cached_valid = await asyncio.to_thread(_check_cached)
 
         if cached_valid:
-            await asyncio.to_thread(self._ensure_safetensors, cached_path)
             return cached_path
 
         if download_if_missing:
@@ -340,13 +329,3 @@ class HubManager:
             raise ValueError(msg)
         return Path(model_id)
 
-    @classmethod
-    def _ensure_safetensors(cls, path: Path) -> None:
-        """Convert an Orbax checkpoint to safetensors if needed."""
-        if cls._has_safetensors(path):
-            return
-        if not cls._has_orbax(path):
-            return
-        from .convert import convert_orbax_to_safetensors  # noqa: PLC0415
-
-        convert_orbax_to_safetensors(path)

@@ -17,7 +17,6 @@ dependencies = [
     "numpy",
     "typing_extensions",
     "safetensors",
-    "tensorstore",
 ]
 description = "Python/Mojo interface for Google Gemma 3"
 license = { file = "LICENSE" }
