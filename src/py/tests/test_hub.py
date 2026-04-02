@@ -13,10 +13,10 @@ class TestGetTokenizerPath:
         return hub._get_tokenizer_path(clean_id)
 
     def test_gemma4_model(self) -> None:
-        assert self._get_path("gemma4-31b-it") == "tokenizers/tokenizer_gemma4.model"
+        assert self._get_path("gemma4-31b-it") == "tokenizer.model"
 
     def test_gemma4_dense_model(self) -> None:
-        assert self._get_path("gemma4-e2b-it") == "tokenizers/tokenizer_gemma4.model"
+        assert self._get_path("gemma4-e2b-it") == "tokenizer.model"
 
     def test_unknown_model_returns_none(self) -> None:
         assert self._get_path("llama-7b") is None
