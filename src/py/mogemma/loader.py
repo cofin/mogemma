@@ -20,6 +20,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _bf16_to_f32(raw_bytes: bytes, shape: tuple[int, ...]) -> np.ndarray:
+    """Convert raw bfloat16 bytes to a float32 numpy array.
+
+    bf16 is the upper 16 bits of f32, so conversion is a left-shift by 16.
+    """
+    bf16 = np.frombuffer(raw_bytes, dtype=np.uint16)
+    f32_bits = bf16.astype(np.uint32) << 16
+    return f32_bits.view(np.float32).reshape(shape)
+
+
 class SafetensorsLoader:
     """Manages memory-mapped Safetensors files and provides zero-copy memory pointers."""
 
@@ -34,6 +44,7 @@ class SafetensorsLoader:
         self.tensor_file_map: dict[str, str] = {}
         self.tensor_metadata: dict[str, dict[str, Any]] = {}
         self.file_data_offsets: dict[str, int] = {}
+        self._converted_tensors: dict[str, np.ndarray] = {}
 
         self._load_index()
 
@@ -114,25 +125,34 @@ class SafetensorsLoader:
             self.tensor_metadata[name] = meta
 
     def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
-        """Return a mapping of tensor name to its (data_pointer, shape, dtype) for Mojo FFI."""
+        """Return a mapping of tensor name to its (data_pointer, shape, dtype) for Mojo FFI.
+
+        bf16 tensors are converted to f32 in memory; all other dtypes pass through
+        with zero-copy mmap pointers.
+        """
         result = {}
         for name, meta in self.tensor_metadata.items():
             file_name = self.tensor_file_map[name]
             m = self.mmaps[file_name]
             data_start = self.file_data_offsets[file_name]
 
-            # The data offsets are relative to the end of the JSON header
             start_offset = data_start + meta["data_offsets"][0]
-
-            # Since Python's mmap object does not directly expose its base memory address,
-            # we can use numpy to safely get the pointer to the readonly buffer.
-            arr = np.frombuffer(m, dtype=np.uint8)
-            base_ptr = arr.ctypes.data
-            tensor_ptr = base_ptr + start_offset
-
+            end_offset = data_start + meta["data_offsets"][1]
             shape = tuple(meta["shape"])
             dtype = str(meta["dtype"])
-            result[name] = (tensor_ptr, shape, dtype)
+
+            if dtype == "BF16":
+                raw_bytes = bytes(m[start_offset:end_offset])
+                f32_arr = _bf16_to_f32(raw_bytes, shape)
+                # Keep a reference so the array isn't garbage collected
+                self._converted_tensors[name] = f32_arr
+                tensor_ptr = f32_arr.ctypes.data
+                result[name] = (tensor_ptr, shape, "F32")
+            else:
+                arr = np.frombuffer(m, dtype=np.uint8)
+                base_ptr = arr.ctypes.data
+                tensor_ptr = base_ptr + start_offset
+                result[name] = (tensor_ptr, shape, dtype)
 
         return result
 
@@ -167,6 +187,7 @@ class SafetensorsLoader:
         self.file_objs.clear()
         self.tensor_file_map.clear()
         self.tensor_metadata.clear()
+        self._converted_tensors.clear()
 
 
 class ModelLoader(Protocol):
