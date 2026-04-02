@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 from collections.abc import AsyncIterator, Generator, Sequence
 from enum import Enum
 from pathlib import Path
@@ -79,11 +80,13 @@ _INSTRUCTION_START = "<start_of_turn>"
 _INSTRUCTION_END = "<end_of_turn>"
 
 
-class ModelVariant(str, Enum):
-    """Enumeration of supported model architectural variants."""
+class Gemma4Variant(str, Enum):
+    """Enumeration of supported Gemma 4 architectural variants."""
 
-    STANDARD = "gemma_standard"
-    NANO = "gemma_nano"
+    DENSE_31B = "gemma4_dense_31b"
+    DENSE_E2B = "gemma4_dense_e2b"
+    DENSE_E4B = "gemma4_dense_e4b"
+    MOE_26B_A4B = "gemma4_moe_26b"
 
 
 def _resolve_model_path(raw_model_path: str | Path, cache_path: str | Path | None = None) -> Path:
@@ -103,13 +106,24 @@ def _core_unavailable_message(model_type: str) -> str:
     )
 
 
-def _detect_model_variant(metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> ModelVariant:
-    """Classify model variant from tensor metadata names."""
-    keys = metadata.keys()
-    # Nano conversion emits per-layer map and Laurel tensors absent in standard Gemma.
-    if any(".per_layer_map." in name or ".laurel." in name or ".post_laurel_layernorm." in name for name in keys):
-        return ModelVariant.NANO
-    return ModelVariant.STANDARD
+def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
+    """Classify Gemma 4 model variant from HuggingFace config.json."""
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+        msg = f"No config.json found in {model_dir}"
+        raise FileNotFoundError(msg)
+
+    config = json.loads(config_path.read_text())
+
+    if config.get("num_experts", 0) > 0:
+        return Gemma4Variant.MOE_26B_A4B
+
+    if "hidden_size_per_layer_input" in config:
+        if config.get("use_double_wide_mlp", False):
+            return Gemma4Variant.DENSE_E2B
+        return Gemma4Variant.DENSE_E4B
+
+    return Gemma4Variant.DENSE_31B
 
 
 def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) -> dict[str, int | float] | None:
