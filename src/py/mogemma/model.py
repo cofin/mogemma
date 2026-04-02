@@ -126,6 +126,49 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
     return Gemma4Variant.DENSE_31B
 
 
+def compute_kv_cache_memory(
+    num_layers: int,
+    layer_types: list[str],
+    window_size: int,
+    max_context_len: int,
+    num_kv_heads: int,
+    head_dim: int,
+) -> int:
+    """Compute total bytes for the hybrid KV cache (K + V arenas combined).
+
+    Args:
+        num_layers: Total number of transformer layers.
+        layer_types: Per-layer type strings ("sliding" or "full").
+        window_size: Sliding-window size in tokens.
+        max_context_len: Maximum context length for full-attention layers.
+        num_kv_heads: Number of KV heads per layer.
+        head_dim: Dimension per attention head.
+
+    Returns:
+        Total bytes for both K and V caches combined.
+
+    Raises:
+        ValueError: If max_context_len < window_size or layer_types length mismatch.
+    """
+    if len(layer_types) != num_layers:
+        msg = f"layer_types length ({len(layer_types)}) != num_layers ({num_layers})"
+        raise ValueError(msg)
+    if max_context_len < window_size:
+        msg = f"max_context_len ({max_context_len}) must be >= window_size ({window_size})"
+        raise ValueError(msg)
+
+    kv_stride = num_kv_heads * head_dim
+    total_elements = 0
+    for lt in layer_types:
+        if lt == "full":
+            total_elements += max_context_len * kv_stride
+        else:
+            total_elements += window_size * kv_stride
+
+    # Float32 = 4 bytes, x2 for K and V
+    return total_elements * 4 * 2
+
+
 def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) -> dict[str, int | float] | None:
     if overrides is None:
         return None
