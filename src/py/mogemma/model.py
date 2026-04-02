@@ -76,8 +76,8 @@ class _Tokenizer:
 _EXPECTED_MATRIX_DIMS = 2
 _BOS_TOKEN_ID = 2
 _EOS_TOKEN_ID_ALIASES = ("<end_of_turn>", "</s>", "<eos>", "<|eos|>")
-_INSTRUCTION_START = "<start_of_turn>"
-_INSTRUCTION_END = "<end_of_turn>"
+_TURN_START = "<start_of_turn>"
+_TURN_END = "<end_of_turn>"
 
 
 class Gemma4Variant(str, Enum):
@@ -290,11 +290,37 @@ def _is_instruction_tuned_model(model_path: Path, config_model_path: str | Path)
     return configured.endswith("-it") or resolved.endswith("-it")
 
 
-def _format_instruction_prompt(prompt: str) -> str:
-    """Wrap plain user prompts in Gemma instruction-turn format."""
-    if _INSTRUCTION_START in prompt or _INSTRUCTION_END in prompt:
+def _format_gemma4_prompt(
+    prompt: str | list[dict[str, str]],
+    *,
+    system_prompt: str | None = None,
+) -> str:
+    """Format prompt using Gemma 4 chat template.
+
+    Supports plain strings, system prompts, and multi-turn message lists.
+    """
+    if isinstance(prompt, list):
+        return _format_messages(prompt)
+
+    if _TURN_START in prompt or _TURN_END in prompt:
         return prompt
-    return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
+
+    parts: list[str] = []
+    if system_prompt is not None:
+        parts.append(f"{_TURN_START}system\n{system_prompt}\n{_TURN_END}\n")
+    parts.append(f"{_TURN_START}user\n{prompt}\n{_TURN_END}\n{_TURN_START}model\n")
+    return "".join(parts)
+
+
+def _format_messages(messages: list[dict[str, str]]) -> str:
+    """Format a list of role/content messages into Gemma 4 chat template."""
+    parts: list[str] = []
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        parts.append(f"{_TURN_START}{role}\n{content}\n{_TURN_END}\n")
+    parts.append(f"{_TURN_START}model\n")
+    return "".join(parts)
 
 
 def _reset_llm_session_state(llm: object) -> None:
@@ -511,17 +537,25 @@ class SyncGemmaModel:
         raise FileNotFoundError(msg)
 
     def generate(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> str:
         """Generate text from the given prompt."""
-        return "".join(list(self.generate_stream(prompt, images=images)))
+        return "".join(list(self.generate_stream(prompt, images=images, system_prompt=system_prompt)))
 
     def generate_stream(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
-        prompt_to_encode = _format_instruction_prompt(prompt) if self._instruction_tuned else prompt
+        prompt_to_encode = _format_gemma4_prompt(prompt, system_prompt=system_prompt) if self._instruction_tuned else prompt
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
@@ -609,16 +643,24 @@ class AsyncGemmaModel:
         self._model = SyncGemmaModel(config)
 
     async def generate(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> str:
         """Generate text asynchronously."""
-        return await asyncio.to_thread(self._model.generate, prompt, images)
+        return await asyncio.to_thread(self._model.generate, prompt, images, system_prompt=system_prompt)
 
     async def generate_stream(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
-        generator = self._model.generate_stream(prompt, images=images)
+        generator = self._model.generate_stream(prompt, images=images, system_prompt=system_prompt)
 
         def get_next() -> str | None:
             try:
