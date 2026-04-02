@@ -17,7 +17,7 @@ _ObjectStore = LocalStore | obs.store.GCSStore
 
 
 class HubManager:
-    """Manages downloading and caching Gemma 3 models directly from Google Cloud Storage."""
+    """Manages downloading and caching Gemma 4 models directly from Google Cloud Storage."""
 
     def __init__(self, cache_path: str | Path | None = None) -> None:
         """Initialize the HubManager."""
@@ -111,7 +111,7 @@ class HubManager:
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid Google model id (e.g., gemma-3-1b-it)."
+                "Use an existing local directory or a valid Google model id (e.g., google/gemma-4-31B-it)."
             )
             raise ValueError(msg)
 
@@ -149,12 +149,8 @@ class HubManager:
 
     def _get_tokenizer_path(self, clean_id: str) -> str | None:
         """Determine the tokenizer path based on model family."""
-        if "gemma3n" in clean_id:
-            return "tokenizers/tokenizer_gemma3n.model"
-        if "gemma3" in clean_id:
-            return "tokenizers/tokenizer_gemma3.model"
-        if "gemma2" in clean_id:
-            return "tokenizers/tokenizer_gemma2.model"
+        if "gemma4" in clean_id:
+            return "tokenizers/tokenizer_gemma4.model"
         return None
 
     def _make_store(self) -> obs.store.GCSStore:
@@ -324,7 +320,7 @@ class HubManager:
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid Google model id (e.g., gemma-3-1b-it)."
+                "Use an existing local directory or a valid Google model id (e.g., google/gemma-4-31B-it)."
             )
             raise ValueError(msg)
         return Path(model_id)
