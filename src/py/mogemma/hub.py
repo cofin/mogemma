@@ -159,10 +159,60 @@ class HubManager:
     # ── Tokenizer resolution ───────────────────────────────────────────
 
     def _get_tokenizer_path(self, clean_id: str) -> str | None:
-        """Determine the tokenizer path based on model family."""
+        """Determine the tokenizer filename for download based on model family."""
         if "gemma4" in clean_id:
             return "tokenizer.model"
         return None
+
+    def resolve_tokenizer(self, model_dir: Path, *, tokenizer_path: Path | None = None) -> Path:
+        """Resolve the tokenizer file with priority: explicit > HF local > error.
+
+        Args:
+            model_dir: The local directory containing downloaded model files.
+            tokenizer_path: Optional explicit path provided by the user.
+
+        Returns:
+            Path to the tokenizer file.
+
+        Raises:
+            FileNotFoundError: If no tokenizer can be found.
+        """
+        # 1. Explicit user-provided path (highest priority)
+        if tokenizer_path is not None:
+            if tokenizer_path.exists():
+                return tokenizer_path
+            msg = f"Explicit tokenizer path does not exist: {tokenizer_path}"
+            raise FileNotFoundError(msg)
+
+        # 2. HF-downloaded tokenizer.model in model directory
+        hf_tokenizer = model_dir / "tokenizer.model"
+        if hf_tokenizer.exists():
+            return hf_tokenizer
+
+        msg = f"No tokenizer found in {model_dir}. Expected 'tokenizer.model' from HuggingFace download."
+        raise FileNotFoundError(msg)
+
+    # ── Config validation ──────────────────────────────────────────────
+
+    @staticmethod
+    def validate_config_json(config: dict[str, Any]) -> None:
+        """Validate that a config.json contains expected Gemma 4 fields.
+
+        Raises:
+            ValueError: If required fields are missing or model_type is not Gemma 4.
+        """
+        model_type = config.get("model_type")
+        if model_type is None:
+            msg = "config.json missing required field 'model_type'"
+            raise ValueError(msg)
+
+        if not model_type.startswith("gemma4"):
+            msg = f"Expected a Gemma 4 model (model_type starting with 'gemma4'), got '{model_type}'"
+            raise ValueError(msg)
+
+        if "num_hidden_layers" not in config:
+            msg = "config.json missing required field 'num_hidden_layers'"
+            raise ValueError(msg)
 
     # ── Error types ────────────────────────────────────────────────────
 
