@@ -625,6 +625,14 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
+    def _get_image_token_id(self) -> int | None:
+        """Get the image placeholder token ID from the LLM config, if vision is enabled."""
+        if isinstance(self._llm, dict):
+            token_id = self._llm.get("image_token_id", 0)
+            if token_id and int(token_id) > 0:
+                return int(token_id)
+        return None
+
     def generate(
         self,
         prompt: str,
@@ -659,12 +667,24 @@ class SyncGemmaModel:
 
         _reset_llm_session_state(self._llm)
 
+        # Process images through vision encoder if provided
+        image_token_id = self._get_image_token_id()
+        vision_embeddings: list[object] = []
         if images is not None:
             hydrated = ImageHydrator().hydrate(images)
             self._backend.process_images(self._llm, hydrated)
+            # Retrieve stored vision embeddings for token merging
+            if isinstance(self._llm, dict):
+                vision_embeddings = list(self._llm.get("vision_embeddings", []))
 
+        # Prefill with token merging: replace <image> placeholders with vision embeddings
+        vision_idx = 0
         for t in tokens[:-1]:
-            self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
+            if image_token_id is not None and int(t) == image_token_id and vision_idx < len(vision_embeddings):
+                self._backend.step_with_embedding(self._llm, vision_embeddings[vision_idx])
+                vision_idx += 1
+            else:
+                self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
 
         if tokens:
             current_token = int(tokens[-1])

@@ -97,7 +97,11 @@ class GenerationBackend(Protocol):
         """Run one autoregressive step and return logits."""
         ...
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
+    def step_with_embedding(self, llm: object, embedding: object) -> npt.ArrayLike:
+        """Run one step using a pre-computed embedding vector (for vision tokens)."""
+        ...
+
+    def process_images(self, llm: object, images: Sequence[object]) -> None:
         """Process multimodal images through the vision encoder."""
         ...
 
@@ -132,11 +136,19 @@ class CoreBackend:
         """Step the LLM context to decode the next token logits."""
         return self._core.step(llm, token_id, temp, top_k, top_p)
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
+    def step_with_embedding(self, llm: object, embedding: object) -> npt.ArrayLike:
+        """Step using a pre-computed embedding vector (for vision tokens)."""
+        return self._core.step_with_embedding(llm, embedding, 0.0, 0, 1.0)
+
+    def process_images(self, llm: object, images: Sequence[object]) -> None:
         """Process multimodal images through the vision encoder."""
         if hasattr(self._core, "process_image"):
             for image in images:
-                self._core.process_image(llm, image)
+                # ImageInput has patches, grid_h, grid_w attributes
+                if hasattr(image, "patches"):
+                    self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)
+                else:
+                    self._core.process_image(llm, image)
         else:
             msg = "Core module does not support process_image"
             raise NotImplementedError(msg)
