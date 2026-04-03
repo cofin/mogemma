@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib
 import io
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,6 +35,9 @@ TOKEN_BUDGETS: dict[int, list[tuple[int, int]]] = {
 
 # Sorted budget keys for iteration
 _BUDGET_KEYS = sorted(TOKEN_BUDGETS.keys())
+
+# Video file extensions
+VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".avi", ".mov", ".gif"})
 
 
 @dataclass
@@ -81,6 +87,10 @@ def select_token_budget(
 class ImageHydrator:
     """Handles loading, preprocessing, and patch extraction for Gemma 4 vision."""
 
+    _max_video_frames: int = 32
+    _max_video_duration: int = 60
+    _video_frame_budget: int = 70
+
     def __init__(self) -> None:
         """Initialize the local object store used for path-based hydration."""
         self._store = LocalStore()
@@ -95,9 +105,13 @@ class ImageHydrator:
                 rgb = item.astype(np.uint8) if item.dtype != np.uint8 else item
                 results.append(self.preprocess_image(rgb))
             elif isinstance(item, (str, Path)):
-                data = self._load_from_path(item)
-                rgb = self._decode(data)
-                results.append(self.preprocess_image(rgb))
+                path_str = str(item)
+                if Path(path_str).suffix.lower() in VIDEO_EXTENSIONS:
+                    results.extend(self._extract_video_frames(path_str))
+                else:
+                    data = self._load_from_path(item)
+                    rgb = self._decode(data)
+                    results.append(self.preprocess_image(rgb))
             elif isinstance(item, bytes):
                 rgb = self._decode(item)
                 results.append(self.preprocess_image(rgb))
@@ -144,6 +158,43 @@ class ImageHydrator:
         return ImageInput(
             patches=patches, grid_h=grid_h, grid_w=grid_w, num_tokens=num_tokens
         )
+
+    def _extract_video_frames(self, video_path: str) -> list[ImageInput]:
+        """Extract frames from a video file using ffmpeg subprocess.
+
+        Extracts at 1 FPS, up to max_video_frames frames, max_video_duration seconds.
+        Each frame is preprocessed with the lowest token budget.
+        """
+        if shutil.which("ffmpeg") is None:
+            msg = (
+                "Video processing requires ffmpeg. "
+                "Install ffmpeg and ensure it is on your PATH."
+            )
+            raise RuntimeError(msg)
+
+        image_module = importlib.import_module("PIL.Image")
+        results: list[ImageInput] = []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd = [
+                "ffmpeg", "-i", video_path,
+                "-vf", f"fps=1",
+                "-t", str(self._max_video_duration),
+                "-frames:v", str(self._max_video_frames),
+                "-q:v", "2",
+                f"{tmpdir}/frame_%04d.jpg",
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+
+            frame_paths = sorted(Path(tmpdir).glob("frame_*.jpg"))
+            for frame_path in frame_paths[: self._max_video_frames]:
+                img = image_module.open(frame_path).convert("RGB")
+                rgb = np.asarray(img)
+                results.append(
+                    self.preprocess_image(rgb, max_tokens=self._video_frame_budget)
+                )
+
+        return results
 
     def _resize(self, img: npt.NDArray[np.uint8], target_h: int, target_w: int) -> npt.NDArray[np.uint8]:
         """Resize image using PIL bicubic interpolation."""
