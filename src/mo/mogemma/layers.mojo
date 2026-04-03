@@ -16,11 +16,22 @@ from mogemma.model import (
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, gelu, mat_mat_mul, mat_mat_mul_i8, average_pool_2d, top_k
+from mogemma.ops import (
+    vec_mat_mul,
+    rope_rotate,
+    softmax,
+    rms_norm,
+    geglu,
+    gelu,
+    mat_mat_mul,
+    mat_mat_mul_i8,
+    average_pool_2d,
+    top_k,
+)
 
 
 @always_inline
-fn _gemm_dispatch(
+def _gemm_dispatch(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],
     w: TensorInfo,
@@ -35,9 +46,9 @@ fn _gemm_dispatch(
 
 
 @always_inline
-fn forward_sliding_attention(
+def forward_sliding_attention(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     layer_idx: Int,
     pos: Int,
@@ -148,9 +159,9 @@ fn forward_sliding_attention(
 
 
 @always_inline
-fn forward_full_attention(
+def forward_full_attention(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     layer_idx: Int,
     pos: Int,
@@ -244,9 +255,9 @@ fn forward_full_attention(
 
 
 @always_inline
-fn forward_vision_attention(
+def forward_vision_attention(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_tokens, hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [num_tokens, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_tokens, hidden_size]
     weights: VisionLayerWeights,
     num_tokens: Int,
     hidden_size: Int,
@@ -305,9 +316,9 @@ fn forward_vision_attention(
 
 
 @always_inline
-fn forward_vision_layer(
+def forward_vision_layer(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_tokens, hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [num_tokens, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_tokens, hidden_size]
     weights: VisionLayerWeights,
     num_tokens: Int,
     hidden_size: Int,
@@ -328,8 +339,14 @@ fn forward_vision_layer(
     var attn_out_ptr = scratch_ptr + total
     var attn_scratch = scratch_ptr + total * 2
     forward_vision_attention(
-        attn_out_ptr, norm1_ptr, weights,
-        num_tokens, hidden_size, num_heads, head_dim, attn_scratch,
+        attn_out_ptr,
+        norm1_ptr,
+        weights,
+        num_tokens,
+        hidden_size,
+        num_heads,
+        head_dim,
+        attn_scratch,
     )
 
     # Attention residual
@@ -340,7 +357,9 @@ fn forward_vision_layer(
     # Pre-MLP LayerNorm
     var norm2_ptr = scratch_ptr + total * 3
     for t in range(num_tokens):
-        rms_norm(norm2_ptr + t * hidden_size, residual_ptr + t * hidden_size, weights.layer_norm2.ptr, hidden_size, 1e-6)
+        rms_norm(
+            norm2_ptr + t * hidden_size, residual_ptr + t * hidden_size, weights.layer_norm2.ptr, hidden_size, 1e-6
+        )
 
     # Vision MLP: fc1 → GELU → fc2 (NOT GEGLU)
     var fc1_out_ptr = scratch_ptr + total * 4
@@ -359,7 +378,7 @@ fn forward_vision_layer(
 
 
 @always_inline
-fn forward_vision_encoder(
+def forward_vision_encoder(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     patches_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, patch_dim]
     weights: VisionModelWeights,
@@ -393,9 +412,15 @@ fn forward_vision_encoder(
     var num_layers = len(weights.layers)
     for l in range(num_layers):
         forward_vision_layer(
-            next_ptr, current_ptr, weights.layers[l],
-            num_patches, vision_hidden_size, vision_num_heads, vision_head_dim,
-            vision_intermediate_size, layer_scratch,
+            next_ptr,
+            current_ptr,
+            weights.layers[l],
+            num_patches,
+            vision_hidden_size,
+            vision_num_heads,
+            vision_head_dim,
+            vision_intermediate_size,
+            layer_scratch,
         )
         # Swap
         for i in range(total):
@@ -404,8 +429,13 @@ fn forward_vision_encoder(
     # 4. Post-LayerNorm
     var norm_ptr = next_ptr
     for t in range(num_patches):
-        rms_norm(norm_ptr + t * vision_hidden_size, current_ptr + t * vision_hidden_size,
-                 weights.post_norm.ptr, vision_hidden_size, 1e-6)
+        rms_norm(
+            norm_ptr + t * vision_hidden_size,
+            current_ptr + t * vision_hidden_size,
+            weights.post_norm.ptr,
+            vision_hidden_size,
+            1e-6,
+        )
 
     # 5. Average pooling (3×3)
     var pool_kernel = 3
@@ -420,7 +450,7 @@ fn forward_vision_encoder(
 
 
 @always_inline
-fn forward_audio_encoder(
+def forward_audio_encoder(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     features_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [n_mels, num_frames] (flattened)
     weights: AudioTowerWeights,
@@ -482,9 +512,15 @@ fn forward_audio_encoder(
     var num_layers = len(weights.layers)
     for l in range(num_layers):
         forward_vision_layer(
-            next_ptr, current_ptr, weights.layers[l],
-            num_tokens, audio_hidden_size, audio_num_heads, audio_head_dim,
-            audio_intermediate_size, layer_scratch,
+            next_ptr,
+            current_ptr,
+            weights.layers[l],
+            num_tokens,
+            audio_hidden_size,
+            audio_num_heads,
+            audio_head_dim,
+            audio_intermediate_size,
+            layer_scratch,
         )
         for i in range(total):
             current_ptr.store(i, next_ptr.load(i))
@@ -492,15 +528,20 @@ fn forward_audio_encoder(
     # 4. Post-LayerNorm
     var norm_ptr = next_ptr
     for t in range(num_tokens):
-        rms_norm(norm_ptr + t * audio_hidden_size, current_ptr + t * audio_hidden_size,
-                 weights.post_norm.ptr, audio_hidden_size, 1e-6)
+        rms_norm(
+            norm_ptr + t * audio_hidden_size,
+            current_ptr + t * audio_hidden_size,
+            weights.post_norm.ptr,
+            audio_hidden_size,
+            1e-6,
+        )
 
     # 5. Projection → decoder hidden dim
     mat_mat_mul(out_ptr, norm_ptr, weights.projection.ptr, num_tokens, audio_hidden_size, decoder_hidden_size)
 
 
 @always_inline
-fn forward_mlp(
+def forward_mlp(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     weights: LayerWeights,
@@ -532,9 +573,9 @@ fn forward_mlp(
 
 
 @always_inline
-fn forward_gemma4_layer(
+def forward_gemma4_layer(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size]
     weights: LayerWeights,
     layer_idx: Int,
     pos: Int,
@@ -563,15 +604,36 @@ fn forward_gemma4_layer(
     var attn_scratch_ptr = scratch_ptr + hidden_size * 2
     if kv_cache.layer_types[layer_idx] == LAYER_TYPE_SLIDING:
         forward_sliding_attention(
-            attn_out_ptr, norm_x_ptr, weights, layer_idx, pos,
-            hidden_size, num_heads, num_kv_heads, head_dim,
-            kv_cache, rope_tables, k_eq_v, attn_scratch_ptr,
+            attn_out_ptr,
+            norm_x_ptr,
+            weights,
+            layer_idx,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            kv_cache,
+            rope_tables,
+            k_eq_v,
+            attn_scratch_ptr,
         )
     else:
         forward_full_attention(
-            attn_out_ptr, norm_x_ptr, weights, layer_idx, pos,
-            hidden_size, num_heads, num_kv_heads, head_dim,
-            kv_cache, rope_tables, k_eq_v, max_seq_len, attn_scratch_ptr,
+            attn_out_ptr,
+            norm_x_ptr,
+            weights,
+            layer_idx,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            kv_cache,
+            rope_tables,
+            k_eq_v,
+            max_seq_len,
+            attn_scratch_ptr,
         )
 
     # Post-attention norm
@@ -602,7 +664,7 @@ fn forward_gemma4_layer(
 
 
 @always_inline
-fn forward_gemma4_step(
+def forward_gemma4_step(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [vocab_size]
     token_id: Int,
     pos: Int,
@@ -638,9 +700,21 @@ fn forward_gemma4_step(
     # Layer loop with attention type dispatch
     for l in range(num_layers):
         forward_gemma4_layer(
-            next_state, current_state, model.layers[l], l, pos,
-            hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size,
-            kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch,
+            next_state,
+            current_state,
+            model.layers[l],
+            l,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            kv_cache,
+            rope_tables,
+            k_eq_v,
+            max_seq_len,
+            layer_scratch,
         )
         # Swap states
         for i in range(hidden_size):
@@ -653,9 +727,9 @@ fn forward_gemma4_step(
 
 
 @always_inline
-fn forward_gemma4_step_with_embedding(
+def forward_gemma4_step_with_embedding(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [vocab_size]
-    embedding_ptr: UnsafePointer[Float32, MutExternalOrigin],   # [hidden_size] — pre-computed embedding
+    embedding_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [hidden_size] — pre-computed embedding
     pos: Int,
     model: ModelWeights,
     hidden_size: Int,
@@ -686,9 +760,21 @@ fn forward_gemma4_step_with_embedding(
     # Layer loop (same as forward_gemma4_step)
     for l in range(num_layers):
         forward_gemma4_layer(
-            next_state, current_state, model.layers[l], l, pos,
-            hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size,
-            kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch,
+            next_state,
+            current_state,
+            model.layers[l],
+            l,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            kv_cache,
+            rope_tables,
+            k_eq_v,
+            max_seq_len,
+            layer_scratch,
         )
         for i in range(hidden_size):
             current_state.store(i, next_state.load(i))
@@ -701,8 +787,9 @@ fn forward_gemma4_step_with_embedding(
 
 # ── PLE (Per-Layer Embedding) for E2B/E4B ────────────────────────────────
 
+
 @always_inline
-fn forward_ple_input(
+def forward_ple_input(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     ple_weights: PLELayerWeights,
@@ -724,7 +811,7 @@ fn forward_ple_input(
 
 
 @always_inline
-fn forward_gemma4_ple_step(
+def forward_gemma4_ple_step(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     pos: Int,
@@ -760,9 +847,41 @@ fn forward_gemma4_ple_step(
         if num_kv_sharing_layers > 0 and l < num_kv_sharing_layers:
             source_layer = Int(kv_sharing_map_ptr.load(l))
         if source_layer >= 0:
-            forward_gemma4_layer(next_state, current_state, model.layers[l], source_layer, pos, hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size, kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch)
+            forward_gemma4_layer(
+                next_state,
+                current_state,
+                model.layers[l],
+                source_layer,
+                pos,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                kv_cache,
+                rope_tables,
+                k_eq_v,
+                max_seq_len,
+                layer_scratch,
+            )
         else:
-            forward_gemma4_layer(next_state, current_state, model.layers[l], l, pos, hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size, kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch)
+            forward_gemma4_layer(
+                next_state,
+                current_state,
+                model.layers[l],
+                l,
+                pos,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                kv_cache,
+                rope_tables,
+                k_eq_v,
+                max_seq_len,
+                layer_scratch,
+            )
         for i in range(hidden_size):
             current_state.store(i, next_state.load(i))
     var norm_out_ple = next_state
@@ -772,8 +891,9 @@ fn forward_gemma4_ple_step(
 
 # ── MoE (Mixture of Experts) for 26B ─────────────────────────────────────
 
+
 @always_inline
-fn forward_moe_router(
+def forward_moe_router(
     expert_indices_ptr: UnsafePointer[Int32, MutExternalOrigin],
     expert_weights_ptr: UnsafePointer[Float32, MutExternalOrigin],
     hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -798,7 +918,7 @@ fn forward_moe_router(
 
 
 @always_inline
-fn forward_moe_experts(
+def forward_moe_experts(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
     expert_indices_ptr: UnsafePointer[Int32, MutExternalOrigin],
@@ -828,7 +948,7 @@ fn forward_moe_experts(
 
 
 @always_inline
-fn forward_moe_layer(
+def forward_moe_layer(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],
     weights: MoELayerWeights,
@@ -924,9 +1044,28 @@ fn forward_moe_layer(
     var expert_indices_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(moe_scratch))
     var expert_weights_ptr = moe_scratch + moe_top_k
     var router_scratch = moe_scratch + moe_top_k * 2
-    forward_moe_router(expert_indices_ptr, expert_weights_ptr, norm_residual_ptr, weights.router, hidden_size, num_experts, moe_top_k, router_scratch)
+    forward_moe_router(
+        expert_indices_ptr,
+        expert_weights_ptr,
+        norm_residual_ptr,
+        weights.router,
+        hidden_size,
+        num_experts,
+        moe_top_k,
+        router_scratch,
+    )
     var expert_scratch = router_scratch + num_experts
-    forward_moe_experts(moe_out_ptr, norm_residual_ptr, expert_indices_ptr, expert_weights_ptr, weights.experts, moe_top_k, hidden_size, moe_intermediate_size, expert_scratch)
+    forward_moe_experts(
+        moe_out_ptr,
+        norm_residual_ptr,
+        expert_indices_ptr,
+        expert_weights_ptr,
+        weights.experts,
+        moe_top_k,
+        hidden_size,
+        moe_intermediate_size,
+        expert_scratch,
+    )
     var post_moe_ptr = scratch_ptr + hidden_size * 7
     rms_norm(post_moe_ptr, moe_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
     for i in range(hidden_size):
@@ -934,7 +1073,7 @@ fn forward_moe_layer(
 
 
 @always_inline
-fn forward_gemma4_moe_step(
+def forward_gemma4_moe_step(
     out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
     token_id: Int,
     pos: Int,
@@ -962,7 +1101,24 @@ fn forward_gemma4_moe_step(
     for i in range(hidden_size):
         current_state.store(i, current_state.load(i) * emb_scale)
     for l in range(num_layers):
-        forward_moe_layer(next_state, current_state, model.layers[l], l, pos, hidden_size, num_heads, num_kv_heads, head_dim, num_experts, moe_top_k, moe_intermediate_size, kv_cache, rope_tables, max_seq_len, layer_scratch)
+        forward_moe_layer(
+            next_state,
+            current_state,
+            model.layers[l],
+            l,
+            pos,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            num_experts,
+            moe_top_k,
+            moe_intermediate_size,
+            kv_cache,
+            rope_tables,
+            max_seq_len,
+            layer_scratch,
+        )
         for i in range(hidden_size):
             current_state.store(i, next_state.load(i))
     var norm_out_moe = next_state

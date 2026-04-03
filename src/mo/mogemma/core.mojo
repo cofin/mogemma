@@ -32,7 +32,7 @@ from mogemma.layers import (
 from mogemma.ops import rms_norm, vec_mat_mul
 
 
-fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
+def _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
     var logits = np.asarray(logits_obj, dtype=np.float32)
     if Int(py=builtins.len(logits.shape)) != 1:
@@ -42,7 +42,7 @@ fn _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> Pyt
     return logits
 
 
-fn _ensure_embedding_matrix(
+def _ensure_embedding_matrix(
     embeddings_obj: PythonObject, expected_rows: Int, expected_cols: Int, np: PythonObject
 ) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
@@ -84,7 +84,7 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
 
 
 @always_inline
-fn _append_tensor(mut ptrs: List[Int], t: TensorInfo):
+def _append_tensor(mut ptrs: List[Int], t: TensorInfo):
     if t.is_quantized:
         ptrs.append(Int(t.i8_ptr))
     else:
@@ -95,7 +95,7 @@ fn _append_tensor(mut ptrs: List[Int], t: TensorInfo):
 
 
 @always_inline
-fn _hydrate_tensor(ptr_array: UnsafePointer[Int, MutExternalOrigin], mut offset: Int) -> TensorInfo:
+def _hydrate_tensor(ptr_array: UnsafePointer[Int, MutExternalOrigin], mut offset: Int) -> TensorInfo:
     var p = ptr_array[offset]
     var scale = ptr_array[offset + 1]
     var s0 = ptr_array[offset + 2]
@@ -116,22 +116,22 @@ def _get_tensor(metadata_obj: PythonObject, name: String) -> TensorInfo:
 
 
 @always_inline
-fn _step_scratch_len(hidden_size: Int, max_seq_len: Int, num_heads: Int) -> Int:
+def _step_scratch_len(hidden_size: Int, max_seq_len: Int, num_heads: Int) -> Int:
     return hidden_size * 160 + max_seq_len * num_heads * 2
 
 
 @always_inline
-fn _embedding_scratch_len(hidden_size: Int, max_seq_len: Int, num_heads: Int) -> Int:
+def _embedding_scratch_len(hidden_size: Int, max_seq_len: Int, num_heads: Int) -> Int:
     return hidden_size * 180 + max_seq_len * num_heads * 2
 
 
-fn _allocate_transient_f32(length: Int) -> List[Float32]:
+def _allocate_transient_f32(length: Int) -> List[Float32]:
     var values = List[Float32](length=length, fill=0.0)
     return values^
 
 
 @always_inline
-fn _allocate_transient_i32(length: Int) -> List[Int32]:
+def _allocate_transient_i32(length: Int) -> List[Int32]:
     var values = List[Int32](length=length, fill=0)
     return values^
 
@@ -139,19 +139,19 @@ fn _allocate_transient_i32(length: Int) -> List[Int32]:
 struct Appender:
     var list: List[Int]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.list = List[Int]()
 
-    fn append(mut self, t: TensorInfo):
+    def append(mut self, t: TensorInfo):
         self.list.append(Int(t.ptr))
         self.list.append(Int(t.scale_ptr))
         self.list.append(t.shape_0)
         self.list.append(t.shape_1)
 
-    fn append(mut self, val: Int):
+    def append(mut self, val: Int):
         self.list.append(val)
 
-    fn finish(mut self) -> List[Int]:
+    def finish(mut self) -> List[Int]:
         var res = List[Int]()
         for i in range(len(self.list)):
             res.append(self.list[i])
@@ -162,11 +162,11 @@ struct Hydrator:
     var ptr: UnsafePointer[Int, MutExternalOrigin]
     var offset: Int
 
-    fn __init__(out self, ptr: UnsafePointer[Int, MutExternalOrigin]):
+    def __init__(out self, ptr: UnsafePointer[Int, MutExternalOrigin]):
         self.ptr = ptr
         self.offset = 0
 
-    fn next(mut self) -> TensorInfo:
+    def next(mut self) -> TensorInfo:
         var t = TensorInfo()
         t.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr[self.offset])
         t.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr[self.offset + 1])
@@ -175,7 +175,7 @@ struct Hydrator:
         self.offset += 4
         return t
 
-    fn next_int(mut self) -> Int:
+    def next_int(mut self) -> Int:
         var val = self.ptr[self.offset]
         self.offset += 1
         return val
@@ -188,11 +188,11 @@ struct MemoryArena:
     var ptr: ArenaPtr
     var size: Int
 
-    fn __init__(out self, p: ArenaPtr, s: Int):
+    def __init__(out self, p: ArenaPtr, s: Int):
         self.ptr = p
         self.size = s
 
-    fn __init__(out self, size: Int):
+    def __init__(out self, size: Int):
         var p = alloc[Float32](size)
         self.ptr = ArenaPtr(unsafe_from_address=Int(p))
         self.size = size
@@ -200,7 +200,7 @@ struct MemoryArena:
         for i in range(size):
             self.ptr.store(i, 0.0)
 
-    fn free(mut self):
+    def free(mut self):
         if Int(self.ptr) != 0:
             var p = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.ptr))
             p.free()
@@ -210,7 +210,8 @@ struct MemoryArena:
 
 # ── Weight Loading ──────────────────────────────────────────────────────────
 
-fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
+
+def _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
     var runtime = Python.dict()
     runtime["embed_tokens"] = metadata_obj.get("model.embed_tokens.weight")
@@ -254,7 +255,7 @@ fn _build_standard_runtime(metadata_obj: PythonObject) raises -> PythonObject:
     return runtime
 
 
-fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
+def _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
     var m = ModelWeights()
 
     m.embed_tokens = _tensor_from_meta(runtime_obj["embed_tokens"], PythonObject())
@@ -284,7 +285,7 @@ fn _build_model_from_runtime(runtime_obj: PythonObject) raises -> ModelWeights:
     return m^
 
 
-fn _flatten_model_weights(m: ModelWeights) -> List[Int]:
+def _flatten_model_weights(m: ModelWeights) -> List[Int]:
     var appender = Appender()
     appender.append(m.embed_tokens)
     appender.append(m.norm)
@@ -307,7 +308,7 @@ fn _flatten_model_weights(m: ModelWeights) -> List[Int]:
     return appender.finish()
 
 
-fn _hydrate_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> ModelWeights:
+def _hydrate_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> ModelWeights:
     var m = ModelWeights()
     var h = Hydrator(ptr_array)
     m.embed_tokens = h.next()
@@ -334,7 +335,8 @@ fn _hydrate_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_
 
 # ── Vision Weight Loading ──────────────────────────────────────────────────
 
-fn _build_vision_runtime(metadata_obj: PythonObject, num_vision_layers: Int) raises -> PythonObject:
+
+def _build_vision_runtime(metadata_obj: PythonObject, num_vision_layers: Int) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
     var runtime = Python.dict()
 
@@ -361,7 +363,7 @@ fn _build_vision_runtime(metadata_obj: PythonObject, num_vision_layers: Int) rai
     return runtime
 
 
-fn _build_vision_from_runtime(runtime_obj: PythonObject, num_vision_layers: Int) raises -> VisionModelWeights:
+def _build_vision_from_runtime(runtime_obj: PythonObject, num_vision_layers: Int) raises -> VisionModelWeights:
     var vm = VisionModelWeights()
     vm.patch_embedding = _tensor_from_meta(runtime_obj["patch_embedding"], PythonObject())
     vm.position_embedding = _tensor_from_meta(runtime_obj["position_embedding"], PythonObject())
@@ -385,7 +387,7 @@ fn _build_vision_from_runtime(runtime_obj: PythonObject, num_vision_layers: Int)
     return vm^
 
 
-fn _flatten_vision_weights(vm: VisionModelWeights) -> List[Int]:
+def _flatten_vision_weights(vm: VisionModelWeights) -> List[Int]:
     var appender = Appender()
     appender.append(vm.patch_embedding)
     appender.append(vm.position_embedding)
@@ -404,7 +406,9 @@ fn _flatten_vision_weights(vm: VisionModelWeights) -> List[Int]:
     return appender.finish()
 
 
-fn _hydrate_vision_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_vision_layers: Int) -> VisionModelWeights:
+def _hydrate_vision_weights(
+    ptr_array: UnsafePointer[Int, MutExternalOrigin], num_vision_layers: Int
+) -> VisionModelWeights:
     var vm = VisionModelWeights()
     var h = Hydrator(ptr_array)
     vm.patch_embedding = h.next()
@@ -427,7 +431,8 @@ fn _hydrate_vision_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num
 
 # ── PLE Weight Loading ─────────────────────────────────────────────────────
 
-fn _build_ple_weights(metadata_obj: PythonObject, num_layers: Int) raises -> List[PLELayerWeights]:
+
+def _build_ple_weights(metadata_obj: PythonObject, num_layers: Int) raises -> List[PLELayerWeights]:
     var builtins = Python.import_module("builtins")
     var ple_layers = List[PLELayerWeights]()
     for i in range(num_layers):
@@ -437,13 +442,15 @@ fn _build_ple_weights(metadata_obj: PythonObject, num_layers: Int) raises -> Lis
             break
         var ple = PLELayerWeights()
         ple.per_layer_embedding = _tensor_from_meta(emb, PythonObject())
-        ple.per_layer_projection = _tensor_from_meta(metadata_obj.get(pfx + ".per_layer_projection.weight"), PythonObject())
+        ple.per_layer_projection = _tensor_from_meta(
+            metadata_obj.get(pfx + ".per_layer_projection.weight"), PythonObject()
+        )
         ple.per_layer_norm = _tensor_from_meta(metadata_obj.get(pfx + ".per_layer_norm.weight"), PythonObject())
         ple_layers.append(ple^)
     return ple_layers^
 
 
-fn _flatten_ple_weights(ple_layers: List[PLELayerWeights]) -> List[Int]:
+def _flatten_ple_weights(ple_layers: List[PLELayerWeights]) -> List[Int]:
     var appender = Appender()
     for i in range(len(ple_layers)):
         var ple = ple_layers[i]
@@ -453,7 +460,7 @@ fn _flatten_ple_weights(ple_layers: List[PLELayerWeights]) -> List[Int]:
     return appender.finish()
 
 
-fn _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> List[PLELayerWeights]:
+def _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> List[PLELayerWeights]:
     var ple_layers = List[PLELayerWeights]()
     var h = Hydrator(ptr_array)
     for _ in range(num_layers):
@@ -467,7 +474,8 @@ fn _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_la
 
 # ── MoE Weight Loading ────────────────────────────────────────────────────
 
-fn _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: Int) raises -> MoEModelWeights:
+
+def _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: Int) raises -> MoEModelWeights:
     var builtins = Python.import_module("builtins")
     var m = MoEModelWeights()
 
@@ -479,15 +487,29 @@ fn _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: 
         var pfx = "model.layers." + String(i)
         var layer = MoELayerWeights()
         layer.input_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".input_layernorm.weight"), PythonObject())
-        layer.post_attention_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".post_attention_layernorm.weight"), PythonObject())
-        layer.q_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.q_proj.weight"), metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale"))
-        layer.k_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.k_proj.weight"), metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale"))
-        layer.v_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.v_proj.weight"), metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale"))
-        layer.o_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.o_proj.weight"), metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale"))
+        layer.post_attention_layernorm = _tensor_from_meta(
+            metadata_obj.get(pfx + ".post_attention_layernorm.weight"), PythonObject()
+        )
+        layer.q_proj = _tensor_from_meta(
+            metadata_obj.get(pfx + ".self_attn.q_proj.weight"), metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale")
+        )
+        layer.k_proj = _tensor_from_meta(
+            metadata_obj.get(pfx + ".self_attn.k_proj.weight"), metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale")
+        )
+        layer.v_proj = _tensor_from_meta(
+            metadata_obj.get(pfx + ".self_attn.v_proj.weight"), metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale")
+        )
+        layer.o_proj = _tensor_from_meta(
+            metadata_obj.get(pfx + ".self_attn.o_proj.weight"), metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale")
+        )
         layer.q_norm = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.q_norm.weight"), PythonObject())
         layer.k_norm = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.k_norm.weight"), PythonObject())
-        layer.pre_feedforward_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"), PythonObject())
-        layer.post_feedforward_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"), PythonObject())
+        layer.pre_feedforward_layernorm = _tensor_from_meta(
+            metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"), PythonObject()
+        )
+        layer.post_feedforward_layernorm = _tensor_from_meta(
+            metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"), PythonObject()
+        )
         # Router
         layer.router = _tensor_from_meta(metadata_obj.get(pfx + ".block_sparse_moe.gate.weight"), PythonObject())
         # 128 experts
@@ -503,7 +525,7 @@ fn _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: 
     return m^
 
 
-fn _flatten_moe_weights(m: MoEModelWeights) -> List[Int]:
+def _flatten_moe_weights(m: MoEModelWeights) -> List[Int]:
     var appender = Appender()
     appender.append(m.embed_tokens)
     appender.append(m.norm)
@@ -529,7 +551,9 @@ fn _flatten_moe_weights(m: MoEModelWeights) -> List[Int]:
     return appender.finish()
 
 
-fn _hydrate_moe_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int, num_experts: Int) -> MoEModelWeights:
+def _hydrate_moe_weights(
+    ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int, num_experts: Int
+) -> MoEModelWeights:
     var m = MoEModelWeights()
     var h = Hydrator(ptr_array)
     m.embed_tokens = h.next()
@@ -559,6 +583,7 @@ fn _hydrate_moe_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_la
 
 
 # ── Gemma 4 Runtime Init ───────────────────────────────────────────────────
+
 
 def _init_model_impl_mojo(
     metadata_obj: PythonObject,
@@ -681,12 +706,20 @@ def _init_model_impl_mojo(
         unsafe_from_address=Int(layer_types_list.unsafe_ptr())
     )
     var kv_cache = KVCache(
-        num_layers, num_kv_heads, head_dim, window_size, max_seq_len, layer_types_ptr,
+        num_layers,
+        num_kv_heads,
+        head_dim,
+        window_size,
+        max_seq_len,
+        layer_types_ptr,
     )
 
     # Create RoPETables
     var rope_tables = RoPETables(
-        head_dim, partial_rotary_factor, window_size, max_seq_len,
+        head_dim,
+        partial_rotary_factor,
+        window_size,
+        max_seq_len,
     )
 
     # Store KVCache and RoPETables as heap-allocated objects referenced by pointer
@@ -819,6 +852,7 @@ def _init_model_impl_mojo(
 
 # ── FFI Entry Points ───────────────────────────────────────────────────────
 
+
 def init_model_mojo(metadata_obj: PythonObject) -> PythonObject:
     """Initializes the Gemma 4 inference engine from Python metadata."""
     try:
@@ -828,7 +862,7 @@ def init_model_mojo(metadata_obj: PythonObject) -> PythonObject:
         abort(String("failed to initialize model: ", e))
 
 
-fn init_model_with_options_mojo(
+def init_model_with_options_mojo(
     metadata_obj: PythonObject,
     architecture_overrides_obj: PythonObject,
     device_selection_obj: PythonObject,
@@ -847,7 +881,7 @@ fn init_model_with_options_mojo(
     return llm
 
 
-fn step_mojo(
+def step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
     temp_obj: PythonObject,
@@ -908,10 +942,22 @@ fn step_mojo(
         )
         var moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers, num_experts)
         forward_gemma4_moe_step(
-            out_logits_ptr, token_id, pos, moe_model,
-            hidden_size, num_heads, num_kv_heads, head_dim,
-            num_experts, moe_top_k_val, moe_intermediate_size_val, vocab_size,
-            kv_cache_ptr[], rope_tables_ptr[], max_seq_len, scratch_ptr,
+            out_logits_ptr,
+            token_id,
+            pos,
+            moe_model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            num_experts,
+            moe_top_k_val,
+            moe_intermediate_size_val,
+            vocab_size,
+            kv_cache_ptr[],
+            rope_tables_ptr[],
+            max_seq_len,
+            scratch_ptr,
         )
     elif has_ple_flag != 0:
         # PLE dispatch (E2B/E4B)
@@ -937,25 +983,47 @@ fn step_mojo(
             # Copy to local list for stable pointer
             for i in range(num_kv_sharing):
                 kv_map_local.append(Int64(Int(py=kv_map_obj[i])))
-            kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](
-                unsafe_from_address=Int(kv_map_local.unsafe_ptr())
-            )
+            kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
 
         forward_gemma4_ple_step(
-            out_logits_ptr, token_id, pos, model,
-            hidden_size, num_heads, num_kv_heads, head_dim,
-            intermediate_size, vocab_size, ple_dim,
-            kv_cache_ptr[], rope_tables_ptr[], k_eq_v, max_seq_len,
-            kv_map_ptr, num_kv_sharing, scratch_ptr,
+            out_logits_ptr,
+            token_id,
+            pos,
+            model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            ple_dim,
+            kv_cache_ptr[],
+            rope_tables_ptr[],
+            k_eq_v,
+            max_seq_len,
+            kv_map_ptr,
+            num_kv_sharing,
+            scratch_ptr,
         )
         _ = kv_map_local
     else:
         # Standard dense dispatch (31B)
         forward_gemma4_step(
-            out_logits_ptr, token_id, pos, model,
-            hidden_size, num_heads, num_kv_heads, head_dim,
-            intermediate_size, vocab_size,
-            kv_cache_ptr[], rope_tables_ptr[], k_eq_v, max_seq_len, scratch_ptr,
+            out_logits_ptr,
+            token_id,
+            pos,
+            model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            kv_cache_ptr[],
+            rope_tables_ptr[],
+            k_eq_v,
+            max_seq_len,
+            scratch_ptr,
         )
 
     llm["pos"] = pos + 1
@@ -963,7 +1031,7 @@ fn step_mojo(
     return _ensure_step_logits(out_logits, np)
 
 
-fn process_image_mojo(
+def process_image_mojo(
     llm: PythonObject,
     patches_obj: PythonObject,
     grid_h_obj: PythonObject,
@@ -1023,10 +1091,18 @@ fn process_image_mojo(
     )
 
     forward_vision_encoder(
-        out_ptr, patches_ptr, vision_weights,
-        num_patches, grid_h, grid_w,
-        vision_hidden_size, vision_num_heads, vision_head_dim, vision_intermediate_size,
-        hidden_size, vision_scratch_ptr,
+        out_ptr,
+        patches_ptr,
+        vision_weights,
+        num_patches,
+        grid_h,
+        grid_w,
+        vision_hidden_size,
+        vision_num_heads,
+        vision_head_dim,
+        vision_intermediate_size,
+        hidden_size,
+        vision_scratch_ptr,
     )
 
     _ = vision_scratch
@@ -1042,7 +1118,7 @@ fn process_image_mojo(
     return PythonObject(pooled_tokens)
 
 
-fn process_audio_mojo(
+def process_audio_mojo(
     llm: PythonObject,
     features_obj: PythonObject,
     num_frames_obj: PythonObject,
@@ -1105,7 +1181,7 @@ fn process_audio_mojo(
     return PythonObject(out_tokens)
 
 
-fn step_with_embedding_mojo(
+def step_with_embedding_mojo(
     llm: PythonObject,
     embedding_obj: PythonObject,
     temp_obj: PythonObject,
@@ -1144,7 +1220,9 @@ fn step_with_embedding_mojo(
     var k_eq_v = Int(py=llm["k_eq_v"]) != 0
 
     var kv_cache_ptr = UnsafePointer[KVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_kv_cache_ptr"]))
-    var rope_tables_ptr = UnsafePointer[RoPETables, MutExternalOrigin](unsafe_from_address=Int(py=llm["_rope_tables_ptr"]))
+    var rope_tables_ptr = UnsafePointer[RoPETables, MutExternalOrigin](
+        unsafe_from_address=Int(py=llm["_rope_tables_ptr"])
+    )
     var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["step_scratch"]))
 
     var out_logits = np.zeros(vocab_size, dtype=np.float32)
@@ -1175,7 +1253,7 @@ fn step_with_embedding_mojo(
     return _ensure_step_logits(out_logits, np)
 
 
-fn generate_embeddings_mojo(
+def generate_embeddings_mojo(
     llm: PythonObject,
     input_array: PythonObject,
 ) raises -> PythonObject:
@@ -1322,7 +1400,7 @@ def reset_cache_mojo(llm: PythonObject) raises:
         kv_cache_ptr[].reset()
 
 
-fn test_ffi_mojo(
+def test_ffi_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
     temp_obj: PythonObject,
@@ -1333,7 +1411,7 @@ fn test_ffi_mojo(
 
 
 @export
-fn PyInit__core() -> PythonObject:
+def PyInit__core() -> PythonObject:
     try:
         var b = PythonModuleBuilder("_core")
         b.def_function[init_model_mojo]("init_model")

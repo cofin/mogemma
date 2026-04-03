@@ -4,7 +4,7 @@ from std.memory import UnsafePointer
 from testing import assert_almost_equal
 
 
-fn test_rms_norm() raises:
+def test_rms_norm() raises:
     # 4 elements: all 1.0. Mean sq = 1.0, inv_rms ~= 1.0
     var x = List[Float32](length=4, fill=1.0)
     var w = List[Float32](length=4, fill=2.0)
@@ -26,7 +26,7 @@ fn test_rms_norm() raises:
     _ = w[0]
 
 
-fn test_geglu() raises:
+def test_geglu() raises:
     # gate=1.0, up=2.0 -> gelu_gate = 0.5 * 1.0 * (1 + erf(1/sqrt(2))) ~= 0.5 * 1 * 1.84134 = 0.84134
     # out = 0.84134 * 2.0 = 1.68268
     var gate = List[Float32](length=4, fill=1.0)
@@ -44,7 +44,7 @@ fn test_geglu() raises:
     _ = up[0]
 
 
-fn test_rope_rotate() raises:
+def test_rope_rotate() raises:
     var vec = List[Float32](length=4, fill=0.0)
     vec[0] = 1.0
     vec[1] = 0.0
@@ -73,7 +73,7 @@ fn test_rope_rotate() raises:
     _ = sin[0]
 
 
-fn test_vec_mat_mul() raises:
+def test_vec_mat_mul() raises:
     var x = List[Float32](length=4, fill=1.0)
     var w = List[Float32](length=8, fill=2.0)  # 2x4
     var out = List[Float32](length=2, fill=0.0)
@@ -90,7 +90,7 @@ fn test_vec_mat_mul() raises:
     _ = w[0]
 
 
-fn test_mat_mat_mul() raises:
+def test_mat_mat_mul() raises:
     var batch_size = 2
     var in_dim = 4
     var out_dim = 2
@@ -116,7 +116,7 @@ fn test_mat_mat_mul() raises:
 from mogemma.ops import vec_mat_mul_i8, mat_mat_mul_i8
 
 
-fn test_mat_mat_mul_i8() raises:
+def test_mat_mat_mul_i8() raises:
     var batch_size = 2
     var in_dim = 4
     var out_dim = 2
@@ -143,7 +143,7 @@ fn test_mat_mat_mul_i8() raises:
     _ = scale[0]
 
 
-fn test_softmax() raises:
+def test_softmax() raises:
     var x = List[Float32](length=3, fill=0.0)
     x[0] = 1.0
     x[1] = 2.0
@@ -158,7 +158,7 @@ fn test_softmax() raises:
     _ = x[0]
 
 
-fn test_gelu() raises:
+def test_gelu() raises:
     # gelu(1.0) = 0.5 * 1.0 * (1 + erf(1/sqrt(2))) ≈ 0.8413
     var x = List[Float32](length=4, fill=1.0)
     var out = List[Float32](length=4, fill=0.0)
@@ -192,7 +192,7 @@ fn test_gelu() raises:
     _ = neg[0]
 
 
-fn test_average_pool_2d() raises:
+def test_average_pool_2d() raises:
     # 6x6 grid, hidden_size=2, kernel=3
     # Output should be 2x2 grid, hidden_size=2
     var grid_h = 6
@@ -236,11 +236,17 @@ fn test_average_pool_2d() raises:
     _ = x[0]
 
 
-fn test_top_k() raises:
+def test_top_k() raises:
     # Values: [0.1, 0.5, 0.3, 0.9, 0.2, 0.8, 0.4, 0.7]
     var vals = List[Float32](length=8, fill=0.0)
-    vals[0] = 0.1; vals[1] = 0.5; vals[2] = 0.3; vals[3] = 0.9
-    vals[4] = 0.2; vals[5] = 0.8; vals[6] = 0.4; vals[7] = 0.7
+    vals[0] = 0.1
+    vals[1] = 0.5
+    vals[2] = 0.3
+    vals[3] = 0.9
+    vals[4] = 0.2
+    vals[5] = 0.8
+    vals[6] = 0.4
+    vals[7] = 0.7
 
     var out_idx = List[Int32](length=3, fill=0)
     var out_vals = List[Float32](length=3, fill=0.0)
@@ -264,7 +270,7 @@ fn test_top_k() raises:
     _ = vals[0]
 
 
-fn main() raises:
+def main() raises:
     test_rms_norm()
     test_geglu()
     test_rope_rotate()

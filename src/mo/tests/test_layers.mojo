@@ -3,7 +3,15 @@ from std.memory import UnsafePointer
 from std.math import sqrt
 from std.collections import List
 
-from mogemma.model import LayerWeights, ModelWeights, TensorInfo, KVCache, RoPETables, LAYER_TYPE_SLIDING, LAYER_TYPE_FULL
+from mogemma.model import (
+    LayerWeights,
+    ModelWeights,
+    TensorInfo,
+    KVCache,
+    RoPETables,
+    LAYER_TYPE_SLIDING,
+    LAYER_TYPE_FULL,
+)
 from mogemma.layers import (
     forward_mlp,
     forward_sliding_attention,
@@ -13,19 +21,19 @@ from mogemma.layers import (
 )
 
 
-fn alloc_zeros(size: Int) -> List[Float32]:
+def alloc_zeros(size: Int) -> List[Float32]:
     return List[Float32](length=size, fill=0.0)
 
 
-fn alloc_ones(size: Int) -> List[Float32]:
+def alloc_ones(size: Int) -> List[Float32]:
     return List[Float32](length=size, fill=1.0)
 
 
-fn get_ptr(lst: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
+def get_ptr(lst: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(lst.unsafe_ptr()))
 
 
-fn test_forward_mlp() raises:
+def test_forward_mlp() raises:
     var hidden_size = 4
     var intermediate_size = 2
 
@@ -55,7 +63,7 @@ fn test_forward_mlp() raises:
     _ = scratch[0]
 
 
-fn test_forward_sliding_attention() raises:
+def test_forward_sliding_attention() raises:
     var hidden_size = 4
     var num_heads = 2
     var num_kv_heads = 1
@@ -87,9 +95,19 @@ fn test_forward_sliding_attention() raises:
     var scratch = alloc_zeros(hidden_size * 20)
 
     forward_sliding_attention(
-        get_ptr(out), get_ptr(x), weights, 0, 0,
-        hidden_size, num_heads, num_kv_heads, head_dim,
-        kv_cache, rope_tables, False, get_ptr(scratch),
+        get_ptr(out),
+        get_ptr(x),
+        weights,
+        0,
+        0,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        kv_cache,
+        rope_tables,
+        False,
+        get_ptr(scratch),
     )
 
     # Output should be non-zero
@@ -109,7 +127,7 @@ fn test_forward_sliding_attention() raises:
     _ = layer_types
 
 
-fn test_forward_full_attention() raises:
+def test_forward_full_attention() raises:
     var hidden_size = 4
     var num_heads = 2
     var num_kv_heads = 1
@@ -141,9 +159,20 @@ fn test_forward_full_attention() raises:
     var scratch = alloc_zeros(hidden_size * 20)
 
     forward_full_attention(
-        get_ptr(out), get_ptr(x), weights, 0, 0,
-        hidden_size, num_heads, num_kv_heads, head_dim,
-        kv_cache, rope_tables, False, max_context, get_ptr(scratch),
+        get_ptr(out),
+        get_ptr(x),
+        weights,
+        0,
+        0,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        kv_cache,
+        rope_tables,
+        False,
+        max_context,
+        get_ptr(scratch),
     )
 
     # Output should be non-zero
@@ -163,7 +192,7 @@ fn test_forward_full_attention() raises:
     _ = layer_types
 
 
-fn main() raises:
+def main() raises:
     test_forward_mlp()
     test_forward_sliding_attention()
     test_forward_full_attention()

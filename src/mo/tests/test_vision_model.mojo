@@ -2,7 +2,7 @@ from mogemma.model import VisionLayerWeights, VisionModelWeights, TensorInfo
 from std.collections import List
 
 
-fn test_vision_layer_weights_default_init() raises:
+def test_vision_layer_weights_default_init() raises:
     var vl = VisionLayerWeights()
     # All tensors should be zero-initialized
     print("VisionLayerWeights default init: shape_0=", vl.q_proj.shape_0, "shape_1=", vl.q_proj.shape_1)
@@ -14,7 +14,7 @@ fn test_vision_layer_weights_default_init() raises:
         raise Error("layer_norm1/layer_norm2 should be zero-initialized")
 
 
-fn test_vision_model_weights_default_init() raises:
+def test_vision_model_weights_default_init() raises:
     var vm = VisionModelWeights()
     if vm.patch_embedding.shape_0 != 0:
         raise Error("patch_embedding should be zero-initialized")
@@ -29,7 +29,7 @@ fn test_vision_model_weights_default_init() raises:
     print("VisionModelWeights default init: OK")
 
 
-fn test_vision_model_weights_with_layers() raises:
+def test_vision_model_weights_with_layers() raises:
     var vm = VisionModelWeights()
     vm.patch_embedding = TensorInfo(100, 1152, 768)
     vm.position_embedding = TensorInfo(200, 1120, 1152)
@@ -57,7 +57,7 @@ fn test_vision_model_weights_with_layers() raises:
     print("VisionModelWeights with 3 layers: OK")
 
 
-fn test_vision_layer_field_count() raises:
+def test_vision_layer_field_count() raises:
     # VisionLayerWeights should have exactly 8 TensorInfo fields:
     # q_proj, k_proj, v_proj, o_proj, fc1, fc2, layer_norm1, layer_norm2
     var vl = VisionLayerWeights()
@@ -77,7 +77,7 @@ fn test_vision_layer_field_count() raises:
     print("VisionLayerWeights field count check: OK")
 
 
-fn main() raises:
+def main() raises:
     test_vision_layer_weights_default_init()
     test_vision_model_weights_default_init()
     test_vision_model_weights_with_layers()

@@ -6,11 +6,11 @@ from mogemma.ops import gelu, average_pool_2d
 from mogemma.layers import forward_vision_attention, forward_vision_encoder
 
 
-fn _make_ptr(ref l: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
+def _make_ptr(ref l: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(l.unsafe_ptr()))
 
 
-fn test_vision_attention_output_shape() raises:
+def test_vision_attention_output_shape() raises:
     """Verify bidirectional attention produces correct output dimensions."""
     var num_tokens = 4
     var hidden_size = 8
@@ -53,8 +53,14 @@ fn test_vision_attention_output_shape() raises:
     var scratch = List[Float32](length=scratch_size, fill=0.0)
 
     forward_vision_attention(
-        _make_ptr(out), _make_ptr(x), weights,
-        num_tokens, hidden_size, num_heads, head_dim, _make_ptr(scratch),
+        _make_ptr(out),
+        _make_ptr(x),
+        weights,
+        num_tokens,
+        hidden_size,
+        num_heads,
+        head_dim,
+        _make_ptr(scratch),
     )
 
     # With identity projections and uniform-ish inputs, output should be non-zero
@@ -75,7 +81,7 @@ fn test_vision_attention_output_shape() raises:
     _ = scratch[0]
 
 
-fn test_vision_attention_bidirectional() raises:
+def test_vision_attention_bidirectional() raises:
     """Verify attention is NOT lower-triangular (bidirectional)."""
     var num_tokens = 3
     var hidden_size = 4
@@ -102,17 +108,32 @@ fn test_vision_attention_bidirectional() raises:
 
     # Make token 0 distinct from tokens 1,2
     var x = List[Float32](length=num_tokens * hidden_size, fill=0.0)
-    x[0] = 1.0; x[1] = 0.0; x[2] = 0.0; x[3] = 0.0  # token 0
-    x[4] = 0.0; x[5] = 1.0; x[6] = 0.0; x[7] = 0.0  # token 1
-    x[8] = 0.0; x[9] = 0.0; x[10] = 1.0; x[11] = 0.0  # token 2
+    x[0] = 1.0
+    x[1] = 0.0
+    x[2] = 0.0
+    x[3] = 0.0  # token 0
+    x[4] = 0.0
+    x[5] = 1.0
+    x[6] = 0.0
+    x[7] = 0.0  # token 1
+    x[8] = 0.0
+    x[9] = 0.0
+    x[10] = 1.0
+    x[11] = 0.0  # token 2
 
     var out = List[Float32](length=num_tokens * hidden_size, fill=0.0)
     var scratch_size = num_tokens * hidden_size * 10 + num_heads * num_tokens * num_tokens
     var scratch = List[Float32](length=scratch_size, fill=0.0)
 
     forward_vision_attention(
-        _make_ptr(out), _make_ptr(x), weights,
-        num_tokens, hidden_size, num_heads, head_dim, _make_ptr(scratch),
+        _make_ptr(out),
+        _make_ptr(x),
+        weights,
+        num_tokens,
+        hidden_size,
+        num_heads,
+        head_dim,
+        _make_ptr(scratch),
     )
 
     # In bidirectional attention, token 0's output should be influenced by tokens 1,2
@@ -133,7 +154,7 @@ fn test_vision_attention_bidirectional() raises:
     _ = scratch[0]
 
 
-fn test_average_pool_reduction() raises:
+def test_average_pool_reduction() raises:
     """Verify average pooling reduces token count by kernel^2."""
     var grid_h = 6
     var grid_w = 6
@@ -146,7 +167,12 @@ fn test_average_pool_reduction() raises:
     var out = List[Float32](length=out_tokens * hidden_size, fill=0.0)
 
     average_pool_2d(
-        _make_ptr(out), _make_ptr(x), grid_h, grid_w, hidden_size, kernel,
+        _make_ptr(out),
+        _make_ptr(x),
+        grid_h,
+        grid_w,
+        hidden_size,
+        kernel,
     )
 
     # All 2.0 input → all 2.0 output (average of identical values)
@@ -157,7 +183,7 @@ fn test_average_pool_reduction() raises:
     _ = x[0]
 
 
-fn test_vision_encoder_1layer() raises:
+def test_vision_encoder_1layer() raises:
     """Test 1-layer vision encoder end-to-end: patches → projected output."""
     var num_patches = 9  # 3x3 grid
     var grid_h = 3
@@ -224,10 +250,18 @@ fn test_vision_encoder_1layer() raises:
     var scratch = List[Float32](length=scratch_size, fill=0.0)
 
     forward_vision_encoder(
-        _make_ptr(out), _make_ptr(patches), vm,
-        num_patches, grid_h, grid_w,
-        vision_hidden, vision_num_heads, vision_head_dim, vision_intermediate,
-        decoder_hidden, _make_ptr(scratch),
+        _make_ptr(out),
+        _make_ptr(patches),
+        vm,
+        num_patches,
+        grid_h,
+        grid_w,
+        vision_hidden,
+        vision_num_heads,
+        vision_head_dim,
+        vision_intermediate,
+        decoder_hidden,
+        _make_ptr(scratch),
     )
 
     # Output should be non-zero
@@ -262,7 +296,7 @@ fn test_vision_encoder_1layer() raises:
     _ = scratch[0]
 
 
-fn main() raises:
+def main() raises:
     test_vision_attention_output_shape()
     test_vision_attention_bidirectional()
     test_average_pool_reduction()

@@ -35,7 +35,7 @@ struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
     var shape_0: Int
     var shape_1: Int
 
-    fn __init__(out self, p: Int, s0: Int, s1: Int):
+    def __init__(out self, p: Int, s0: Int, s1: Int):
         self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=p)
         self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
         self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=0)
@@ -43,7 +43,7 @@ struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
         self.shape_0 = s0
         self.shape_1 = s1
 
-    fn __init__(out self):
+    def __init__(out self):
         self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
         self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
         self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=0)
@@ -51,7 +51,7 @@ struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
         self.shape_0 = 0
         self.shape_1 = 0
 
-    fn __init__(out self, i8_p: Int, scale_p: Int, s0: Int, s1: Int):
+    def __init__(out self, i8_p: Int, scale_p: Int, s0: Int, s1: Int):
         self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
         self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=scale_p)
         self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=i8_p)
@@ -78,7 +78,7 @@ struct LayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var pre_feedforward_layernorm: TensorInfo
     var post_feedforward_layernorm: TensorInfo
 
-    fn __init__(out self):
+    def __init__(out self):
         self.q_proj = TensorInfo(0, 0, 0)
         self.k_proj = TensorInfo(0, 0, 0)
         self.v_proj = TensorInfo(0, 0, 0)
@@ -103,7 +103,7 @@ struct ModelWeights(Movable):
     var lm_head: TensorInfo
     var layers: List[LayerWeights]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.embed_tokens = TensorInfo(0, 0, 0)
         self.norm = TensorInfo(0, 0, 0)
         self.lm_head = TensorInfo(0, 0, 0)
@@ -115,7 +115,7 @@ struct ModelWeights(Movable):
     var has_ple: Bool
 
     @always_inline
-    fn get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
+    def get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
 
@@ -131,7 +131,7 @@ struct PLELayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var per_layer_projection: TensorInfo
     var per_layer_norm: TensorInfo
 
-    fn __init__(out self):
+    def __init__(out self):
         self.per_layer_embedding = TensorInfo(0, 0, 0)
         self.per_layer_projection = TensorInfo(0, 0, 0)
         self.per_layer_norm = TensorInfo(0, 0, 0)
@@ -145,7 +145,7 @@ struct MoEExpertWeights(Copyable, ImplicitlyCopyable, Movable):
     var up_proj: TensorInfo
     var down_proj: TensorInfo
 
-    fn __init__(out self):
+    def __init__(out self):
         self.gate_proj = TensorInfo(0, 0, 0)
         self.up_proj = TensorInfo(0, 0, 0)
         self.down_proj = TensorInfo(0, 0, 0)
@@ -167,7 +167,7 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var post_feedforward_layernorm: TensorInfo
     var experts: List[MoEExpertWeights]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.router = TensorInfo(0, 0, 0)
         self.q_proj = TensorInfo(0, 0, 0)
         self.k_proj = TensorInfo(0, 0, 0)
@@ -181,7 +181,7 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.post_feedforward_layernorm = TensorInfo(0, 0, 0)
         self.experts = List[MoEExpertWeights]()
 
-    fn __init__(out self, *, copy: Self):
+    def __init__(out self, *, copy: Self):
         self.router = copy.router
         self.q_proj = copy.q_proj
         self.k_proj = copy.k_proj
@@ -197,7 +197,7 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         for i in range(len(copy.experts)):
             self.experts.append(copy.experts[i])
 
-    fn __init__(out self, *, implicit_copy: Self):
+    def __init__(out self, *, implicit_copy: Self):
         self.router = implicit_copy.router
         self.q_proj = implicit_copy.q_proj
         self.k_proj = implicit_copy.k_proj
@@ -223,14 +223,14 @@ struct MoEModelWeights(Movable):
     var lm_head: TensorInfo
     var layers: List[MoELayerWeights]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.embed_tokens = TensorInfo(0, 0, 0)
         self.norm = TensorInfo(0, 0, 0)
         self.lm_head = TensorInfo(0, 0, 0)
         self.layers = List[MoELayerWeights]()
 
     @always_inline
-    fn get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
+    def get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         for i in range(hidden_size):
@@ -250,7 +250,7 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var layer_norm1: TensorInfo
     var layer_norm2: TensorInfo
 
-    fn __init__(out self):
+    def __init__(out self):
         self.q_proj = TensorInfo(0, 0, 0)
         self.k_proj = TensorInfo(0, 0, 0)
         self.v_proj = TensorInfo(0, 0, 0)
@@ -271,7 +271,7 @@ struct VisionModelWeights(Movable):
     var projection: TensorInfo
     var layers: List[VisionLayerWeights]
 
-    fn __init__(out self):
+    def __init__(out self):
         self.patch_embedding = TensorInfo(0, 0, 0)
         self.position_embedding = TensorInfo(0, 0, 0)
         self.post_norm = TensorInfo(0, 0, 0)
@@ -290,7 +290,7 @@ struct AudioTowerWeights(Movable):
     var projection: TensorInfo
     var layers: List[VisionLayerWeights]  # reuse vision layer struct (same bidirectional attn + GELU MLP)
 
-    fn __init__(out self):
+    def __init__(out self):
         self.conv_weights = List[TensorInfo]()
         self.conv_biases = List[TensorInfo]()
         self.position_embedding = TensorInfo(0, 0, 0)
@@ -319,9 +319,9 @@ struct KVCache(Movable):
     var max_context_len: Int
 
     # Per-layer metadata
-    var layer_types: List[UInt8]       # LAYER_TYPE_SLIDING or LAYER_TYPE_FULL per layer
-    var layer_cache_sizes: List[Int]   # cache slot count per layer
-    var layer_offsets: List[Int]       # byte offset (in Float32 elements) into arena per layer
+    var layer_types: List[UInt8]  # LAYER_TYPE_SLIDING or LAYER_TYPE_FULL per layer
+    var layer_cache_sizes: List[Int]  # cache slot count per layer
+    var layer_offsets: List[Int]  # byte offset (in Float32 elements) into arena per layer
 
     # Contiguous arena storage
     var k_cache: List[Float32]
@@ -329,7 +329,7 @@ struct KVCache(Movable):
     var k_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var v_ptr: UnsafePointer[Float32, MutExternalOrigin]
 
-    fn __init__(
+    def __init__(
         out self,
         num_layers: Int,
         num_kv_heads: Int,
@@ -366,15 +366,11 @@ struct KVCache(Movable):
         # Allocate contiguous arenas
         self.k_cache = List[Float32](length=total_elements, fill=0.0)
         self.v_cache = List[Float32](length=total_elements, fill=0.0)
-        self.k_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(self.k_cache.unsafe_ptr())
-        )
-        self.v_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(self.v_cache.unsafe_ptr())
-        )
+        self.k_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.k_cache.unsafe_ptr()))
+        self.v_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.v_cache.unsafe_ptr()))
 
     @always_inline
-    fn write_kv(
+    def write_kv(
         self,
         layer: Int,
         pos: Int,
@@ -402,13 +398,13 @@ struct KVCache(Movable):
             v_dst.store(i, v_vec.load(i))
 
     @always_inline
-    fn get_kv_ptrs(self, layer: Int) -> PtrPair:
+    def get_kv_ptrs(self, layer: Int) -> PtrPair:
         """Returns (k_ptr, v_ptr) pointing to the start of this layer's cache region."""
         var offset = self.layer_offsets[layer]
         return PtrPair(self.k_ptr + offset, self.v_ptr + offset)
 
     @always_inline
-    fn get_attention_range(self, layer: Int, pos: Int) -> IntPair:
+    def get_attention_range(self, layer: Int, pos: Int) -> IntPair:
         """Returns (valid_len, cache_size) for computing attention at the given position.
 
         For sliding layers: valid_len = min(pos + 1, window_size).
@@ -425,14 +421,14 @@ struct KVCache(Movable):
                 valid_len = cache_size
         return IntPair(valid_len, cache_size)
 
-    fn reset(mut self):
+    def reset(mut self):
         """Zero all cache buffers."""
         var total = len(self.k_cache)
         for i in range(total):
             self.k_cache[i] = 0.0
             self.v_cache[i] = 0.0
 
-    fn total_elements(self) -> Int:
+    def total_elements(self) -> Int:
         """Returns total Float32 elements allocated across all layers (per K or V)."""
         if self.num_layers == 0:
             return 0
@@ -464,7 +460,7 @@ struct RoPETables(Movable):
     var full_cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var full_sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
 
-    fn __init__(
+    def __init__(
         out self,
         head_dim: Int,
         partial_rotary_factor: Float32,
@@ -486,7 +482,7 @@ struct RoPETables(Movable):
         for t in range(window_size):
             for d in range(sliding_half):
                 var exp = Float32(d * 2) / Float32(head_dim)
-                var inv_freq = 1.0 / (theta_sliding ** exp)
+                var inv_freq = 1.0 / (theta_sliding**exp)
                 var freq = Float32(t) * inv_freq
                 self.sliding_cos[t * sliding_half + d] = cos(freq)
                 self.sliding_sin[t * sliding_half + d] = sin(freq)
@@ -505,7 +501,7 @@ struct RoPETables(Movable):
         for t in range(max_context_len):
             for d in range(full_half):
                 var exp = Float32(d * 2) / Float32(self.rotary_dim)
-                var inv_freq = 1.0 / (theta_full ** exp)
+                var inv_freq = 1.0 / (theta_full**exp)
                 var freq = Float32(t) * inv_freq
                 self.full_cos[t * full_half + d] = cos(freq)
                 self.full_sin[t * full_half + d] = sin(freq)
@@ -517,7 +513,7 @@ struct RoPETables(Movable):
         )
 
     @always_inline
-    fn get_sliding_freqs(self, pos: Int) -> PtrPair:
+    def get_sliding_freqs(self, pos: Int) -> PtrPair:
         """Returns (cos_ptr, sin_ptr) for sliding-layer RoPE at given position.
 
         Position is taken mod the table size for ring buffer compatibility.
@@ -528,10 +524,8 @@ struct RoPETables(Movable):
         return PtrPair(self.sliding_cos_ptr + offset, self.sliding_sin_ptr + offset)
 
     @always_inline
-    fn get_full_freqs(self, pos: Int) -> PtrPair:
+    def get_full_freqs(self, pos: Int) -> PtrPair:
         """Returns (cos_ptr, sin_ptr) for full-layer RoPE at given position."""
         var half = self.rotary_dim // 2
         var offset = pos * half
         return PtrPair(self.full_cos_ptr + offset, self.full_sin_ptr + offset)
-
-

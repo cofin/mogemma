@@ -3,7 +3,7 @@ from std.memory import UnsafePointer
 
 
 @always_inline
-fn geglu[
+def geglu[
     nelts: Int = 16
 ](
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -36,13 +36,9 @@ fn geglu[
 
 
 @always_inline
-fn gelu[
+def gelu[
     nelts: Int = 16
-](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    size: Int,
-):
+](out_ptr: UnsafePointer[Float32, MutExternalOrigin], x_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int,):
     """Applies the standard GELU activation function element-wise.
 
     Computes 0.5 * x * (1 + erf(x / sqrt(2))) for each element.
@@ -61,7 +57,7 @@ fn gelu[
 
 
 @always_inline
-fn average_pool_2d(
+def average_pool_2d(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],
     grid_h: Int,
@@ -102,7 +98,7 @@ fn average_pool_2d(
 
 
 @always_inline
-fn rope_rotate[
+def rope_rotate[
     nelts: Int = 16
 ](
     vec_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -143,7 +139,7 @@ fn rope_rotate[
 
 
 @always_inline
-fn vec_mat_mul[
+def vec_mat_mul[
     nelts: Int = 16
 ](
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -177,7 +173,7 @@ fn vec_mat_mul[
 
 
 @always_inline
-fn mat_mat_mul[
+def mat_mat_mul[
     nelts: Int = 16
 ](
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -202,7 +198,7 @@ fn mat_mat_mul[
 
 
 @always_inline
-fn vec_mat_mul_i8[
+def vec_mat_mul_i8[
     nelts: Int = 16
 ](
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -242,7 +238,7 @@ fn vec_mat_mul_i8[
 
 
 @always_inline
-fn mat_mat_mul_i8[
+def mat_mat_mul_i8[
     nelts: Int = 16
 ](
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -266,7 +262,7 @@ fn mat_mat_mul_i8[
 
 
 @always_inline
-fn rms_norm[
+def rms_norm[
     nelts: Int = 16
 ](
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],
@@ -312,7 +308,7 @@ fn rms_norm[
 
 
 @always_inline
-fn softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int):
+def softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int):
     """Applies the softmax operation to a vector in place.
 
     Transforms the input values into a normalized probability distribution.
@@ -358,7 +354,7 @@ fn softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], 
 
 
 @always_inline
-fn top_k(
+def top_k(
     values_ptr: UnsafePointer[Float32, MutExternalOrigin],
     k: Int,
     size: Int,
