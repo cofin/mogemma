@@ -30,6 +30,8 @@ from mogemma.layers import (
     forward_audio_encoder,
 )
 from mogemma.ops import rms_norm, vec_mat_mul
+from std.sys import has_accelerator
+from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch
 
 
 def _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
@@ -850,6 +852,117 @@ def _init_model_impl_mojo(
     return py_dict
 
 
+# ── GPU Resource Initialization ─────────────────────────────────────────────
+
+
+def _init_gpu_resources(llm: PythonObject) raises:
+    """Create GPU memory infrastructure and store handles in the llm dict.
+
+    Called from init_model_with_options_mojo when device_backend == "gpu".
+    Creates GPUContext, WeightStage, PersistentBuffers, GPUKVCache, and GPUScratch.
+    All handles are heap-allocated and stored as integer pointers in the dict.
+    """
+    comptime if has_accelerator():
+        var builtins = Python.import_module("builtins")
+
+        # Create GPU context
+        var gpu_ctx = GPUContext()
+
+        # Read architecture params from llm dict
+        var num_layers = Int(py=llm["num_layers"])
+        var num_kv_heads = Int(py=llm["num_kv_heads"])
+        var head_dim = Int(py=llm["head_dim"])
+        var hidden_size = Int(py=llm["hidden_size"])
+        var num_heads = Int(py=llm["num_heads"])
+        var max_seq_len = Int(py=llm["max_seq_len"])
+        var window_size = Int(py=llm["window_size"])
+        var vocab_size = Int(py=llm["vocab_size"])
+        var intermediate_size = Int(py=llm["intermediate_size"])
+
+        # Compute max layer weight bytes for staging buffer
+        # Per dense layer: q_proj(H*H) + k_proj(kv*H) + v_proj(kv*H) + o_proj(H*H) +
+        #   gate_proj(I*H) + up_proj(I*H) + down_proj(H*I) + norms(~6*H)
+        var kv_size = num_kv_heads * head_dim
+        var layer_elements = (
+            hidden_size * hidden_size  # q_proj
+            + kv_size * hidden_size  # k_proj
+            + kv_size * hidden_size  # v_proj
+            + hidden_size * hidden_size  # o_proj
+            + intermediate_size * hidden_size  # gate_proj
+            + intermediate_size * hidden_size  # up_proj
+            + hidden_size * intermediate_size  # down_proj
+            + hidden_size * 6  # norms (approximate, 6 norm tensors)
+        )
+        # Add 10% headroom
+        var staging_capacity = layer_elements + layer_elements // 10
+
+        # Create WeightStage
+        var weight_stage = WeightStage(gpu_ctx, capacity=staging_capacity)
+
+        # Create PersistentBuffers — need TensorInfo for embed_tokens, lm_head, norm
+        # Reconstruct from the pointer array stored in llm
+        var tensor_pointers_obj = llm["_tensor_pointers"]
+        var tensor_pointers_ptr = UnsafePointer[Int, MutExternalOrigin](
+            unsafe_from_address=Int(py=tensor_pointers_obj.__array_interface__["data"][0])
+        )
+        # embed_tokens is first pointer in flattened array
+        var embed = _hydrate_model_weights(tensor_pointers_ptr, num_layers).embed_tokens
+        var norm = _hydrate_model_weights(tensor_pointers_ptr, num_layers).norm
+        var lm_head = _hydrate_model_weights(tensor_pointers_ptr, num_layers).lm_head
+
+        var persistent = PersistentBuffers(gpu_ctx, embed, lm_head, norm)
+
+        # Create GPUKVCache — need layer_types
+        # Re-read layer types from the KVCache pointer (host-side)
+        var kv_cache_ptr_int = Int(py=llm["_kv_cache_ptr"])
+        var cpu_kv_cache = UnsafePointer[KVCache, MutExternalOrigin](
+            unsafe_from_address=kv_cache_ptr_int
+        )
+        var layer_types_list = List[UInt8](length=num_layers, fill=0)
+        for i in range(num_layers):
+            layer_types_list[i] = cpu_kv_cache[].layer_types[i]
+        var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](
+            unsafe_from_address=Int(layer_types_list.unsafe_ptr())
+        )
+        var gpu_kv_cache = GPUKVCache(
+            gpu_ctx, num_layers, num_kv_heads, head_dim, window_size, max_seq_len, lt_ptr
+        )
+
+        # Create GPUScratch
+        var gpu_scratch = GPUScratch(gpu_ctx, hidden_size, max_seq_len, num_heads)
+
+        # Sync all uploads
+        gpu_ctx.sync()
+
+        # Store GPU handles as heap-allocated pointers
+        var gpu_ctx_ptr = alloc[GPUContext](1)
+        gpu_ctx_ptr.init_pointee_move(gpu_ctx^)
+        llm["_gpu_context_ptr"] = Int(gpu_ctx_ptr)
+
+        var stage_ptr = alloc[WeightStage](1)
+        stage_ptr.init_pointee_move(weight_stage^)
+        llm["_gpu_weight_stage_ptr"] = Int(stage_ptr)
+
+        var persistent_ptr = alloc[PersistentBuffers](1)
+        persistent_ptr.init_pointee_move(persistent^)
+        llm["_gpu_persistent_ptr"] = Int(persistent_ptr)
+
+        var gpu_kv_ptr = alloc[GPUKVCache](1)
+        gpu_kv_ptr.init_pointee_move(gpu_kv_cache^)
+        llm["_gpu_kv_cache_ptr"] = Int(gpu_kv_ptr)
+
+        var gpu_scratch_ptr = alloc[GPUScratch](1)
+        gpu_scratch_ptr.init_pointee_move(gpu_scratch^)
+        llm["_gpu_scratch_ptr"] = Int(gpu_scratch_ptr)
+
+        llm["_gpu_initialized"] = 1
+        llm["_gpu_staging_capacity"] = staging_capacity
+
+        _ = layer_types_list
+    else:
+        raise Error("GPU backend requested but no accelerator available at compile time")
+
+
 # ── FFI Entry Points ───────────────────────────────────────────────────────
 
 
@@ -878,6 +991,15 @@ def init_model_with_options_mojo(
     llm["device_strict"] = device_selection_obj.get("strict")
     if Int(py=Python.import_module("builtins").len(architecture_overrides_obj)) > 0:
         llm["architecture_overrides"] = architecture_overrides_obj
+
+    # Initialize GPU resources if backend is GPU
+    var builtins = Python.import_module("builtins")
+    var backend = device_selection_obj.get("backend")
+    if builtins.bool(backend) and String(py=backend) == "gpu":
+        _init_gpu_resources(llm)
+    else:
+        llm["_gpu_initialized"] = 0
+
     return llm
 
 
