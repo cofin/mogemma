@@ -11,7 +11,7 @@ from std.sys import has_accelerator
 from std.memory import UnsafePointer
 from std.collections import List
 
-from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers
+from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache
 
 
 def test_gpu_context_imports():
@@ -202,6 +202,53 @@ def test_persistent_buffers() raises:
         print("SKIP: test_persistent_buffers (no GPU)")
 
 
+def test_gpu_kv_cache() raises:
+    """Test GPUKVCache construction matches CPU KVCache layout."""
+    comptime if has_accelerator():
+        from mogemma.model import KVCache, LAYER_TYPE_SLIDING, LAYER_TYPE_FULL
+
+        var ctx = GPUContext()
+
+        # 2 layers: sliding + full, 4 KV heads, dim=32, window=512, max_ctx=4096
+        var layer_types = List[UInt8](length=2, fill=UInt8(0))
+        layer_types[0] = LAYER_TYPE_SLIDING
+        layer_types[1] = LAYER_TYPE_FULL
+        var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](
+            unsafe_from_address=Int(layer_types.unsafe_ptr())
+        )
+
+        # Build CPU KVCache for reference
+        var cpu_cache = KVCache(2, 4, 32, 512, 4096, lt_ptr)
+        var expected_total = cpu_cache.total_elements()
+
+        # Build GPUKVCache
+        var gpu_cache = GPUKVCache(ctx, 2, 4, 32, 512, 4096, lt_ptr)
+
+        # Verify total elements match
+        if gpu_cache.total_elements() != expected_total:
+            raise Error(
+                "GPUKVCache total_elements mismatch: got "
+                + String(gpu_cache.total_elements())
+                + " expected "
+                + String(expected_total)
+            )
+
+        # Verify per-layer offsets match
+        for i in range(2):
+            if gpu_cache.layer_offsets[i] != cpu_cache.layer_offsets[i]:
+                raise Error("Layer offset mismatch at layer " + String(i))
+            if gpu_cache.layer_cache_sizes[i] != cpu_cache.layer_cache_sizes[i]:
+                raise Error("Layer cache_size mismatch at layer " + String(i))
+
+        print("GPUKVCache layout matches CPU KVCache (2 layers, total=" + String(expected_total) + ")")
+
+        _ = gpu_cache
+        _ = layer_types
+        ctx.cleanup()
+    else:
+        print("SKIP: test_gpu_kv_cache (no GPU)")
+
+
 def main() raises:
     test_gpu_context_imports()
     test_gpu_context_lifecycle()
@@ -212,4 +259,5 @@ def main() raises:
     test_weight_stage_creation()
     test_weight_stage_upload_tensor()
     test_persistent_buffers()
+    test_gpu_kv_cache()
     print("All gpu_context tests passed")
