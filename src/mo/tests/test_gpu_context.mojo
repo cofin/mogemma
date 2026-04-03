@@ -11,7 +11,7 @@ from std.sys import has_accelerator
 from std.memory import UnsafePointer
 from std.collections import List
 
-from mogemma.gpu_context import GPUContext, WeightStage
+from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers
 
 
 def test_gpu_context_imports():
@@ -159,6 +159,49 @@ def test_weight_stage_upload_tensor() raises:
         print("SKIP: test_weight_stage_upload_tensor (no GPU)")
 
 
+def test_persistent_buffers() raises:
+    """Test persistent buffer allocation for embed_tokens and lm_head."""
+    comptime if has_accelerator():
+        from mogemma.model import TensorInfo
+
+        var ctx = GPUContext()
+
+        # Fake embed_tokens: vocab_size=8, hidden_size=4 → 32 elements
+        var embed_data = List[Float32](length=32, fill=0.0)
+        for i in range(32):
+            embed_data[i] = Float32(Float64(i) * 0.1)
+        var embed = TensorInfo(Int(embed_data.unsafe_ptr()), 8, 4)
+
+        # Fake lm_head: hidden_size=4, vocab_size=8 → 32 elements
+        var head_data = List[Float32](length=32, fill=0.0)
+        for i in range(32):
+            head_data[i] = Float32(Float64(i) * 0.2)
+        var head = TensorInfo(Int(head_data.unsafe_ptr()), 4, 8)
+
+        # Fake norm: hidden_size=4 → 4 elements
+        var norm_data = List[Float32](length=4, fill=1.0)
+        var norm = TensorInfo(Int(norm_data.unsafe_ptr()), 4, 1)
+
+        var persistent = PersistentBuffers(ctx, embed, head, norm)
+
+        # Verify sizes
+        if persistent.embed_elements != 32:
+            raise Error("embed_elements mismatch")
+        if persistent.lm_head_elements != 32:
+            raise Error("lm_head_elements mismatch")
+        if persistent.norm_elements != 4:
+            raise Error("norm_elements mismatch")
+        print("PersistentBuffers allocated and sizes verified")
+
+        _ = persistent
+        _ = embed_data
+        _ = head_data
+        _ = norm_data
+        ctx.cleanup()
+    else:
+        print("SKIP: test_persistent_buffers (no GPU)")
+
+
 def main() raises:
     test_gpu_context_imports()
     test_gpu_context_lifecycle()
@@ -168,4 +211,5 @@ def main() raises:
     test_weight_stage_imports()
     test_weight_stage_creation()
     test_weight_stage_upload_tensor()
+    test_persistent_buffers()
     print("All gpu_context tests passed")

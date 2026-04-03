@@ -183,3 +183,87 @@ struct WeightStage(Movable):
         for i in range(len(offsets)):
             ptrs.append(base + offsets[i])
         return ptrs
+
+
+def _upload_persistent(
+    mut ctx: GPUContext, tensor: TensorInfo
+) raises -> DeviceBuffer[DType.float32]:
+    """Upload a tensor to a dedicated persistent DeviceBuffer.
+
+    Unlike WeightStage (reusable per layer), this allocates a permanent buffer
+    that lives for the entire session.
+
+    Args:
+        ctx: GPU context for allocation and transfer.
+        tensor: Source tensor to upload.
+
+    Returns:
+        A DeviceBuffer containing the tensor data.
+    """
+    var num_elements = tensor.shape_0 * tensor.shape_1
+    var dev_buf = ctx.allocate_buffer[DType.float32](num_elements)
+    var host_buf = ctx.allocate_host_buffer[DType.float32](num_elements)
+    # Copy from mmap source to pinned host buffer
+    var dst = host_buf.unsafe_ptr()
+    var src = tensor.ptr
+    for i in range(num_elements):
+        dst.store(i, src.load(i))
+    # Upload to device
+    ctx.upload(dev_buf, host_buf)
+    _ = host_buf  # host staging can be freed after sync
+    return dev_buf^
+
+
+struct PersistentBuffers(Movable):
+    """Persistent GPU buffers for weights that are used every step.
+
+    Holds embed_tokens, lm_head, and final norm on the GPU for the
+    entire session. These are uploaded once at init and never overwritten.
+    """
+
+    var embed_buf: DeviceBuffer[DType.float32]
+    var lm_head_buf: DeviceBuffer[DType.float32]
+    var norm_buf: DeviceBuffer[DType.float32]
+    var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var embed_elements: Int
+    var lm_head_elements: Int
+    var norm_elements: Int
+
+    def __init__(
+        out self,
+        mut ctx: GPUContext,
+        embed_tokens: TensorInfo,
+        lm_head: TensorInfo,
+        norm: TensorInfo,
+    ) raises:
+        """Upload embed_tokens, lm_head, and norm to persistent GPU buffers.
+
+        Args:
+            ctx: GPU context for allocation.
+            embed_tokens: Embedding matrix (vocab_size × hidden_size).
+            lm_head: LM head matrix (hidden_size × vocab_size).
+            norm: Final RMS norm weights (hidden_size).
+        """
+        self.embed_elements = embed_tokens.shape_0 * embed_tokens.shape_1
+        self.lm_head_elements = lm_head.shape_0 * lm_head.shape_1
+        self.norm_elements = norm.shape_0 * norm.shape_1
+        self.embed_buf = _upload_persistent(ctx, embed_tokens)
+        self.lm_head_buf = _upload_persistent(ctx, lm_head)
+        self.norm_buf = _upload_persistent(ctx, norm)
+        ctx.sync()
+        self.embed_ptr = self.embed_buf.unsafe_ptr()
+        self.lm_head_ptr = self.lm_head_buf.unsafe_ptr()
+        self.norm_ptr = self.norm_buf.unsafe_ptr()
+
+    def __moveinit__(out self, owned other: Self):
+        self.embed_buf = other.embed_buf^
+        self.lm_head_buf = other.lm_head_buf^
+        self.norm_buf = other.norm_buf^
+        self.embed_ptr = other.embed_ptr
+        self.lm_head_ptr = other.lm_head_ptr
+        self.norm_ptr = other.norm_ptr
+        self.embed_elements = other.embed_elements
+        self.lm_head_elements = other.lm_head_elements
+        self.norm_elements = other.norm_elements
