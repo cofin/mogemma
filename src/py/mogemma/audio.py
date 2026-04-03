@@ -21,6 +21,11 @@ SAMPLE_RATE = 16000
 MAX_AUDIO_SECONDS = 30
 MAX_AUDIO_SAMPLES = SAMPLE_RATE * MAX_AUDIO_SECONDS  # 480000
 
+# WAV sample widths in bytes
+_SAMPWIDTH_16BIT = 2
+_SAMPWIDTH_32BIT = 4
+_SAMPWIDTH_8BIT = 1
+
 
 def _hz_to_mel(hz: float) -> float:
     return 2595.0 * np.log10(1.0 + hz / 700.0)
@@ -57,37 +62,29 @@ def _mel_filterbank(n_mels: int, n_fft: int, sr: int) -> npt.NDArray[np.float32]
 
 
 def load_audio(
-    source: str | Path | bytes,
-    *,
-    sr: int = SAMPLE_RATE,
-    max_seconds: int = MAX_AUDIO_SECONDS,
+    source: str | Path | bytes, *, sr: int = SAMPLE_RATE, max_seconds: int = MAX_AUDIO_SECONDS
 ) -> npt.NDArray[np.float32]:
     """Load audio from WAV file path or bytes, return mono float32 [-1, 1].
 
     Stereo is averaged to mono. Audio is truncated to max_seconds.
     """
     if isinstance(source, bytes):
-        f = io.BytesIO(source)
+        f: io.BufferedIOBase = io.BytesIO(source)
     else:
-        f = open(source, "rb")  # noqa: SIM115
-
-    try:
-        with wave.open(f, "rb") as wf:
-            channels = wf.getnchannels()
-            sampwidth = wf.getsampwidth()
-            framerate = wf.getframerate()
-            n_frames = wf.getnframes()
-            raw = wf.readframes(n_frames)
-    finally:
-        if not isinstance(source, bytes):
-            f.close()
+        f = Path(source).open("rb")  # noqa: SIM115
+    with f, wave.open(f, "rb") as wf:
+        channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        framerate = wf.getframerate()
+        n_frames = wf.getnframes()
+        raw = wf.readframes(n_frames)
 
     # Convert to float32
-    if sampwidth == 2:
+    if sampwidth == _SAMPWIDTH_16BIT:
         pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-    elif sampwidth == 4:
+    elif sampwidth == _SAMPWIDTH_32BIT:
         pcm = np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
-    elif sampwidth == 1:
+    elif sampwidth == _SAMPWIDTH_8BIT:
         pcm = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
     else:
         msg = f"Unsupported WAV sample width: {sampwidth}"
@@ -112,12 +109,7 @@ def load_audio(
 
 
 def mel_spectrogram(
-    audio: npt.NDArray[np.float32],
-    *,
-    sr: int = SAMPLE_RATE,
-    n_fft: int = 400,
-    hop_length: int = 160,
-    n_mels: int = 80,
+    audio: npt.NDArray[np.float32], *, sr: int = SAMPLE_RATE, n_fft: int = 400, hop_length: int = 160, n_mels: int = 80
 ) -> npt.NDArray[np.float32]:
     """Compute log-mel spectrogram using numpy.fft only.
 
@@ -156,7 +148,7 @@ def mel_spectrogram(
     return np.log(mel + 1e-6).astype(np.float32)
 
 
-def extract_audio_features(
+def extract_audio_features(  # noqa: PLR0913
     source: str | Path | bytes,
     *,
     max_frames: int = 750,

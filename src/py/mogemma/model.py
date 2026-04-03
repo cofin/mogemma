@@ -172,7 +172,7 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
     if image_token_index is not None:
         overrides["image_token_id"] = int(image_token_index)
 
-    # PLE (E2B/E4B)
+    # PLE (E2B/E4B)  # noqa: ERA001
     ple_dim = config.get("hidden_size_per_layer_input")
     if ple_dim is not None:
         overrides["hidden_size_per_layer_input"] = int(ple_dim)
@@ -203,13 +203,8 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
     return overrides, layer_types
 
 
-def compute_kv_cache_memory(
-    num_layers: int,
-    layer_types: list[str],
-    window_size: int,
-    max_context_len: int,
-    num_kv_heads: int,
-    head_dim: int,
+def compute_kv_cache_memory(  # noqa: PLR0913
+    num_layers: int, layer_types: list[str], window_size: int, max_context_len: int, num_kv_heads: int, head_dim: int
 ) -> int:
     """Compute total bytes for the hybrid KV cache (K + V arenas combined).
 
@@ -293,7 +288,7 @@ def _invoke_legacy_init_model(
         raise RuntimeError(msg) from exc
 
 
-def _initialize_llm(
+def _initialize_llm(  # noqa: PLR0913
     loader: ModelLoader,
     backend: GenerationBackend | EmbeddingBackend,
     *,
@@ -424,11 +419,7 @@ def _is_instruction_tuned_model(model_path: Path, config_model_path: str | Path)
     return configured.endswith("-it") or resolved.endswith("-it")
 
 
-def _format_gemma4_prompt(
-    prompt: str | list[dict[str, str]],
-    *,
-    system_prompt: str | None = None,
-) -> str:
+def _format_gemma4_prompt(prompt: str | list[dict[str, str]], *, system_prompt: str | None = None) -> str:
     """Format prompt using Gemma 4 chat template.
 
     Supports plain strings, system prompts, and multi-turn message lists.
@@ -467,7 +458,7 @@ def _reset_llm_session_state(llm: object) -> None:
         _core.reset_cache(llm)
 
 
-class EmbeddingModel:
+class SyncEmbeddingModel:
     """Python interface for the Gemma 4 embedding engine."""
 
     def __init__(self, config: EmbeddingConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
@@ -545,7 +536,7 @@ class EmbeddingModel:
 
     def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
         """Generate embeddings for text by tokenizing in Python, then running Mojo inference."""
-        with tracer.start_as_current_span("EmbeddingModel.embed") as span:
+        with tracer.start_as_current_span("SyncEmbeddingModel.embed") as span:
             if isinstance(text, str):
                 text = [text]
             if not text:
@@ -680,7 +671,7 @@ class SyncGemmaModel:
         """Generate text from the given prompt."""
         return "".join(list(self.generate_stream(prompt, images=images, audio=audio, system_prompt=system_prompt)))
 
-    def generate_stream(
+    def generate_stream(  # noqa: C901, PLR0912, PLR0915
         self,
         prompt: str,
         images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
@@ -690,7 +681,9 @@ class SyncGemmaModel:
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
-        prompt_to_encode = _format_gemma4_prompt(prompt, system_prompt=system_prompt) if self._instruction_tuned else prompt
+        prompt_to_encode = (
+            _format_gemma4_prompt(prompt, system_prompt=system_prompt) if self._instruction_tuned else prompt
+        )
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
@@ -718,7 +711,7 @@ class SyncGemmaModel:
         audio_token_id = self._get_audio_token_id()
         audio_embeddings: list[object] = []
         if audio is not None:
-            from .hydration import AudioHydrator
+            from .hydration import AudioHydrator  # noqa: PLC0415
 
             audio_hydrated = AudioHydrator().hydrate(audio)
             self._backend.process_audio(self._llm, audio_hydrated)
@@ -849,3 +842,45 @@ class AsyncGemmaModel:
     def tokenizer(self) -> _Tokenizer:
         """Access to the underlying tokenizer."""
         return self._model.tokenizer
+
+
+class AsyncEmbeddingModel:
+    """Asynchronous wrapper for SyncEmbeddingModel."""
+
+    def __init__(self, config: EmbeddingConfig | str | None = None) -> None:
+        """Initialize the async embedding model.
+
+        Args:
+            config: Model ID string, ``EmbeddingConfig``, or ``None`` for defaults.
+        """
+        self._model = SyncEmbeddingModel(config)
+
+    async def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
+        """Generate embeddings for text asynchronously."""
+        return await asyncio.to_thread(self._model.embed, text)
+
+    async def embed_tokens(self, tokens: Sequence[Sequence[int]] | npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+        """Generate embeddings from pre-tokenized IDs asynchronously."""
+        return await asyncio.to_thread(self._model.embed_tokens, tokens)
+
+    @property
+    def tokenizer(self) -> _Tokenizer:
+        """Access to the underlying tokenizer."""
+        return self._model.tokenizer
+
+    def close(self) -> None:
+        """Release underlying resources."""
+        if hasattr(self, "_model"):
+            self._model.close()
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
+    async def __aenter__(self) -> Self:
+        """Enter the async context manager."""
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Exit the async context manager and release resources."""
+        self.close()

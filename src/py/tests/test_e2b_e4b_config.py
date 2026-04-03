@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from mogemma.model import _parse_gemma4_architecture, _detect_gemma4_variant, Gemma4Variant
+from mogemma.model import Gemma4Variant, _detect_gemma4_variant, _parse_gemma4_architecture
 
 
-@pytest.fixture()
+@pytest.fixture
 def e2b_config(tmp_path: Path) -> Path:
     config = {
         "model_type": "gemma4",
@@ -27,7 +27,7 @@ def e2b_config(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def e4b_config(tmp_path: Path) -> Path:
     config = {
         "model_type": "gemma4",
@@ -45,7 +45,7 @@ def e4b_config(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def moe_26b_config(tmp_path: Path) -> Path:
     config = {
         "model_type": "gemma4",

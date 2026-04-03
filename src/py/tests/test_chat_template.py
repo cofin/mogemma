@@ -52,10 +52,7 @@ class TestMultiTurnMessages:
         assert result == expected
 
     def test_multi_turn_with_system(self) -> None:
-        messages = [
-            {"role": "system", "content": "Be concise."},
-            {"role": "user", "content": "Hi"},
-        ]
+        messages = [{"role": "system", "content": "Be concise."}, {"role": "user", "content": "Hi"}]
         result = _format_gemma4_prompt(messages)
         expected = (
             "<start_of_turn>system\nBe concise.\n<end_of_turn>\n"
@@ -66,10 +63,7 @@ class TestMultiTurnMessages:
 
     def test_multi_turn_system_prompt_kwarg_ignored_when_messages_have_system(self) -> None:
         """When messages include a system role, the system_prompt kwarg is ignored."""
-        messages = [
-            {"role": "system", "content": "From messages."},
-            {"role": "user", "content": "Hi"},
-        ]
+        messages = [{"role": "system", "content": "From messages."}, {"role": "user", "content": "Hi"}]
         result = _format_gemma4_prompt(messages, system_prompt="From kwarg.")
         assert "<start_of_turn>system\nFrom messages.\n<end_of_turn>" in result
         assert "From kwarg." not in result

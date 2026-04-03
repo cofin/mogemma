@@ -281,7 +281,9 @@ class HubManager:
             msg = f"Failed to fetch model index for '{repo_id}' from HuggingFace: {exc}"
             raise self.ModelNotFoundError(msg) from exc
 
-    def _download_hf_file(self, store: HTTPStore, filename: str, dest_dir: Path, expected_size: int | None = None) -> None:
+    def _download_hf_file(
+        self, store: HTTPStore, filename: str, dest_dir: Path, expected_size: int | None = None
+    ) -> None:
         """Download a single file from HuggingFace to *dest_dir*."""
         dest = dest_dir / filename
         if self._should_skip_download(dest, expected_size):
@@ -291,7 +293,9 @@ class HubManager:
         data = bytes(result.bytes())
         self._write_file(dest, data)
 
-    async def _download_hf_file_async(self, store: HTTPStore, filename: str, dest_dir: Path, expected_size: int | None = None) -> None:
+    async def _download_hf_file_async(
+        self, store: HTTPStore, filename: str, dest_dir: Path, expected_size: int | None = None
+    ) -> None:
         """Download a single file from HuggingFace (async)."""
         dest = dest_dir / filename
         if self._should_skip_download(dest, expected_size):

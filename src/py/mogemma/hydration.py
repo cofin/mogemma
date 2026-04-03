@@ -64,9 +64,7 @@ class AudioInput:
     num_tokens: int  # min(num_frames, AUDIO_SEQ_LENGTH)
 
 
-def select_token_budget(
-    h: int, w: int, max_tokens: int = 560
-) -> tuple[int, int, int]:
+def select_token_budget(h: int, w: int, max_tokens: int = 560) -> tuple[int, int, int]:
     """Select the best token budget for the given image dimensions.
 
     Returns:
@@ -109,9 +107,7 @@ class ImageHydrator:
         """Initialize the local object store used for path-based hydration."""
         self._store = LocalStore()
 
-    def hydrate(
-        self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]
-    ) -> list[ImageInput]:
+    def hydrate(self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]) -> list[ImageInput]:
         """Convert a sequence of inputs into preprocessed ImageInput objects."""
         results: list[ImageInput] = []
         for item in inputs:
@@ -134,25 +130,20 @@ class ImageHydrator:
                 raise TypeError(msg)
         return results
 
-    def preprocess_image(
-        self, rgb_array: npt.NDArray[np.uint8], max_tokens: int = 560
-    ) -> ImageInput:
+    def preprocess_image(self, rgb_array: npt.NDArray[np.uint8], max_tokens: int = 560) -> ImageInput:
         """Resize, normalize, and extract patches from an RGB image.
 
         Steps:
           1. Select target resolution via token budget
           2. Resize to target (PIL bicubic)
           3. Normalize: (pixel/255 - 0.5) / 0.5  →  [-1, 1]
-          4. Extract non-overlapping 16×16 patches
+          4. Extract non-overlapping 16x16 patches
         """
         h, w = rgb_array.shape[:2]
         target_h, target_w, num_tokens = select_token_budget(h, w, max_tokens)
 
         # Resize to target
-        if h != target_h or w != target_w:
-            resized = self._resize(rgb_array, target_h, target_w)
-        else:
-            resized = rgb_array
+        resized = self._resize(rgb_array, target_h, target_w) if h != target_h or w != target_w else rgb_array
 
         # Crop to largest multiple of PATCH_SIZE (handles targets like 280 not divisible by 16)
         grid_h = target_h // PATCH_SIZE
@@ -164,14 +155,13 @@ class ImageHydrator:
         # Normalize: SigLIP normalization
         normalized = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
         patches = (
-            normalized.reshape(grid_h, PATCH_SIZE, grid_w, PATCH_SIZE, 3)
+            normalized
+            .reshape(grid_h, PATCH_SIZE, grid_w, PATCH_SIZE, 3)
             .transpose(0, 2, 1, 3, 4)
             .reshape(num_tokens, PATCH_SIZE * PATCH_SIZE * 3)
         )
 
-        return ImageInput(
-            patches=patches, grid_h=grid_h, grid_w=grid_w, num_tokens=num_tokens
-        )
+        return ImageInput(patches=patches, grid_h=grid_h, grid_w=grid_w, num_tokens=num_tokens)
 
     def _extract_video_frames(self, video_path: str) -> list[ImageInput]:
         """Extract frames from a video file using ffmpeg subprocess.
@@ -180,10 +170,7 @@ class ImageHydrator:
         Each frame is preprocessed with the lowest token budget.
         """
         if shutil.which("ffmpeg") is None:
-            msg = (
-                "Video processing requires ffmpeg. "
-                "Install ffmpeg and ensure it is on your PATH."
-            )
+            msg = "Video processing requires ffmpeg. Install ffmpeg and ensure it is on your PATH."
             raise RuntimeError(msg)
 
         image_module = importlib.import_module("PIL.Image")
@@ -191,22 +178,26 @@ class ImageHydrator:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cmd = [
-                "ffmpeg", "-i", video_path,
-                "-vf", f"fps=1",
-                "-t", str(self._max_video_duration),
-                "-frames:v", str(self._max_video_frames),
-                "-q:v", "2",
+                "ffmpeg",
+                "-i",
+                video_path,
+                "-vf",
+                "fps=1",
+                "-t",
+                str(self._max_video_duration),
+                "-frames:v",
+                str(self._max_video_frames),
+                "-q:v",
+                "2",
                 f"{tmpdir}/frame_%04d.jpg",
             ]
-            subprocess.run(cmd, capture_output=True, check=True)
+            subprocess.run(cmd, capture_output=True, check=True)  # noqa: S603
 
             frame_paths = sorted(Path(tmpdir).glob("frame_*.jpg"))
             for frame_path in frame_paths[: self._max_video_frames]:
                 img = image_module.open(frame_path).convert("RGB")
                 rgb = np.asarray(img)
-                results.append(
-                    self.preprocess_image(rgb, max_tokens=self._video_frame_budget)
-                )
+                results.append(self.preprocess_image(rgb, max_tokens=self._video_frame_budget))
 
         return results
 
@@ -220,10 +211,7 @@ class ImageHydrator:
         except ModuleNotFoundError as exc:
             if exc.name is not None and not exc.name.startswith("PIL"):
                 raise
-            msg = (
-                "Image resizing requires Pillow. "
-                "Install with: pip install 'mogemma[vision]'."
-            )
+            msg = "Image resizing requires Pillow. Install with: pip install 'mogemma[vision]'."
             raise ImportError(msg) from None
 
     def _load_from_path(self, path: str | Path) -> bytes:
@@ -256,11 +244,9 @@ class ImageHydrator:
 class AudioHydrator:
     """Handles loading and feature extraction for Gemma 4 audio inputs."""
 
-    def hydrate(
-        self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]
-    ) -> list[AudioInput]:
+    def hydrate(self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]) -> list[AudioInput]:
         """Convert audio inputs into preprocessed AudioInput objects."""
-        from .audio import extract_audio_features, mel_spectrogram
+        from .audio import extract_audio_features, mel_spectrogram  # noqa: PLC0415
 
         results: list[AudioInput] = []
         for item in inputs:
@@ -278,11 +264,7 @@ class AudioHydrator:
                 else:
                     msg = f"Audio numpy arrays must be 1D float32, got shape={item.shape} dtype={item.dtype}"
                     raise TypeError(msg)
-            elif isinstance(item, (str, Path)):
-                features = extract_audio_features(item, max_frames=AUDIO_SEQ_LENGTH)
-                num_tokens = min(features.shape[1], AUDIO_SEQ_LENGTH)
-                results.append(AudioInput(features=features, num_tokens=num_tokens))
-            elif isinstance(item, bytes):
+            elif isinstance(item, (str, Path, bytes)):
                 features = extract_audio_features(item, max_frames=AUDIO_SEQ_LENGTH)
                 num_tokens = min(features.shape[1], AUDIO_SEQ_LENGTH)
                 results.append(AudioInput(features=features, num_tokens=num_tokens))

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-from mogemma.hydration import ImageHydrator, ImageInput, select_token_budget, PATCH_SIZE
+from mogemma.hydration import PATCH_SIZE, ImageHydrator, ImageInput, select_token_budget
 
 
 class TestTokenBudget:
@@ -24,11 +23,11 @@ class TestTokenBudget:
         assert target_w == 280
 
     def test_wide_landscape(self) -> None:
-        target_h, target_w, num_tokens = select_token_budget(300, 900)
+        target_h, target_w, _num_tokens = select_token_budget(300, 900)
         assert target_w >= target_h
 
     def test_tall_portrait(self) -> None:
-        target_h, target_w, num_tokens = select_token_budget(900, 300)
+        target_h, target_w, _num_tokens = select_token_budget(900, 300)
         assert target_h >= target_w
 
     def test_max_tokens_cap(self) -> None:

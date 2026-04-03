@@ -5,13 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from mogemma.model import (
-    _parse_gemma4_architecture,
-    compute_kv_cache_memory,
-)
+from mogemma.model import _parse_gemma4_architecture, compute_kv_cache_memory
 
 
-@pytest.fixture()
+@pytest.fixture
 def gemma4_31b_config(tmp_path: Path) -> Path:
     """Create a minimal Gemma 4 31B config.json."""
     config = {
@@ -33,7 +30,7 @@ def gemma4_31b_config(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def gemma4_e2b_config(tmp_path: Path) -> Path:
     """Create a minimal Gemma 4 E2B config.json."""
     config = {

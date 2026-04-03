@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import wave
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pytest
 
-from mogemma.hydration import AudioHydrator, AudioInput, AUDIO_EXTENSIONS
+from mogemma.hydration import AUDIO_EXTENSIONS, AudioHydrator, AudioInput
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_wav(path: Path, samples: np.ndarray, sr: int = 16000) -> None:

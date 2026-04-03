@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from mogemma.model import _parse_gemma4_architecture
 from mogemma.config import GenerationConfig
+from mogemma.model import _parse_gemma4_architecture
 
 
-@pytest.fixture()
+@pytest.fixture
 def gemma4_vision_config(tmp_path: Path) -> Path:
     """Create a minimal Gemma 4 config.json with vision_config section."""
     config = {

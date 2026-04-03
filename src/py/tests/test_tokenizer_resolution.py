@@ -45,20 +45,12 @@ class TestConfigJsonValidation:
     """Tests for config.json field validation."""
 
     def test_valid_gemma4_config(self) -> None:
-        config = {
-            "model_type": "gemma4",
-            "num_hidden_layers": 60,
-            "hidden_size": 4096,
-        }
+        config = {"model_type": "gemma4", "num_hidden_layers": 60, "hidden_size": 4096}
         hub = HubManager(cache_path=Path("/tmp/test-cache"))
         hub.validate_config_json(config)  # Should not raise
 
     def test_valid_gemma4_text_config(self) -> None:
-        config = {
-            "model_type": "gemma4_text",
-            "num_hidden_layers": 60,
-            "hidden_size": 4096,
-        }
+        config = {"model_type": "gemma4_text", "num_hidden_layers": 60, "hidden_size": 4096}
         hub = HubManager(cache_path=Path("/tmp/test-cache"))
         hub.validate_config_json(config)  # Should not raise
 

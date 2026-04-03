@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import shutil
 
-import numpy as np
 import pytest
 
-from mogemma.hydration import ImageHydrator, ImageInput, VIDEO_EXTENSIONS
+from mogemma.hydration import VIDEO_EXTENSIONS, ImageHydrator
 
 
 class TestVideoDetection:

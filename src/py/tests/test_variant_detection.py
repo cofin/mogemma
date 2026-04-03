@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from mogemma.model import Gemma4Variant, _detect_gemma4_variant
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-@pytest.fixture()
+
+@pytest.fixture
 def tmp_model_dir(tmp_path: Path) -> Path:
     """Return a temporary directory to use as a model directory."""
     return tmp_path
@@ -61,19 +64,13 @@ class TestDetectGemma4Variant:
 
     def test_dense_e2b(self, tmp_model_dir: Path) -> None:
         """PLE with double wide MLP should be DENSE_E2B."""
-        _write_config(tmp_model_dir, {
-            "hidden_size_per_layer_input": 2048,
-            "use_double_wide_mlp": True,
-        })
+        _write_config(tmp_model_dir, {"hidden_size_per_layer_input": 2048, "use_double_wide_mlp": True})
         result = _detect_gemma4_variant(tmp_model_dir)
         assert result is Gemma4Variant.DENSE_E2B
 
     def test_dense_e4b(self, tmp_model_dir: Path) -> None:
         """PLE without double wide MLP should be DENSE_E4B."""
-        _write_config(tmp_model_dir, {
-            "hidden_size_per_layer_input": 2048,
-            "use_double_wide_mlp": False,
-        })
+        _write_config(tmp_model_dir, {"hidden_size_per_layer_input": 2048, "use_double_wide_mlp": False})
         result = _detect_gemma4_variant(tmp_model_dir)
         assert result is Gemma4Variant.DENSE_E4B
 

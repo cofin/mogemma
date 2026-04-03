@@ -27,12 +27,7 @@ class TestComputeKVCacheMemory:
     def test_all_full_layers(self) -> None:
         """All full layers: each gets max_context_len * kv_stride * 4 bytes * 2."""
         result = compute_kv_cache_memory(
-            num_layers=4,
-            layer_types=["full"] * 4,
-            window_size=1024,
-            max_context_len=8192,
-            num_kv_heads=8,
-            head_dim=128,
+            num_layers=4, layer_types=["full"] * 4, window_size=1024, max_context_len=8192, num_kv_heads=8, head_dim=128
         )
         expected = 4 * 8192 * 8 * 128 * 4 * 2
         assert result == expected
@@ -61,12 +56,7 @@ class TestComputeKVCacheMemory:
         num_sliding = 60 - num_full
 
         result = compute_kv_cache_memory(
-            num_layers=60,
-            layer_types=layer_types,
-            window_size=1024,
-            max_context_len=8192,
-            num_kv_heads=8,
-            head_dim=256,
+            num_layers=60, layer_types=layer_types, window_size=1024, max_context_len=8192, num_kv_heads=8, head_dim=256
         )
         kv_stride = 8 * 256
         expected = (num_sliding * 1024 + num_full * 8192) * kv_stride * 4 * 2
@@ -87,7 +77,7 @@ class TestComputeKVCacheMemory:
             )
 
     def test_max_context_less_than_window_raises(self) -> None:
-        with pytest.raises(ValueError, match="max_context_len.*must be >= window_size"):
+        with pytest.raises(ValueError, match=r"max_context_len.*must be >= window_size"):
             compute_kv_cache_memory(
                 num_layers=4,
                 layer_types=["sliding"] * 4,
@@ -99,35 +89,20 @@ class TestComputeKVCacheMemory:
 
     def test_zero_layers(self) -> None:
         result = compute_kv_cache_memory(
-            num_layers=0,
-            layer_types=[],
-            window_size=1024,
-            max_context_len=8192,
-            num_kv_heads=8,
-            head_dim=128,
+            num_layers=0, layer_types=[], window_size=1024, max_context_len=8192, num_kv_heads=8, head_dim=128
         )
         assert result == 0
 
     def test_single_sliding_layer(self) -> None:
         result = compute_kv_cache_memory(
-            num_layers=1,
-            layer_types=["sliding"],
-            window_size=512,
-            max_context_len=8192,
-            num_kv_heads=1,
-            head_dim=64,
+            num_layers=1, layer_types=["sliding"], window_size=512, max_context_len=8192, num_kv_heads=1, head_dim=64
         )
         expected = 1 * 512 * 1 * 64 * 4 * 2
         assert result == expected
 
     def test_single_full_layer(self) -> None:
         result = compute_kv_cache_memory(
-            num_layers=1,
-            layer_types=["full"],
-            window_size=512,
-            max_context_len=4096,
-            num_kv_heads=1,
-            head_dim=64,
+            num_layers=1, layer_types=["full"], window_size=512, max_context_len=4096, num_kv_heads=1, head_dim=64
         )
         expected = 1 * 4096 * 1 * 64 * 4 * 2
         assert result == expected

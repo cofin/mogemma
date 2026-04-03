@@ -142,17 +142,26 @@ split-on-trailing-comma = false
 
 [tool.ruff.lint.per-file-ignores]
 "src/py/tests/test_*.py" = [
+    "ANN202",
     "ARG001",
     "D100",
     "D101",
     "D102",
     "D103",
     "D107",
-    "S101",
-    "S603",
-    "PLR2004",
-    "SLF001",
     "E402",
+    "ERA001",
+    "PLR2004",
+    "PT011",
+    "S101",
+    "S105",
+    "S106",
+    "S108",
+    "S110",
+    "S603",
+    "SIM105",
+    "PLC0415",
+    "SLF001",
 ]
 "src/py/mogemma/typing.py" = ["A005"]
 "src/mo/tests/test_*.py" = [

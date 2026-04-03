@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import struct
-import tempfile
 import wave
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pytest
 
-from mogemma.audio import load_audio, mel_spectrogram, extract_audio_features
+from mogemma.audio import extract_audio_features, load_audio, mel_spectrogram
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_wav(path: Path, samples: np.ndarray, sr: int = 16000, channels: int = 1) -> None:
