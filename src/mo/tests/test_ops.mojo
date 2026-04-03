@@ -1,5 +1,5 @@
 from std.collections import List
-from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax
+from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax, gelu, average_pool_2d
 from std.memory import UnsafePointer
 from testing import assert_almost_equal
 
@@ -158,6 +158,84 @@ fn test_softmax() raises:
     _ = x[0]
 
 
+fn test_gelu() raises:
+    # gelu(1.0) = 0.5 * 1.0 * (1 + erf(1/sqrt(2))) ≈ 0.8413
+    var x = List[Float32](length=4, fill=1.0)
+    var out = List[Float32](length=4, fill=0.0)
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out.unsafe_ptr()))
+
+    gelu[2](out_ptr, x_ptr, 4)
+
+    assert_almost_equal(out[0], 0.8413, atol=1e-3)
+    assert_almost_equal(out[1], 0.8413, atol=1e-3)
+
+    # gelu(0.0) = 0.0
+    var zero = List[Float32](length=2, fill=0.0)
+    var zero_out = List[Float32](length=2, fill=99.0)
+    var zero_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(zero.unsafe_ptr()))
+    var zero_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(zero_out.unsafe_ptr()))
+    gelu[1](zero_out_ptr, zero_ptr, 2)
+    assert_almost_equal(zero_out[0], 0.0, atol=1e-6)
+
+    # gelu(-1.0) ≈ -0.1587
+    var neg = List[Float32](length=2, fill=-1.0)
+    var neg_out = List[Float32](length=2, fill=0.0)
+    var neg_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(neg.unsafe_ptr()))
+    var neg_out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(neg_out.unsafe_ptr()))
+    gelu[1](neg_out_ptr, neg_ptr, 2)
+    assert_almost_equal(neg_out[0], -0.1587, atol=1e-3)
+
+    _ = x[0]
+    _ = zero[0]
+    _ = neg[0]
+
+
+fn test_average_pool_2d() raises:
+    # 6x6 grid, hidden_size=2, kernel=3
+    # Output should be 2x2 grid, hidden_size=2
+    var grid_h = 6
+    var grid_w = 6
+    var hidden_size = 2
+    var kernel = 3
+    var in_tokens = grid_h * grid_w  # 36
+    var out_h = grid_h // kernel  # 2
+    var out_w = grid_w // kernel  # 2
+    var out_tokens = out_h * out_w  # 4
+
+    var x = List[Float32](length=in_tokens * hidden_size, fill=1.0)
+    var out = List[Float32](length=out_tokens * hidden_size, fill=0.0)
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out.unsafe_ptr()))
+
+    average_pool_2d(out_ptr, x_ptr, grid_h, grid_w, hidden_size, kernel)
+
+    # All inputs are 1.0, so all averages should be 1.0
+    for i in range(out_tokens * hidden_size):
+        assert_almost_equal(out[i], 1.0, atol=1e-5)
+
+    # Test with varying values: set first 3x3 block's hidden[0] to sequential 1-9
+    for i in range(in_tokens * hidden_size):
+        x[i] = 0.0
+
+    # First 3x3 block (rows 0-2, cols 0-2) = values 1..9 in hidden dim 0
+    var val: Float32 = 1.0
+    for r in range(3):
+        for c in range(3):
+            var idx = (r * grid_w + c) * hidden_size
+            x[idx] = val
+            val += 1.0
+
+    average_pool_2d(out_ptr, x_ptr, grid_h, grid_w, hidden_size, kernel)
+
+    # Average of 1..9 = 45/9 = 5.0
+    assert_almost_equal(out[0], 5.0, atol=1e-5)
+
+    _ = x[0]
+
+
 fn main() raises:
     test_rms_norm()
     test_geglu()
@@ -166,4 +244,6 @@ fn main() raises:
     test_mat_mat_mul()
     test_mat_mat_mul_i8()
     test_softmax()
+    test_gelu()
+    test_average_pool_2d()
     print("Mojo math primitive tests passed!")

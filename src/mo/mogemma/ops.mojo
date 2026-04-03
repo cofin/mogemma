@@ -36,6 +36,72 @@ fn geglu[
 
 
 @always_inline
+fn gelu[
+    nelts: Int = 16
+](
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+):
+    """Applies the standard GELU activation function element-wise.
+
+    Computes 0.5 * x * (1 + erf(x / sqrt(2))) for each element.
+    """
+    var i = 0
+    var sqrt_2: Float32 = 1.4142135623730951
+    while i <= size - nelts:
+        var x = x_ptr.load[width=nelts](i)
+        out_ptr.store(i, 0.5 * x * (1.0 + erf(x / sqrt_2)))
+        i += nelts
+
+    while i < size:
+        var x = x_ptr.load(i)
+        out_ptr.store(i, 0.5 * x * (1.0 + erf(x / sqrt_2)))
+        i += 1
+
+
+@always_inline
+fn average_pool_2d(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    grid_h: Int,
+    grid_w: Int,
+    hidden_size: Int,
+    kernel: Int,
+):
+    """Average pooling over non-overlapping kernel×kernel blocks on a 2D token grid.
+
+    Input layout: [grid_h * grid_w, hidden_size] (row-major by grid position).
+    Output layout: [(grid_h/kernel) * (grid_w/kernel), hidden_size].
+    """
+    var out_h = grid_h // kernel
+    var out_w = grid_w // kernel
+    var block_size = kernel * kernel
+    var inv_block = 1.0 / Float32(block_size)
+
+    for oh in range(out_h):
+        for ow in range(out_w):
+            var out_idx = (oh * out_w + ow) * hidden_size
+            # Zero output
+            for d in range(hidden_size):
+                out_ptr.store(out_idx + d, 0.0)
+            # Sum over kernel×kernel block
+            for kh in range(kernel):
+                for kw in range(kernel):
+                    var in_r = oh * kernel + kh
+                    var in_c = ow * kernel + kw
+                    var in_idx = (in_r * grid_w + in_c) * hidden_size
+                    for d in range(hidden_size):
+                        out_ptr.store(
+                            out_idx + d,
+                            out_ptr.load(out_idx + d) + x_ptr.load(in_idx + d),
+                        )
+            # Average
+            for d in range(hidden_size):
+                out_ptr.store(out_idx + d, out_ptr.load(out_idx + d) * inv_block)
+
+
+@always_inline
 fn rope_rotate[
     nelts: Int = 16
 ](
