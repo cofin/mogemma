@@ -300,6 +300,121 @@ fn forward_vision_attention(
 
 
 @always_inline
+fn forward_vision_layer(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_tokens, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [num_tokens, hidden_size]
+    weights: VisionLayerWeights,
+    num_tokens: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Single vision transformer layer: LayerNorm + bidirectional attn + residual + LayerNorm + GELU MLP + residual."""
+    var total = num_tokens * hidden_size
+
+    # Pre-attention LayerNorm (reuse rms_norm — SigLIP weights are scale-only)
+    var norm1_ptr = scratch_ptr
+    for t in range(num_tokens):
+        rms_norm(norm1_ptr + t * hidden_size, x_ptr + t * hidden_size, weights.layer_norm1.ptr, hidden_size, 1e-6)
+
+    # Bidirectional attention
+    var attn_out_ptr = scratch_ptr + total
+    var attn_scratch = scratch_ptr + total * 2
+    forward_vision_attention(
+        attn_out_ptr, norm1_ptr, weights,
+        num_tokens, hidden_size, num_heads, head_dim, attn_scratch,
+    )
+
+    # Attention residual
+    var residual_ptr = scratch_ptr + total * 2
+    for i in range(total):
+        residual_ptr.store(i, x_ptr.load(i) + attn_out_ptr.load(i))
+
+    # Pre-MLP LayerNorm
+    var norm2_ptr = scratch_ptr + total * 3
+    for t in range(num_tokens):
+        rms_norm(norm2_ptr + t * hidden_size, residual_ptr + t * hidden_size, weights.layer_norm2.ptr, hidden_size, 1e-6)
+
+    # Vision MLP: fc1 → GELU → fc2 (NOT GEGLU)
+    var fc1_out_ptr = scratch_ptr + total * 4
+    mat_mat_mul(fc1_out_ptr, norm2_ptr, weights.fc1.ptr, num_tokens, hidden_size, intermediate_size)
+
+    var gelu_out_ptr = scratch_ptr + total * 4 + num_tokens * intermediate_size
+    for t in range(num_tokens):
+        gelu(gelu_out_ptr + t * intermediate_size, fc1_out_ptr + t * intermediate_size, intermediate_size)
+
+    var mlp_out_ptr = scratch_ptr + total * 5 + num_tokens * intermediate_size
+    mat_mat_mul(mlp_out_ptr, gelu_out_ptr, weights.fc2.ptr, num_tokens, intermediate_size, hidden_size)
+
+    # MLP residual
+    for i in range(total):
+        out_ptr.store(i, residual_ptr.load(i) + mlp_out_ptr.load(i))
+
+
+@always_inline
+fn forward_vision_encoder(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    patches_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_patches, patch_dim]
+    weights: VisionModelWeights,
+    num_patches: Int,
+    grid_h: Int,
+    grid_w: Int,
+    vision_hidden_size: Int,
+    vision_num_heads: Int,
+    vision_head_dim: Int,
+    vision_intermediate_size: Int,
+    decoder_hidden_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Full SigLIP vision encoder: patch embed → position embed → N layers → post-norm → avg pool → project."""
+    var patch_dim = weights.patch_embedding.shape_1
+    var total = num_patches * vision_hidden_size
+
+    # 1. Patch embedding: [num_patches, patch_dim] @ [vision_hidden, patch_dim]^T → [num_patches, vision_hidden]
+    var embedded_ptr = scratch_ptr
+    mat_mat_mul(embedded_ptr, patches_ptr, weights.patch_embedding.ptr, num_patches, patch_dim, vision_hidden_size)
+
+    # 2. Add position embeddings (learned, [max_patches, vision_hidden])
+    for i in range(total):
+        embedded_ptr.store(i, embedded_ptr.load(i) + weights.position_embedding.ptr.load(i))
+
+    # 3. Vision transformer layers
+    var current_ptr = embedded_ptr
+    var next_ptr = scratch_ptr + total
+    var layer_scratch = scratch_ptr + total * 2
+
+    var num_layers = len(weights.layers)
+    for l in range(num_layers):
+        forward_vision_layer(
+            next_ptr, current_ptr, weights.layers[l],
+            num_patches, vision_hidden_size, vision_num_heads, vision_head_dim,
+            vision_intermediate_size, layer_scratch,
+        )
+        # Swap
+        for i in range(total):
+            current_ptr.store(i, next_ptr.load(i))
+
+    # 4. Post-LayerNorm
+    var norm_ptr = next_ptr
+    for t in range(num_patches):
+        rms_norm(norm_ptr + t * vision_hidden_size, current_ptr + t * vision_hidden_size,
+                 weights.post_norm.ptr, vision_hidden_size, 1e-6)
+
+    # 5. Average pooling (3×3)
+    var pool_kernel = 3
+    var pool_h = grid_h // pool_kernel
+    var pool_w = grid_w // pool_kernel
+    var pooled_tokens = pool_h * pool_w
+    var pooled_ptr = scratch_ptr + total * 2
+    average_pool_2d(pooled_ptr, norm_ptr, grid_h, grid_w, vision_hidden_size, pool_kernel)
+
+    # 6. Vision projection → decoder hidden dim
+    mat_mat_mul(out_ptr, pooled_ptr, weights.projection.ptr, pooled_tokens, vision_hidden_size, decoder_hidden_size)
+
+
+@always_inline
 fn forward_mlp(
     out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]
     x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, hidden_size]

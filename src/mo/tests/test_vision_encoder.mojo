@@ -3,7 +3,7 @@ from std.memory import UnsafePointer
 from testing import assert_almost_equal
 from mogemma.model import VisionLayerWeights, VisionModelWeights, TensorInfo
 from mogemma.ops import gelu, average_pool_2d
-from mogemma.layers import forward_vision_attention
+from mogemma.layers import forward_vision_attention, forward_vision_encoder
 
 
 fn _make_ptr(ref l: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
@@ -157,8 +157,114 @@ fn test_average_pool_reduction() raises:
     _ = x[0]
 
 
+fn test_vision_encoder_1layer() raises:
+    """Test 1-layer vision encoder end-to-end: patches → projected output."""
+    var num_patches = 9  # 3x3 grid
+    var grid_h = 3
+    var grid_w = 3
+    var patch_dim = 12  # patch_size * patch_size * 3 = e.g. 2*2*3 for tiny test
+    var vision_hidden = 8
+    var vision_num_heads = 2
+    var vision_head_dim = 4
+    var vision_intermediate = 16
+    var decoder_hidden = 6
+    var pool_kernel = 3
+
+    # Allocate weight buffers
+    var patch_emb_w = List[Float32](length=vision_hidden * patch_dim, fill=0.01)
+    var pos_emb_w = List[Float32](length=num_patches * vision_hidden, fill=0.0)
+    var post_norm_w = List[Float32](length=vision_hidden, fill=0.0)  # rms_norm uses (1+w), so w=0 → scale=1
+    var proj_w = List[Float32](length=decoder_hidden * vision_hidden, fill=0.01)
+
+    var vm = VisionModelWeights()
+    vm.patch_embedding = TensorInfo(Int(_make_ptr(patch_emb_w)), vision_hidden, patch_dim)
+    vm.position_embedding = TensorInfo(Int(_make_ptr(pos_emb_w)), num_patches, vision_hidden)
+    vm.post_norm = TensorInfo(Int(_make_ptr(post_norm_w)), vision_hidden, 0)
+    vm.projection = TensorInfo(Int(_make_ptr(proj_w)), decoder_hidden, vision_hidden)
+
+    # Create 1 vision layer with tiny identity-ish weights
+    var w_size = vision_hidden * vision_hidden
+    var q_w = List[Float32](length=w_size, fill=0.0)
+    var k_w = List[Float32](length=w_size, fill=0.0)
+    var v_w = List[Float32](length=w_size, fill=0.0)
+    var o_w = List[Float32](length=w_size, fill=0.0)
+    for i in range(vision_hidden):
+        q_w[i * vision_hidden + i] = 1.0
+        k_w[i * vision_hidden + i] = 1.0
+        v_w[i * vision_hidden + i] = 1.0
+        o_w[i * vision_hidden + i] = 1.0
+
+    var fc1_size = vision_intermediate * vision_hidden
+    var fc1_w = List[Float32](length=fc1_size, fill=0.01)
+    var fc2_size = vision_hidden * vision_intermediate
+    var fc2_w = List[Float32](length=fc2_size, fill=0.01)
+    var ln1_w = List[Float32](length=vision_hidden, fill=0.0)
+    var ln2_w = List[Float32](length=vision_hidden, fill=0.0)
+
+    var vl = VisionLayerWeights()
+    vl.q_proj = TensorInfo(Int(_make_ptr(q_w)), vision_hidden, vision_hidden)
+    vl.k_proj = TensorInfo(Int(_make_ptr(k_w)), vision_hidden, vision_hidden)
+    vl.v_proj = TensorInfo(Int(_make_ptr(v_w)), vision_hidden, vision_hidden)
+    vl.o_proj = TensorInfo(Int(_make_ptr(o_w)), vision_hidden, vision_hidden)
+    vl.fc1 = TensorInfo(Int(_make_ptr(fc1_w)), vision_intermediate, vision_hidden)
+    vl.fc2 = TensorInfo(Int(_make_ptr(fc2_w)), vision_hidden, vision_intermediate)
+    vl.layer_norm1 = TensorInfo(Int(_make_ptr(ln1_w)), vision_hidden, 0)
+    vl.layer_norm2 = TensorInfo(Int(_make_ptr(ln2_w)), vision_hidden, 0)
+    vm.layers.append(vl^)
+
+    # Input patches
+    var patches = List[Float32](length=num_patches * patch_dim, fill=0.5)
+
+    # Output: after 3×3 pooling of 3×3 grid → 1×1 = 1 token of decoder_hidden dim
+    var pooled_tokens = (grid_h // pool_kernel) * (grid_w // pool_kernel)  # 1
+    var out = List[Float32](length=pooled_tokens * decoder_hidden, fill=0.0)
+
+    # Scratch (generous)
+    var scratch_size = num_patches * vision_hidden * 60 + vision_num_heads * num_patches * num_patches * 4
+    var scratch = List[Float32](length=scratch_size, fill=0.0)
+
+    forward_vision_encoder(
+        _make_ptr(out), _make_ptr(patches), vm,
+        num_patches, grid_h, grid_w,
+        vision_hidden, vision_num_heads, vision_head_dim, vision_intermediate,
+        decoder_hidden, _make_ptr(scratch),
+    )
+
+    # Output should be non-zero
+    var any_nonzero = False
+    for i in range(pooled_tokens * decoder_hidden):
+        if out[i] != 0.0:
+            any_nonzero = True
+            break
+    if not any_nonzero:
+        raise Error("Vision encoder output is all zeros")
+
+    # Verify token reduction: 9 patches → 1 output token
+    if pooled_tokens != 1:
+        raise Error("Expected 1 pooled token from 3x3 grid with kernel 3")
+
+    print("Vision encoder 1-layer test: OK (9 patches → 1 output token)")
+
+    # Keep alive
+    _ = patch_emb_w[0]
+    _ = pos_emb_w[0]
+    _ = post_norm_w[0]
+    _ = proj_w[0]
+    _ = q_w[0]
+    _ = k_w[0]
+    _ = v_w[0]
+    _ = o_w[0]
+    _ = fc1_w[0]
+    _ = fc2_w[0]
+    _ = ln1_w[0]
+    _ = ln2_w[0]
+    _ = patches[0]
+    _ = scratch[0]
+
+
 fn main() raises:
     test_vision_attention_output_shape()
     test_vision_attention_bidirectional()
     test_average_pool_reduction()
+    test_vision_encoder_1layer()
     print("All vision encoder tests passed!")
