@@ -142,16 +142,11 @@ class CoreBackend:
 
     def process_images(self, llm: object, images: Sequence[object]) -> None:
         """Process multimodal images through the vision encoder."""
-        if hasattr(self._core, "process_image"):
-            for image in images:
-                # ImageInput has patches, grid_h, grid_w attributes
-                if hasattr(image, "patches"):
-                    self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)
-                else:
-                    self._core.process_image(llm, image)
-        else:
-            msg = "Core module does not support process_image"
-            raise NotImplementedError(msg)
+        for image in images:
+            if hasattr(image, "patches"):
+                self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)
+            else:
+                self._core.process_image(llm, image)
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
         """Generate numerical embeddings from sequences of tokens."""
