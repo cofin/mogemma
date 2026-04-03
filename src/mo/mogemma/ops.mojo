@@ -6,9 +6,9 @@ from std.memory import UnsafePointer
 def geglu[
     nelts: Int = 16
 ](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    gate_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    up_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    gate_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    up_ptr: UnsafePointer[Float32, MutAnyOrigin],
     size: Int,
 ):
     """Applies the GEGLU activation function element-wise.
@@ -38,7 +38,7 @@ def geglu[
 @always_inline
 def gelu[
     nelts: Int = 16
-](out_ptr: UnsafePointer[Float32, MutExternalOrigin], x_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int,):
+](out_ptr: UnsafePointer[Float32, MutAnyOrigin], x_ptr: UnsafePointer[Float32, MutAnyOrigin], size: Int,):
     """Applies the standard GELU activation function element-wise.
 
     Computes 0.5 * x * (1 + erf(x / sqrt(2))) for each element.
@@ -58,8 +58,8 @@ def gelu[
 
 @always_inline
 def average_pool_2d(
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
     grid_h: Int,
     grid_w: Int,
     hidden_size: Int,
@@ -101,9 +101,9 @@ def average_pool_2d(
 def rope_rotate[
     nelts: Int = 16
 ](
-    vec_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    cos_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    sin_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    cos_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    sin_ptr: UnsafePointer[Float32, MutAnyOrigin],
     head_dim: Int,
 ):
     """Applies Rotary Positional Embedding (RoPE) to an attention head vector in place.
@@ -142,9 +142,9 @@ def rope_rotate[
 def vec_mat_mul[
     nelts: Int = 16
 ](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    w_ptr: UnsafePointer[Float32, MutExternalOrigin],  # transposed [out_dim, in_dim]
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Float32, MutAnyOrigin],  # transposed [out_dim, in_dim]
     in_dim: Int,
     out_dim: Int,
 ):
@@ -176,9 +176,9 @@ def vec_mat_mul[
 def mat_mat_mul[
     nelts: Int = 16
 ](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, in_dim]
-    w_ptr: UnsafePointer[Float32, MutExternalOrigin],  # transposed [out_dim, in_dim]
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [batch_size, in_dim]
+    w_ptr: UnsafePointer[Float32, MutAnyOrigin],  # transposed [out_dim, in_dim]
     batch_size: Int,
     in_dim: Int,
     out_dim: Int,
@@ -201,10 +201,10 @@ def mat_mat_mul[
 def vec_mat_mul_i8[
     nelts: Int = 16
 ](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    w_ptr: UnsafePointer[Int8, MutExternalOrigin],  # transposed [out_dim, in_dim]
-    scale_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [1] or [out_dim]
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Int8, MutAnyOrigin],  # transposed [out_dim, in_dim]
+    scale_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [1] or [out_dim]
     in_dim: Int,
     out_dim: Int,
 ):
@@ -241,10 +241,10 @@ def vec_mat_mul_i8[
 def mat_mat_mul_i8[
     nelts: Int = 16
 ](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [batch_size, in_dim]
-    w_ptr: UnsafePointer[Int8, MutExternalOrigin],  # transposed [out_dim, in_dim]
-    scale_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [1]
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [batch_size, in_dim]
+    w_ptr: UnsafePointer[Int8, MutAnyOrigin],  # transposed [out_dim, in_dim]
+    scale_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [1]
     batch_size: Int,
     in_dim: Int,
     out_dim: Int,
@@ -265,9 +265,9 @@ def mat_mat_mul_i8[
 def rms_norm[
     nelts: Int = 16
 ](
-    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
-    weight_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
     size: Int,
     eps: Float32 = 1e-6,
 ):
@@ -308,7 +308,7 @@ def rms_norm[
 
 
 @always_inline
-def softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int):
+def softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutAnyOrigin], size: Int):
     """Applies the softmax operation to a vector in place.
 
     Transforms the input values into a normalized probability distribution.
@@ -355,11 +355,11 @@ def softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin],
 
 @always_inline
 def top_k(
-    values_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    values_ptr: UnsafePointer[Float32, MutAnyOrigin],
     k: Int,
     size: Int,
-    out_indices_ptr: UnsafePointer[Int32, MutExternalOrigin],
-    out_values_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
+    out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
 ):
     """Find the k largest values and their indices from a vector.
 
@@ -379,3 +379,176 @@ def top_k(
                 best_idx = Int32(i)
         out_indices_ptr.store(sel, best_idx)
         out_values_ptr.store(sel, best_val)
+
+
+# ---------------------------------------------------------------------------
+# ComputeBackend trait — unified CPU/GPU dispatch contract
+# ---------------------------------------------------------------------------
+
+
+trait ComputeBackend:
+    """Dispatch contract for CPU and GPU math kernels.
+
+    Layers parameterize on this trait to avoid code duplication between
+    CPU and GPU paths. All pointer arguments use MutAnyOrigin so both
+    CPU heap pointers (MutExternalOrigin, which widens implicitly) and
+    GPU DeviceBuffer pointers work without casts.
+    """
+
+    @staticmethod
+    def vec_mat_mul(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int, out_dim: Int,
+    ): ...
+
+    @staticmethod
+    def mat_mat_mul(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        batch_size: Int, in_dim: Int, out_dim: Int,
+    ): ...
+
+    @staticmethod
+    def rms_norm(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int, eps: Float32,
+    ): ...
+
+    @staticmethod
+    def softmax(
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ): ...
+
+    @staticmethod
+    def rope_rotate(
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        cos_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        sin_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        head_dim: Int,
+    ): ...
+
+    @staticmethod
+    def geglu(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        gate_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        up_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ): ...
+
+    @staticmethod
+    def gelu(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ): ...
+
+    @staticmethod
+    def average_pool_2d(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        grid_h: Int, grid_w: Int, hidden_size: Int, kernel: Int,
+    ): ...
+
+    @staticmethod
+    def top_k(
+        values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k: Int, size: Int,
+        out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
+        out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    ): ...
+
+
+# ---------------------------------------------------------------------------
+# CPUBackend — delegates to the SIMD-vectorized free functions above
+# ---------------------------------------------------------------------------
+
+
+struct CPUBackend(ComputeBackend):
+    """CPU implementation of ComputeBackend.
+
+    Each method delegates to the corresponding @always_inline free function
+    defined above. Zero overhead — all calls inline through the trait.
+    """
+
+    @staticmethod
+    def vec_mat_mul(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int, out_dim: Int,
+    ):
+        vec_mat_mul(out_ptr, x_ptr, w_ptr, in_dim, out_dim)
+
+    @staticmethod
+    def mat_mat_mul(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        batch_size: Int, in_dim: Int, out_dim: Int,
+    ):
+        mat_mat_mul(out_ptr, x_ptr, w_ptr, batch_size, in_dim, out_dim)
+
+    @staticmethod
+    def rms_norm(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int, eps: Float32,
+    ):
+        rms_norm(out_ptr, x_ptr, weight_ptr, size, eps)
+
+    @staticmethod
+    def softmax(
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        softmax(vec_ptr, size)
+
+    @staticmethod
+    def rope_rotate(
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        cos_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        sin_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        head_dim: Int,
+    ):
+        rope_rotate(vec_ptr, cos_ptr, sin_ptr, head_dim)
+
+    @staticmethod
+    def geglu(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        gate_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        up_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        geglu(out_ptr, gate_ptr, up_ptr, size)
+
+    @staticmethod
+    def gelu(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        gelu(out_ptr, x_ptr, size)
+
+    @staticmethod
+    def average_pool_2d(
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        grid_h: Int, grid_w: Int, hidden_size: Int, kernel: Int,
+    ):
+        average_pool_2d(out_ptr, x_ptr, grid_h, grid_w, hidden_size, kernel)
+
+    @staticmethod
+    def top_k(
+        values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k: Int, size: Int,
+        out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
+        out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    ):
+        top_k(values_ptr, k, size, out_indices_ptr, out_values_ptr)
