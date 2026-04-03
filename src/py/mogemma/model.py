@@ -159,6 +159,19 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
     if isinstance(layer_types_raw, list):
         layer_types = [1 if lt == "full" else 0 for lt in layer_types_raw]
 
+    # Vision config (if present)
+    vision_config = config.get("vision_config")
+    if isinstance(vision_config, dict):
+        overrides["num_vision_layers"] = int(vision_config.get("num_hidden_layers", 0))
+        overrides["vision_hidden_size"] = int(vision_config.get("hidden_size", 0))
+        overrides["vision_num_heads"] = int(vision_config.get("num_attention_heads", 0))
+        overrides["vision_intermediate_size"] = int(vision_config.get("intermediate_size", 0))
+
+    # Image token ID
+    image_token_index = config.get("image_token_index")
+    if image_token_index is not None:
+        overrides["image_token_id"] = int(image_token_index)
+
     return overrides, layer_types
 
 

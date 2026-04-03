@@ -86,6 +86,9 @@ class GenerationConfig:
     top_p: float = 0.95
     """Top-p (nucleus) sampling parameter."""
 
+    max_image_tokens: int = 560
+    """Maximum token budget per image for vision preprocessing."""
+
     def __post_init__(self) -> None:
         """Validate configuration."""
         if self.temperature < 0:
