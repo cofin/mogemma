@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 import mogemma.model as model_module
-from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncGemmaModel
 
 
 class _FakeTokenizer:
@@ -129,7 +129,7 @@ def _run_generation(config: GenerationConfig, prompt: str, *, rounds: int, warmu
 
 def _run_embedding(config: EmbeddingConfig, texts: list[str], *, rounds: int) -> dict[str, object]:
     start = time.perf_counter()
-    model = EmbeddingModel(config)
+    model = SyncEmbeddingModel(config)
     for _ in range(rounds):
         _ = model.embed(texts)
     end = time.perf_counter()

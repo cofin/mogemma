@@ -12,7 +12,7 @@ from pathlib import Path
 # Ensure we import the local source tree instead of any installed wheel
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 
-from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncGemmaModel
 
 TEXT_MODEL_ID = "gemma3-270m-it"
 EMBED_MODEL_ID = "gemma3-270m-it"
@@ -77,7 +77,7 @@ def validate_embeddings(model_id: str, device: str = "cpu") -> None:
     config = EmbeddingConfig(model_path=model_id, device=device)
 
     try:
-        model = EmbeddingModel(config)
+        model = SyncEmbeddingModel(config)
         texts = ["The quick brown fox jumps over the lazy dog.", "MAX Engine is fast."]
         sys.stdout.write(f"Input: {texts}\n")
         embeddings = model.embed(texts)

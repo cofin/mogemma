@@ -59,9 +59,9 @@ cpu_model = SyncGemmaModel(
 ```
 
 ```python
-from mogemma import EmbeddingConfig, EmbeddingModel
+from mogemma import EmbeddingConfig, SyncEmbeddingModel
 
-embedding_model = EmbeddingModel(
+embedding_model = SyncEmbeddingModel(
     EmbeddingConfig(model_path="gemma3-270m-it", device="cpu")
 )
 ```
