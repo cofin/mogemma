@@ -403,3 +403,41 @@ struct GPUKVCache(Movable):
         var last = self.num_layers - 1
         var kv_stride = self.num_kv_heads * self.head_dim
         return self.layer_offsets[last] + self.layer_cache_sizes[last] * kv_stride
+
+
+struct GPUScratch(Movable):
+    """GPU-resident scratch buffer for intermediate computation results.
+
+    Sized using the same formula as the CPU scratch allocation in core.mojo.
+    """
+
+    var buf: DeviceBuffer[DType.float32]
+    var ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var size: Int
+
+    def __init__(
+        out self,
+        mut ctx: GPUContext,
+        hidden_size: Int,
+        max_seq_len: Int,
+        num_heads: Int,
+    ) raises:
+        """Allocate GPU scratch buffer using the standard sizing formula.
+
+        Args:
+            ctx: GPU context for allocation.
+            hidden_size: Model hidden dimension.
+            max_seq_len: Maximum sequence length.
+            num_heads: Number of attention heads.
+        """
+        # Match CPU scratch formula: max(step_scratch, embedding_scratch)
+        var step_len = hidden_size * 160 + max_seq_len * num_heads * 2
+        var emb_len = hidden_size * 180 + max_seq_len * num_heads * 2
+        self.size = step_len if step_len > emb_len else emb_len
+        self.buf = ctx.allocate_buffer[DType.float32](self.size)
+        self.ptr = self.buf.unsafe_ptr()
+
+    def __moveinit__(out self, owned other: Self):
+        self.buf = other.buf^
+        self.ptr = other.ptr
+        self.size = other.size

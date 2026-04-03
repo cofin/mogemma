@@ -11,7 +11,7 @@ from std.sys import has_accelerator
 from std.memory import UnsafePointer
 from std.collections import List
 
-from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache
+from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch
 
 
 def test_gpu_context_imports():
@@ -249,6 +249,27 @@ def test_gpu_kv_cache() raises:
         print("SKIP: test_gpu_kv_cache (no GPU)")
 
 
+def test_gpu_scratch() raises:
+    """Test GPU scratch buffer allocation matches CPU formula."""
+    comptime if has_accelerator():
+        var ctx = GPUContext()
+
+        # hidden=256, max_seq=1024, heads=8
+        var scratch = GPUScratch(ctx, hidden_size=256, max_seq_len=1024, num_heads=8)
+
+        # step_len = 256*160 + 1024*8*2 = 40960 + 16384 = 57344
+        # emb_len  = 256*180 + 1024*8*2 = 46080 + 16384 = 62464
+        # max = 62464
+        if scratch.size != 62464:
+            raise Error("GPU scratch size mismatch: got " + String(scratch.size) + " expected 62464")
+        print("GPUScratch allocated with correct size: " + String(scratch.size))
+
+        _ = scratch
+        ctx.cleanup()
+    else:
+        print("SKIP: test_gpu_scratch (no GPU)")
+
+
 def main() raises:
     test_gpu_context_imports()
     test_gpu_context_lifecycle()
@@ -260,4 +281,5 @@ def main() raises:
     test_weight_stage_upload_tensor()
     test_persistent_buffers()
     test_gpu_kv_cache()
+    test_gpu_scratch()
     print("All gpu_context tests passed")
