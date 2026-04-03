@@ -12,6 +12,7 @@ build/
 **/*.so
 .gemini
 .geminiignore
+.beads
 .claude
 .geminiignore
 .agent
