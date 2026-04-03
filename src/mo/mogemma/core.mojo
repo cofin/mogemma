@@ -930,17 +930,14 @@ fn step_mojo(
 
         # KV sharing map
         var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
-        var kv_map_ptr = UnsafePointer[Int, MutExternalOrigin](unsafe_from_address=0)
-        var kv_map_local = List[Int]()
+        var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=0)
+        var kv_map_local = List[Int64]()
         if num_kv_sharing > 0:
             var kv_map_obj = llm["_kv_sharing_map"]
-            var kv_map_raw = UnsafePointer[Int, MutExternalOrigin](
-                unsafe_from_address=Int(py=kv_map_obj.__array_interface__["data"][0])
-            )
             # Copy to local list for stable pointer
             for i in range(num_kv_sharing):
-                kv_map_local.append(Int(py=kv_map_obj[i]))
-            kv_map_ptr = UnsafePointer[Int, MutExternalOrigin](
+                kv_map_local.append(Int64(Int(py=kv_map_obj[i])))
+            kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](
                 unsafe_from_address=Int(kv_map_local.unsafe_ptr())
             )
 

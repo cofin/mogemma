@@ -79,9 +79,9 @@ fn forward_sliding_attention(
             rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
 
     # 2. Apply RoPE (sliding: theta=10K, full head_dim rotation)
-    var cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    (cos_ptr, sin_ptr) = rope_tables.get_sliding_freqs(pos)
+    var sliding_freqs = rope_tables.get_sliding_freqs(pos)
+    var cos_ptr = sliding_freqs.first
+    var sin_ptr = sliding_freqs.second
     for h in range(num_heads):
         rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
     for h in range(num_kv_heads):
@@ -91,12 +91,12 @@ fn forward_sliding_attention(
     kv_cache.write_kv(layer_idx, pos, k_ptr, v_ptr)
 
     # 4. Compute attention within sliding window
-    var valid_len: Int
-    var cache_size: Int
-    (valid_len, cache_size) = kv_cache.get_attention_range(layer_idx, pos)
-    var layer_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var layer_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    (layer_k_ptr, layer_v_ptr) = kv_cache.get_kv_ptrs(layer_idx)
+    var attn_range = kv_cache.get_attention_range(layer_idx, pos)
+    var valid_len = attn_range.first
+    var cache_size = attn_range.second
+    var kv_ptrs = kv_cache.get_kv_ptrs(layer_idx)
+    var layer_k_ptr = kv_ptrs.first
+    var layer_v_ptr = kv_ptrs.second
 
     var heads_per_kv = num_heads // num_kv_heads
     var scale = 1.0 / sqrt(Float32(head_dim))
@@ -193,9 +193,9 @@ fn forward_full_attention(
 
     # 2. Apply RoPE (full: theta=1M, partial rotation on first rotary_dim dims)
     var rotary_dim = rope_tables.rotary_dim
-    var cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    (cos_ptr, sin_ptr) = rope_tables.get_full_freqs(pos)
+    var full_freqs = rope_tables.get_full_freqs(pos)
+    var cos_ptr = full_freqs.first
+    var sin_ptr = full_freqs.second
     for h in range(num_heads):
         # Only rotate first rotary_dim dimensions of each head
         rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
@@ -207,9 +207,9 @@ fn forward_full_attention(
 
     # 4. Standard causal attention over all past positions
     var valid_len = pos + 1
-    var layer_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var layer_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    (layer_k_ptr, layer_v_ptr) = kv_cache.get_kv_ptrs(layer_idx)
+    var kv_ptrs = kv_cache.get_kv_ptrs(layer_idx)
+    var layer_k_ptr = kv_ptrs.first
+    var layer_v_ptr = kv_ptrs.second
 
     var heads_per_kv = num_heads // num_kv_heads
     var scale = 1.0 / sqrt(Float32(head_dim))
@@ -740,7 +740,7 @@ fn forward_gemma4_ple_step(
     rope_tables: RoPETables,
     k_eq_v: Bool,
     max_seq_len: Int,
-    kv_sharing_map_ptr: UnsafePointer[Int, MutExternalOrigin],
+    kv_sharing_map_ptr: UnsafePointer[Int64, MutExternalOrigin],
     num_kv_sharing_layers: Int,
     scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
 ):
@@ -758,7 +758,7 @@ fn forward_gemma4_ple_step(
             forward_ple_input(current_state, token_id, model.ple_layers[l], hidden_size, ple_dim, layer_scratch)
         var source_layer = -1
         if num_kv_sharing_layers > 0 and l < num_kv_sharing_layers:
-            source_layer = kv_sharing_map_ptr.load(l)
+            source_layer = Int(kv_sharing_map_ptr.load(l))
         if source_layer >= 0:
             forward_gemma4_layer(next_state, current_state, model.layers[l], source_layer, pos, hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size, kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch)
         else:
@@ -866,29 +866,29 @@ fn forward_moe_layer(
         for h in range(num_kv_heads):
             rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
     if kv_cache.layer_types[layer_idx] == LAYER_TYPE_SLIDING:
-        var cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
-        var sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
-        (cos_ptr, sin_ptr) = rope_tables.get_sliding_freqs(pos)
+        var sliding_freqs = rope_tables.get_sliding_freqs(pos)
+        var cos_ptr = sliding_freqs.first
+        var sin_ptr = sliding_freqs.second
         for h in range(num_heads):
             rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
         for h in range(num_kv_heads):
             rope_rotate(k_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
     else:
         var rotary_dim = rope_tables.rotary_dim
-        var cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
-        var sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
-        (cos_ptr, sin_ptr) = rope_tables.get_full_freqs(pos)
+        var full_freqs = rope_tables.get_full_freqs(pos)
+        var cos_ptr = full_freqs.first
+        var sin_ptr = full_freqs.second
         for h in range(num_heads):
             rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
         for h in range(num_kv_heads):
             rope_rotate(k_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
     kv_cache.write_kv(layer_idx, pos, k_ptr, v_ptr)
-    var valid_len: Int
-    var cache_size: Int
-    (valid_len, cache_size) = kv_cache.get_attention_range(layer_idx, pos)
-    var layer_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var layer_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    (layer_k_ptr, layer_v_ptr) = kv_cache.get_kv_ptrs(layer_idx)
+    var attn_range = kv_cache.get_attention_range(layer_idx, pos)
+    var valid_len = attn_range.first
+    var cache_size = attn_range.second
+    var kv_ptrs = kv_cache.get_kv_ptrs(layer_idx)
+    var layer_k_ptr = kv_ptrs.first
+    var layer_v_ptr = kv_ptrs.second
     var heads_per_kv = num_heads // num_kv_heads
     var scale = 1.0 / sqrt(Float32(head_dim))
     var attn_weighted_ptr = attn_scratch_ptr + q_size + kv_size + kv_size

@@ -2,6 +2,25 @@ from std.memory import UnsafePointer
 from std.math import cos, sin
 from std.collections import List
 
+# Result structs for functions that previously returned tuples
+
+
+@fieldwise_init
+struct PtrPair(Copyable, ImplicitlyCopyable, Movable):
+    """A pair of UnsafePointer[Float32] values, used in place of tuple returns."""
+
+    var first: UnsafePointer[Float32, MutExternalOrigin]
+    var second: UnsafePointer[Float32, MutExternalOrigin]
+
+
+@fieldwise_init
+struct IntPair(Copyable, ImplicitlyCopyable, Movable):
+    """A pair of Int values, used in place of tuple returns."""
+
+    var first: Int
+    var second: Int
+
+
 # Model Weight Definitions for Gemma 4
 
 
@@ -132,7 +151,6 @@ struct MoEExpertWeights(Copyable, ImplicitlyCopyable, Movable):
         self.down_proj = TensorInfo(0, 0, 0)
 
 
-@fieldwise_init
 struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
     """Weights for a single MoE transformer layer: attention + router + experts."""
 
@@ -162,6 +180,38 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.pre_feedforward_layernorm = TensorInfo(0, 0, 0)
         self.post_feedforward_layernorm = TensorInfo(0, 0, 0)
         self.experts = List[MoEExpertWeights]()
+
+    fn __init__(out self, *, copy: Self):
+        self.router = copy.router
+        self.q_proj = copy.q_proj
+        self.k_proj = copy.k_proj
+        self.v_proj = copy.v_proj
+        self.o_proj = copy.o_proj
+        self.q_norm = copy.q_norm
+        self.k_norm = copy.k_norm
+        self.input_layernorm = copy.input_layernorm
+        self.post_attention_layernorm = copy.post_attention_layernorm
+        self.pre_feedforward_layernorm = copy.pre_feedforward_layernorm
+        self.post_feedforward_layernorm = copy.post_feedforward_layernorm
+        self.experts = List[MoEExpertWeights]()
+        for i in range(len(copy.experts)):
+            self.experts.append(copy.experts[i])
+
+    fn __init__(out self, *, implicit_copy: Self):
+        self.router = implicit_copy.router
+        self.q_proj = implicit_copy.q_proj
+        self.k_proj = implicit_copy.k_proj
+        self.v_proj = implicit_copy.v_proj
+        self.o_proj = implicit_copy.o_proj
+        self.q_norm = implicit_copy.q_norm
+        self.k_norm = implicit_copy.k_norm
+        self.input_layernorm = implicit_copy.input_layernorm
+        self.post_attention_layernorm = implicit_copy.post_attention_layernorm
+        self.pre_feedforward_layernorm = implicit_copy.pre_feedforward_layernorm
+        self.post_feedforward_layernorm = implicit_copy.post_feedforward_layernorm
+        self.experts = List[MoEExpertWeights]()
+        for i in range(len(implicit_copy.experts)):
+            self.experts.append(implicit_copy.experts[i])
 
 
 @fieldwise_init
@@ -352,18 +402,13 @@ struct KVCache(Movable):
             v_dst.store(i, v_vec.load(i))
 
     @always_inline
-    fn get_kv_ptrs(
-        self, layer: Int
-    ) -> (
-        UnsafePointer[Float32, MutExternalOrigin],
-        UnsafePointer[Float32, MutExternalOrigin],
-    ):
+    fn get_kv_ptrs(self, layer: Int) -> PtrPair:
         """Returns (k_ptr, v_ptr) pointing to the start of this layer's cache region."""
         var offset = self.layer_offsets[layer]
-        return (self.k_ptr + offset, self.v_ptr + offset)
+        return PtrPair(self.k_ptr + offset, self.v_ptr + offset)
 
     @always_inline
-    fn get_attention_range(self, layer: Int, pos: Int) -> (Int, Int):
+    fn get_attention_range(self, layer: Int, pos: Int) -> IntPair:
         """Returns (valid_len, cache_size) for computing attention at the given position.
 
         For sliding layers: valid_len = min(pos + 1, window_size).
@@ -378,7 +423,7 @@ struct KVCache(Movable):
                 valid_len = pos + 1
             else:
                 valid_len = cache_size
-        return (valid_len, cache_size)
+        return IntPair(valid_len, cache_size)
 
     fn reset(mut self):
         """Zero all cache buffers."""
@@ -472,10 +517,7 @@ struct RoPETables(Movable):
         )
 
     @always_inline
-    fn get_sliding_freqs(self, pos: Int) -> (
-        UnsafePointer[Float32, MutExternalOrigin],
-        UnsafePointer[Float32, MutExternalOrigin],
-    ):
+    fn get_sliding_freqs(self, pos: Int) -> PtrPair:
         """Returns (cos_ptr, sin_ptr) for sliding-layer RoPE at given position.
 
         Position is taken mod the table size for ring buffer compatibility.
@@ -483,16 +525,13 @@ struct RoPETables(Movable):
         var half = self.head_dim // 2
         var table_pos = pos % (len(self.sliding_cos) // half)
         var offset = table_pos * half
-        return (self.sliding_cos_ptr + offset, self.sliding_sin_ptr + offset)
+        return PtrPair(self.sliding_cos_ptr + offset, self.sliding_sin_ptr + offset)
 
     @always_inline
-    fn get_full_freqs(self, pos: Int) -> (
-        UnsafePointer[Float32, MutExternalOrigin],
-        UnsafePointer[Float32, MutExternalOrigin],
-    ):
+    fn get_full_freqs(self, pos: Int) -> PtrPair:
         """Returns (cos_ptr, sin_ptr) for full-layer RoPE at given position."""
         var half = self.rotary_dim // 2
         var offset = pos * half
-        return (self.full_cos_ptr + offset, self.full_sin_ptr + offset)
+        return PtrPair(self.full_cos_ptr + offset, self.full_sin_ptr + offset)
 
 
