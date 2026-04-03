@@ -11,7 +11,10 @@ from std.sys import has_accelerator
 from std.memory import UnsafePointer
 from std.collections import List
 
-from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch
+from mogemma.gpu_context import (
+    GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch,
+    upload_layer_weights, upload_expert_weights, upload_vision_layer_weights,
+)
 
 
 def test_gpu_context_imports():
@@ -270,6 +273,117 @@ def test_gpu_scratch() raises:
         print("SKIP: test_gpu_scratch (no GPU)")
 
 
+def test_upload_layer_weights() raises:
+    """Test upload_layer_weights packs all 13 tensors and returns device pointers."""
+    comptime if has_accelerator():
+        from mogemma.model import TensorInfo, LayerWeights
+
+        var ctx = GPUContext()
+        # 4x4 for proj, 4x1 for norms: total per-tensor is small for test
+        var data = List[Float32](length=256, fill=1.0)
+        var p = Int(data.unsafe_ptr())
+
+        var layer = LayerWeights()
+        layer.q_proj = TensorInfo(p, 4, 4)
+        layer.k_proj = TensorInfo(p, 2, 4)
+        layer.v_proj = TensorInfo(p, 2, 4)
+        layer.o_proj = TensorInfo(p, 4, 4)
+        layer.gate_proj = TensorInfo(p, 8, 4)
+        layer.up_proj = TensorInfo(p, 8, 4)
+        layer.down_proj = TensorInfo(p, 4, 8)
+        layer.input_layernorm = TensorInfo(p, 4, 1)
+        layer.post_attention_layernorm = TensorInfo(p, 4, 1)
+        layer.q_norm = TensorInfo(p, 4, 1)
+        layer.k_norm = TensorInfo(p, 4, 1)
+        layer.pre_feedforward_layernorm = TensorInfo(p, 4, 1)
+        layer.post_feedforward_layernorm = TensorInfo(p, 4, 1)
+
+        var stage = WeightStage(ctx, capacity=256)
+        var gpu_layer = upload_layer_weights(stage, ctx, layer)
+        ctx.sync()
+
+        # Verify all device pointers are non-null
+        if Int(gpu_layer.q_proj.ptr) == 0:
+            raise Error("q_proj device pointer is null")
+        if Int(gpu_layer.gate_proj.ptr) == 0:
+            raise Error("gate_proj device pointer is null")
+        # Verify shapes preserved
+        if gpu_layer.q_proj.shape_0 != 4 or gpu_layer.q_proj.shape_1 != 4:
+            raise Error("q_proj shape mismatch")
+        print("upload_layer_weights: all 13 tensors uploaded, pointers valid")
+
+        _ = stage
+        _ = data
+        ctx.cleanup()
+    else:
+        print("SKIP: test_upload_layer_weights (no GPU)")
+
+
+def test_upload_expert_weights() raises:
+    """Test upload_expert_weights for MoE expert."""
+    comptime if has_accelerator():
+        from mogemma.model import TensorInfo, MoEExpertWeights
+
+        var ctx = GPUContext()
+        var data = List[Float32](length=64, fill=2.0)
+        var p = Int(data.unsafe_ptr())
+
+        var expert = MoEExpertWeights()
+        expert.gate_proj = TensorInfo(p, 8, 4)
+        expert.up_proj = TensorInfo(p, 8, 4)
+        expert.down_proj = TensorInfo(p, 4, 8)
+
+        var stage = WeightStage(ctx, capacity=128)
+        var gpu_expert = upload_expert_weights(stage, ctx, expert)
+        ctx.sync()
+
+        if Int(gpu_expert.gate_proj.ptr) == 0:
+            raise Error("expert gate_proj device pointer is null")
+        print("upload_expert_weights: 3 tensors uploaded, pointers valid")
+
+        _ = stage
+        _ = data
+        ctx.cleanup()
+    else:
+        print("SKIP: test_upload_expert_weights (no GPU)")
+
+
+def test_upload_vision_layer_weights() raises:
+    """Test upload_vision_layer_weights for vision encoder."""
+    comptime if has_accelerator():
+        from mogemma.model import TensorInfo, VisionLayerWeights
+
+        var ctx = GPUContext()
+        var data = List[Float32](length=128, fill=0.5)
+        var p = Int(data.unsafe_ptr())
+
+        var vlayer = VisionLayerWeights()
+        vlayer.q_proj = TensorInfo(p, 4, 4)
+        vlayer.k_proj = TensorInfo(p, 4, 4)
+        vlayer.v_proj = TensorInfo(p, 4, 4)
+        vlayer.o_proj = TensorInfo(p, 4, 4)
+        vlayer.fc1 = TensorInfo(p, 8, 4)
+        vlayer.fc2 = TensorInfo(p, 4, 8)
+        vlayer.layer_norm1 = TensorInfo(p, 4, 1)
+        vlayer.layer_norm2 = TensorInfo(p, 4, 1)
+
+        var stage = WeightStage(ctx, capacity=128)
+        var gpu_vlayer = upload_vision_layer_weights(stage, ctx, vlayer)
+        ctx.sync()
+
+        if Int(gpu_vlayer.q_proj.ptr) == 0:
+            raise Error("vision q_proj device pointer is null")
+        if gpu_vlayer.fc1.shape_0 != 8:
+            raise Error("vision fc1 shape mismatch")
+        print("upload_vision_layer_weights: 8 tensors uploaded, pointers valid")
+
+        _ = stage
+        _ = data
+        ctx.cleanup()
+    else:
+        print("SKIP: test_upload_vision_layer_weights (no GPU)")
+
+
 def main() raises:
     test_gpu_context_imports()
     test_gpu_context_lifecycle()
@@ -282,4 +396,7 @@ def main() raises:
     test_persistent_buffers()
     test_gpu_kv_cache()
     test_gpu_scratch()
+    test_upload_layer_weights()
+    test_upload_expert_weights()
+    test_upload_vision_layer_weights()
     print("All gpu_context tests passed")

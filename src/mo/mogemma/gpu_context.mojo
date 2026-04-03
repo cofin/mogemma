@@ -441,3 +441,138 @@ struct GPUScratch(Movable):
         self.buf = other.buf^
         self.ptr = other.ptr
         self.size = other.size
+
+
+# ── Layer Weight Upload Functions ─────────────────────────────────────────────
+
+
+def _tensor_from_device_ptr(
+    ptr: UnsafePointer[Float32, MutAnyOrigin], shape_0: Int, shape_1: Int
+) -> TensorInfo:
+    """Create a TensorInfo pointing to device memory."""
+    return TensorInfo(Int(ptr), shape_0, shape_1)
+
+
+def upload_layer_weights(
+    mut stage: WeightStage, mut ctx: GPUContext, layer: LayerWeights
+) raises -> LayerWeights:
+    """Upload all tensors in a dense LayerWeights to the device staging buffer.
+
+    Packs all 13 layer tensors contiguously into the staging buffer, performs
+    one host→device copy, and returns a new LayerWeights with device pointers.
+
+    Args:
+        stage: Reusable staging buffer (reset and packed per call).
+        ctx: GPU context for the transfer.
+        layer: Source LayerWeights with CPU/mmap pointers.
+
+    Returns:
+        A new LayerWeights where all tensor pointers reference device memory.
+    """
+    stage.reset()
+
+    # Pack all tensors into host staging buffer
+    var q_off = stage._pack_tensor(layer.q_proj)
+    var k_off = stage._pack_tensor(layer.k_proj)
+    var v_off = stage._pack_tensor(layer.v_proj)
+    var o_off = stage._pack_tensor(layer.o_proj)
+    var gate_off = stage._pack_tensor(layer.gate_proj)
+    var up_off = stage._pack_tensor(layer.up_proj)
+    var down_off = stage._pack_tensor(layer.down_proj)
+    var in_norm_off = stage._pack_tensor(layer.input_layernorm)
+    var post_attn_off = stage._pack_tensor(layer.post_attention_layernorm)
+    var q_norm_off = stage._pack_tensor(layer.q_norm)
+    var k_norm_off = stage._pack_tensor(layer.k_norm)
+    var pre_ff_off = stage._pack_tensor(layer.pre_feedforward_layernorm)
+    var post_ff_off = stage._pack_tensor(layer.post_feedforward_layernorm)
+
+    # Single host→device copy
+    ctx.upload(stage.device_buf, stage.host_buf)
+
+    # Build new LayerWeights with device pointers
+    var base = stage.device_buf.unsafe_ptr()
+    var result = LayerWeights()
+    result.q_proj = _tensor_from_device_ptr(base + q_off, layer.q_proj.shape_0, layer.q_proj.shape_1)
+    result.k_proj = _tensor_from_device_ptr(base + k_off, layer.k_proj.shape_0, layer.k_proj.shape_1)
+    result.v_proj = _tensor_from_device_ptr(base + v_off, layer.v_proj.shape_0, layer.v_proj.shape_1)
+    result.o_proj = _tensor_from_device_ptr(base + o_off, layer.o_proj.shape_0, layer.o_proj.shape_1)
+    result.gate_proj = _tensor_from_device_ptr(base + gate_off, layer.gate_proj.shape_0, layer.gate_proj.shape_1)
+    result.up_proj = _tensor_from_device_ptr(base + up_off, layer.up_proj.shape_0, layer.up_proj.shape_1)
+    result.down_proj = _tensor_from_device_ptr(base + down_off, layer.down_proj.shape_0, layer.down_proj.shape_1)
+    result.input_layernorm = _tensor_from_device_ptr(base + in_norm_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1)
+    result.post_attention_layernorm = _tensor_from_device_ptr(base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1)
+    result.q_norm = _tensor_from_device_ptr(base + q_norm_off, layer.q_norm.shape_0, layer.q_norm.shape_1)
+    result.k_norm = _tensor_from_device_ptr(base + k_norm_off, layer.k_norm.shape_0, layer.k_norm.shape_1)
+    result.pre_feedforward_layernorm = _tensor_from_device_ptr(base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1)
+    result.post_feedforward_layernorm = _tensor_from_device_ptr(base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1)
+    return result
+
+
+def upload_expert_weights(
+    mut stage: WeightStage, mut ctx: GPUContext, expert: MoEExpertWeights
+) raises -> MoEExpertWeights:
+    """Upload a single MoE expert's weights (gate/up/down_proj) to device staging.
+
+    Only called for the 8 selected experts per token, not all 128.
+
+    Args:
+        stage: Reusable staging buffer.
+        ctx: GPU context for the transfer.
+        expert: Source expert weights with CPU/mmap pointers.
+
+    Returns:
+        A new MoEExpertWeights with device pointers.
+    """
+    stage.reset()
+
+    var gate_off = stage._pack_tensor(expert.gate_proj)
+    var up_off = stage._pack_tensor(expert.up_proj)
+    var down_off = stage._pack_tensor(expert.down_proj)
+
+    ctx.upload(stage.device_buf, stage.host_buf)
+
+    var base = stage.device_buf.unsafe_ptr()
+    var result = MoEExpertWeights()
+    result.gate_proj = _tensor_from_device_ptr(base + gate_off, expert.gate_proj.shape_0, expert.gate_proj.shape_1)
+    result.up_proj = _tensor_from_device_ptr(base + up_off, expert.up_proj.shape_0, expert.up_proj.shape_1)
+    result.down_proj = _tensor_from_device_ptr(base + down_off, expert.down_proj.shape_0, expert.down_proj.shape_1)
+    return result
+
+
+def upload_vision_layer_weights(
+    mut stage: WeightStage, mut ctx: GPUContext, layer: VisionLayerWeights
+) raises -> VisionLayerWeights:
+    """Upload a vision transformer layer's weights to device staging.
+
+    Args:
+        stage: Reusable staging buffer.
+        ctx: GPU context for the transfer.
+        layer: Source vision layer weights with CPU/mmap pointers.
+
+    Returns:
+        A new VisionLayerWeights with device pointers.
+    """
+    stage.reset()
+
+    var q_off = stage._pack_tensor(layer.q_proj)
+    var k_off = stage._pack_tensor(layer.k_proj)
+    var v_off = stage._pack_tensor(layer.v_proj)
+    var o_off = stage._pack_tensor(layer.o_proj)
+    var fc1_off = stage._pack_tensor(layer.fc1)
+    var fc2_off = stage._pack_tensor(layer.fc2)
+    var ln1_off = stage._pack_tensor(layer.layer_norm1)
+    var ln2_off = stage._pack_tensor(layer.layer_norm2)
+
+    ctx.upload(stage.device_buf, stage.host_buf)
+
+    var base = stage.device_buf.unsafe_ptr()
+    var result = VisionLayerWeights()
+    result.q_proj = _tensor_from_device_ptr(base + q_off, layer.q_proj.shape_0, layer.q_proj.shape_1)
+    result.k_proj = _tensor_from_device_ptr(base + k_off, layer.k_proj.shape_0, layer.k_proj.shape_1)
+    result.v_proj = _tensor_from_device_ptr(base + v_off, layer.v_proj.shape_0, layer.v_proj.shape_1)
+    result.o_proj = _tensor_from_device_ptr(base + o_off, layer.o_proj.shape_0, layer.o_proj.shape_1)
+    result.fc1 = _tensor_from_device_ptr(base + fc1_off, layer.fc1.shape_0, layer.fc1.shape_1)
+    result.fc2 = _tensor_from_device_ptr(base + fc2_off, layer.fc2.shape_0, layer.fc2.shape_1)
+    result.layer_norm1 = _tensor_from_device_ptr(base + ln1_off, layer.layer_norm1.shape_0, layer.layer_norm1.shape_1)
+    result.layer_norm2 = _tensor_from_device_ptr(base + ln2_off, layer.layer_norm2.shape_0, layer.layer_norm2.shape_1)
+    return result
