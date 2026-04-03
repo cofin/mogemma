@@ -18,6 +18,7 @@ UNSTABLE_MOJO_TESTS = {"test_layers.mojo"}
         "test_ops.mojo",
         "test_arena.mojo",
         "test_arena_init.mojo",
+        "test_vision_model.mojo",
     ],
 )
 def test_mojo_unit_tests(test_file: str) -> None:

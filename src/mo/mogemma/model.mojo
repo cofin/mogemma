@@ -100,6 +100,48 @@ struct ModelWeights(Movable):
             out_ptr.store(i, src_ptr.load(i))
 
 
+@fieldwise_init
+struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
+    """Container for all learnable parameter tensors within a single vision transformer layer."""
+
+    var q_proj: TensorInfo
+    var k_proj: TensorInfo
+    var v_proj: TensorInfo
+    var o_proj: TensorInfo
+    var fc1: TensorInfo
+    var fc2: TensorInfo
+    var layer_norm1: TensorInfo
+    var layer_norm2: TensorInfo
+
+    fn __init__(out self):
+        self.q_proj = TensorInfo(0, 0, 0)
+        self.k_proj = TensorInfo(0, 0, 0)
+        self.v_proj = TensorInfo(0, 0, 0)
+        self.o_proj = TensorInfo(0, 0, 0)
+        self.fc1 = TensorInfo(0, 0, 0)
+        self.fc2 = TensorInfo(0, 0, 0)
+        self.layer_norm1 = TensorInfo(0, 0, 0)
+        self.layer_norm2 = TensorInfo(0, 0, 0)
+
+
+@fieldwise_init
+struct VisionModelWeights(Movable):
+    """Top-level container for all vision encoder weights including patch/position embeddings and projection."""
+
+    var patch_embedding: TensorInfo
+    var position_embedding: TensorInfo
+    var post_norm: TensorInfo
+    var projection: TensorInfo
+    var layers: List[VisionLayerWeights]
+
+    fn __init__(out self):
+        self.patch_embedding = TensorInfo(0, 0, 0)
+        self.position_embedding = TensorInfo(0, 0, 0)
+        self.post_norm = TensorInfo(0, 0, 0)
+        self.projection = TensorInfo(0, 0, 0)
+        self.layers = List[VisionLayerWeights]()
+
+
 # Layer type constants for KVCache
 alias LAYER_TYPE_SLIDING: UInt8 = 0
 alias LAYER_TYPE_FULL: UInt8 = 1
