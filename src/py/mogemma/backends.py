@@ -105,6 +105,10 @@ class GenerationBackend(Protocol):
         """Process multimodal images through the vision encoder."""
         ...
 
+    def process_audio(self, llm: object, audio_inputs: Sequence[object]) -> None:
+        """Process audio inputs through the audio encoder."""
+        ...
+
 
 class EmbeddingBackend(Protocol):
     """Contract for embedding backends."""
@@ -147,6 +151,14 @@ class CoreBackend:
                 self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)
             else:
                 self._core.process_image(llm, image)
+
+    def process_audio(self, llm: object, audio_inputs: Sequence[object]) -> None:
+        """Process audio inputs through the audio encoder."""
+        for audio_input in audio_inputs:
+            if hasattr(audio_input, "features"):
+                self._core.process_audio(llm, audio_input.features, audio_input.num_tokens)
+            else:
+                self._core.process_audio(llm, audio_input, 0)
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
         """Generate numerical embeddings from sequences of tokens."""

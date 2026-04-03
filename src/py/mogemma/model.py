@@ -661,20 +661,30 @@ class SyncGemmaModel:
                 return int(token_id)
         return None
 
+    def _get_audio_token_id(self) -> int | None:
+        """Get the audio placeholder token ID from the LLM config, if audio is enabled."""
+        if isinstance(self._llm, dict):
+            token_id = self._llm.get("audio_token_id", 0)
+            if token_id and int(token_id) > 0:
+                return int(token_id)
+        return None
+
     def generate(
         self,
         prompt: str,
         images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
         *,
         system_prompt: str | None = None,
     ) -> str:
         """Generate text from the given prompt."""
-        return "".join(list(self.generate_stream(prompt, images=images, system_prompt=system_prompt)))
+        return "".join(list(self.generate_stream(prompt, images=images, audio=audio, system_prompt=system_prompt)))
 
     def generate_stream(
         self,
         prompt: str,
         images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
         *,
         system_prompt: str | None = None,
     ) -> Generator[str, None, None]:
@@ -701,18 +711,33 @@ class SyncGemmaModel:
         if images is not None:
             hydrated = ImageHydrator().hydrate(images)
             self._backend.process_images(self._llm, hydrated)
-            # Retrieve stored vision embeddings for token merging
             if isinstance(self._llm, dict):
                 vision_embeddings = list(self._llm.get("vision_embeddings", []))
 
-        # Prefill with token merging: replace <image> placeholders with vision embeddings
+        # Process audio through audio encoder if provided
+        audio_token_id = self._get_audio_token_id()
+        audio_embeddings: list[object] = []
+        if audio is not None:
+            from .hydration import AudioHydrator
+
+            audio_hydrated = AudioHydrator().hydrate(audio)
+            self._backend.process_audio(self._llm, audio_hydrated)
+            if isinstance(self._llm, dict):
+                audio_embeddings = list(self._llm.get("audio_embeddings", []))
+
+        # Prefill with token merging: replace <image>/<audio> placeholders with embeddings
         vision_idx = 0
+        audio_idx = 0
         for t in tokens[:-1]:
-            if image_token_id is not None and int(t) == image_token_id and vision_idx < len(vision_embeddings):
+            tok = int(t)
+            if image_token_id is not None and tok == image_token_id and vision_idx < len(vision_embeddings):
                 self._backend.step_with_embedding(self._llm, vision_embeddings[vision_idx])
                 vision_idx += 1
+            elif audio_token_id is not None and tok == audio_token_id and audio_idx < len(audio_embeddings):
+                self._backend.step_with_embedding(self._llm, audio_embeddings[audio_idx])
+                audio_idx += 1
             else:
-                self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
+                self._backend.step(self._llm, tok, self.config.temperature, self.config.top_k, self.config.top_p)
 
         if tokens:
             current_token = int(tokens[-1])
@@ -783,21 +808,23 @@ class AsyncGemmaModel:
         self,
         prompt: str,
         images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
         *,
         system_prompt: str | None = None,
     ) -> str:
         """Generate text asynchronously."""
-        return await asyncio.to_thread(self._model.generate, prompt, images, system_prompt=system_prompt)
+        return await asyncio.to_thread(self._model.generate, prompt, images, audio, system_prompt=system_prompt)
 
     async def generate_stream(
         self,
         prompt: str,
         images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
         *,
         system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
-        generator = self._model.generate_stream(prompt, images=images, system_prompt=system_prompt)
+        generator = self._model.generate_stream(prompt, images=images, audio=audio, system_prompt=system_prompt)
 
         def get_next() -> str | None:
             try:

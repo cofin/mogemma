@@ -16,7 +16,7 @@ from mogemma.model import (
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.layers import forward_gemma4_step, forward_gemma4_step_with_embedding, forward_vision_encoder
+from mogemma.layers import forward_gemma4_step, forward_gemma4_step_with_embedding, forward_vision_encoder, forward_audio_encoder
 from mogemma.ops import rms_norm, vec_mat_mul
 
 
@@ -527,6 +527,7 @@ def _init_model_impl_mojo(
     py_dict["image_token_id"] = image_token_id
     py_dict["_vision_weights_ptr"] = 0
     py_dict["vision_embeddings"] = Python.list()
+    py_dict["audio_embeddings"] = Python.list()
 
     if num_vision_layers > 0:
         var vision_runtime = _build_vision_runtime(metadata_obj, num_vision_layers)
@@ -763,6 +764,63 @@ fn process_image_mojo(
         vision_embeddings.append(token_emb)
 
     return PythonObject(pooled_tokens)
+
+
+fn process_audio_mojo(
+    llm: PythonObject,
+    features_obj: PythonObject,
+    num_frames_obj: PythonObject,
+) raises -> PythonObject:
+    """Process mel spectrogram features through the audio encoder.
+
+    Stores resulting audio embeddings in llm['audio_embeddings'] list.
+    Returns the number of output tokens.
+    """
+    var np = Python.import_module("numpy")
+    var builtins = Python.import_module("builtins")
+
+    var hidden_size = Int(py=llm["hidden_size"])
+    var num_frames = Int(py=num_frames_obj)
+
+    # Audio encoder config (read from llm dict)
+    var audio_hidden_size = Int(py=builtins.getattr(llm, "get")("audio_hidden_size", 0))
+    var audio_num_heads = Int(py=builtins.getattr(llm, "get")("audio_num_heads", 0))
+    var audio_intermediate_size = Int(py=builtins.getattr(llm, "get")("audio_intermediate_size", 0))
+    var n_mels = Int(py=builtins.getattr(llm, "get")("audio_n_mels", 80))
+
+    if audio_hidden_size == 0:
+        raise Error("No audio encoder configured")
+
+    var audio_head_dim = audio_hidden_size // audio_num_heads if audio_num_heads > 0 else 0
+
+    # Read features as float32 [n_mels, num_frames] flattened row-major
+    # We need to transpose to [num_frames, n_mels] for processing
+    var features = np.asarray(features_obj, dtype=np.float32)
+    var features_t = features.T.copy()  # [num_frames, n_mels] → contiguous
+    var features_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=features_t.__array_interface__["data"][0])
+    )
+
+    # Output: [num_tokens, hidden_size] — num_tokens may be reduced by conv downsampling
+    var out_tokens = num_frames  # will be reduced by conv layers
+    var out_np = np.zeros(Python.tuple(out_tokens, hidden_size), dtype=np.float32)
+    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=out_np.__array_interface__["data"][0])
+    )
+
+    # Store audio embeddings as individual token vectors
+    var audio_embeddings = builtins.getattr(llm, "get")("audio_embeddings")
+    if not builtins.bool(audio_embeddings):
+        audio_embeddings = Python.list()
+        llm["audio_embeddings"] = audio_embeddings
+
+    for t in range(out_tokens):
+        var token_emb = np.zeros(hidden_size, dtype=np.float32)
+        for d in range(hidden_size):
+            _ = token_emb.__setitem__(d, value=out_np[t][d])
+        audio_embeddings.append(token_emb)
+
+    return PythonObject(out_tokens)
 
 
 fn step_with_embedding_mojo(
@@ -1004,6 +1062,7 @@ fn PyInit__core() -> PythonObject:
         b.def_function[reset_cache_mojo]("reset_cache")
         b.def_function[test_ffi_mojo]("test_ffi")
         b.def_function[process_image_mojo]("process_image")
+        b.def_function[process_audio_mojo]("process_audio")
         b.def_function[step_with_embedding_mojo]("step_with_embedding")
         return b.finalize()
     except e:
