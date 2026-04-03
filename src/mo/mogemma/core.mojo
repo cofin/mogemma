@@ -8,13 +8,15 @@ from std.collections import List
 from mogemma.model import (
     ModelWeights,
     LayerWeights,
+    VisionLayerWeights,
+    VisionModelWeights,
     TensorInfo,
     KVCache,
     RoPETables,
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.layers import forward_gemma4_step
+from mogemma.layers import forward_gemma4_step, forward_vision_encoder
 from mogemma.ops import rms_norm, vec_mat_mul
 
 
@@ -318,6 +320,99 @@ fn _hydrate_model_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_
     return m^
 
 
+# ── Vision Weight Loading ──────────────────────────────────────────────────
+
+fn _build_vision_runtime(metadata_obj: PythonObject, num_vision_layers: Int) raises -> PythonObject:
+    var builtins = Python.import_module("builtins")
+    var runtime = Python.dict()
+
+    runtime["patch_embedding"] = metadata_obj.get("vision_tower.vision_model.embeddings.patch_embedding.weight")
+    runtime["position_embedding"] = metadata_obj.get("vision_tower.vision_model.embeddings.position_embedding.weight")
+    runtime["post_norm"] = metadata_obj.get("vision_tower.vision_model.post_layernorm.weight")
+    runtime["projection"] = metadata_obj.get("multi_modal_projector.linear.weight")
+
+    var layers = Python.list()
+    for i in range(num_vision_layers):
+        var pfx = "vision_tower.vision_model.encoder.layers." + String(i)
+        var layer_entry = Python.list()
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.q_proj.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.k_proj.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.v_proj.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".self_attn.out_proj.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.fc1.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.fc2.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".layer_norm1.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".layer_norm2.weight"))
+        layers.append(layer_entry)
+
+    runtime["layers"] = layers
+    return runtime
+
+
+fn _build_vision_from_runtime(runtime_obj: PythonObject, num_vision_layers: Int) raises -> VisionModelWeights:
+    var vm = VisionModelWeights()
+    vm.patch_embedding = _tensor_from_meta(runtime_obj["patch_embedding"], PythonObject())
+    vm.position_embedding = _tensor_from_meta(runtime_obj["position_embedding"], PythonObject())
+    vm.post_norm = _tensor_from_meta(runtime_obj["post_norm"], PythonObject())
+    vm.projection = _tensor_from_meta(runtime_obj["projection"], PythonObject())
+
+    var layers = runtime_obj["layers"]
+    for i in range(num_vision_layers):
+        var entry = layers[i]
+        var vl = VisionLayerWeights()
+        vl.q_proj = _tensor_from_meta(entry[0], PythonObject())
+        vl.k_proj = _tensor_from_meta(entry[1], PythonObject())
+        vl.v_proj = _tensor_from_meta(entry[2], PythonObject())
+        vl.o_proj = _tensor_from_meta(entry[3], PythonObject())
+        vl.fc1 = _tensor_from_meta(entry[4], PythonObject())
+        vl.fc2 = _tensor_from_meta(entry[5], PythonObject())
+        vl.layer_norm1 = _tensor_from_meta(entry[6], PythonObject())
+        vl.layer_norm2 = _tensor_from_meta(entry[7], PythonObject())
+        vm.layers.append(vl^)
+
+    return vm^
+
+
+fn _flatten_vision_weights(vm: VisionModelWeights) -> List[Int]:
+    var appender = Appender()
+    appender.append(vm.patch_embedding)
+    appender.append(vm.position_embedding)
+    appender.append(vm.post_norm)
+    appender.append(vm.projection)
+    for i in range(len(vm.layers)):
+        var layer = vm.layers[i]
+        appender.append(layer.q_proj)
+        appender.append(layer.k_proj)
+        appender.append(layer.v_proj)
+        appender.append(layer.o_proj)
+        appender.append(layer.fc1)
+        appender.append(layer.fc2)
+        appender.append(layer.layer_norm1)
+        appender.append(layer.layer_norm2)
+    return appender.finish()
+
+
+fn _hydrate_vision_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_vision_layers: Int) -> VisionModelWeights:
+    var vm = VisionModelWeights()
+    var h = Hydrator(ptr_array)
+    vm.patch_embedding = h.next()
+    vm.position_embedding = h.next()
+    vm.post_norm = h.next()
+    vm.projection = h.next()
+    for _ in range(num_vision_layers):
+        var vl = VisionLayerWeights()
+        vl.q_proj = h.next()
+        vl.k_proj = h.next()
+        vl.v_proj = h.next()
+        vl.o_proj = h.next()
+        vl.fc1 = h.next()
+        vl.fc2 = h.next()
+        vl.layer_norm1 = h.next()
+        vl.layer_norm2 = h.next()
+        vm.layers.append(vl^)
+    return vm^
+
+
 # ── Gemma 4 Runtime Init ───────────────────────────────────────────────────
 
 def _init_model_impl_mojo(
@@ -361,11 +456,15 @@ def _init_model_impl_mojo(
     py_dict["_tensor_pointers"] = ptrs_np
 
     # Read Gemma 4 architecture config from overrides
-    # Python side parses config.json and passes these through
     var max_seq_len = 8192
     var window_size = 1024
     var partial_rotary_factor: Float32 = 0.5
     var k_eq_v = False
+    var num_vision_layers = 0
+    var vision_hidden_size = 0
+    var vision_num_heads = 0
+    var vision_intermediate_size = 0
+    var image_token_id = 0
 
     if Int(py=builtins.len(architecture_overrides_obj)) > 0:
         if builtins.bool(architecture_overrides_obj.get("max_seq_len")):
@@ -376,6 +475,16 @@ def _init_model_impl_mojo(
             partial_rotary_factor = Float32(py=architecture_overrides_obj["partial_rotary_factor"])
         if builtins.bool(architecture_overrides_obj.get("k_eq_v")):
             k_eq_v = Int(py=architecture_overrides_obj["k_eq_v"]) != 0
+        if builtins.bool(architecture_overrides_obj.get("num_vision_layers")):
+            num_vision_layers = Int(py=architecture_overrides_obj["num_vision_layers"])
+        if builtins.bool(architecture_overrides_obj.get("vision_hidden_size")):
+            vision_hidden_size = Int(py=architecture_overrides_obj["vision_hidden_size"])
+        if builtins.bool(architecture_overrides_obj.get("vision_num_heads")):
+            vision_num_heads = Int(py=architecture_overrides_obj["vision_num_heads"])
+        if builtins.bool(architecture_overrides_obj.get("vision_intermediate_size")):
+            vision_intermediate_size = Int(py=architecture_overrides_obj["vision_intermediate_size"])
+        if builtins.bool(architecture_overrides_obj.get("image_token_id")):
+            image_token_id = Int(py=architecture_overrides_obj["image_token_id"])
 
     # Parse layer_types from overrides — passed as a Python list of ints (0=sliding, 1=full)
     var layer_types_list = List[UInt8](length=num_layers, fill=UInt8(LAYER_TYPE_SLIDING))
@@ -408,9 +517,33 @@ def _init_model_impl_mojo(
     rope_tables_ptr.init_pointee_move(rope_tables^)
     py_dict["_rope_tables_ptr"] = Int(rope_tables_ptr)
 
-    # Keep layer_types_list alive — it's referenced by KVCache
-    # Actually KVCache copies it into its own List, so we're fine
     _ = layer_types_list
+
+    # Build vision weights if vision layers are present
+    py_dict["num_vision_layers"] = num_vision_layers
+    py_dict["vision_hidden_size"] = vision_hidden_size
+    py_dict["vision_num_heads"] = vision_num_heads
+    py_dict["vision_intermediate_size"] = vision_intermediate_size
+    py_dict["image_token_id"] = image_token_id
+    py_dict["_vision_weights_ptr"] = 0
+    py_dict["vision_embeddings"] = Python.list()
+
+    if num_vision_layers > 0:
+        var vision_runtime = _build_vision_runtime(metadata_obj, num_vision_layers)
+        var vision_weights = _build_vision_from_runtime(vision_runtime, num_vision_layers)
+
+        var v_ptrs = _flatten_vision_weights(vision_weights)
+        var v_ptrs_np = np.zeros(len(v_ptrs), dtype=np.uint64)
+        for i in range(len(v_ptrs)):
+            v_ptrs_np[i] = v_ptrs[i]
+        py_dict["_vision_tensor_pointers"] = v_ptrs_np
+        py_dict["vision_runtime"] = vision_runtime
+
+        # Infer vision head_dim
+        if vision_num_heads > 0 and vision_hidden_size > 0:
+            py_dict["vision_head_dim"] = vision_hidden_size // vision_num_heads
+        else:
+            py_dict["vision_head_dim"] = 0
 
     # Allocate scratch memory
     var step_scratch_len = _step_scratch_len(hidden_size, max_seq_len, num_heads)
