@@ -39,6 +39,12 @@ _BUDGET_KEYS = sorted(TOKEN_BUDGETS.keys())
 # Video file extensions
 VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".avi", ".mov", ".gif"})
 
+# Audio file extensions
+AUDIO_EXTENSIONS = frozenset({".wav"})
+
+# Audio constants
+AUDIO_SEQ_LENGTH = 750  # max audio tokens
+
 
 @dataclass
 class ImageInput:
@@ -48,6 +54,14 @@ class ImageInput:
     grid_h: int  # number of patch rows
     grid_w: int  # number of patch columns
     num_tokens: int  # grid_h * grid_w
+
+
+@dataclass
+class AudioInput:
+    """Preprocessed audio ready for the audio encoder."""
+
+    features: npt.NDArray[np.float32]  # [n_mels, num_frames]
+    num_tokens: int  # min(num_frames, AUDIO_SEQ_LENGTH)
 
 
 def select_token_budget(
@@ -237,3 +251,42 @@ class ImageHydrator:
                 "Pre-decoded numpy uint8 RGB arrays do not require the vision extra."
             )
             raise ImportError(msg) from None
+
+
+class AudioHydrator:
+    """Handles loading and feature extraction for Gemma 4 audio inputs."""
+
+    def hydrate(
+        self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]
+    ) -> list[AudioInput]:
+        """Convert audio inputs into preprocessed AudioInput objects."""
+        from .audio import extract_audio_features, mel_spectrogram
+
+        results: list[AudioInput] = []
+        for item in inputs:
+            if isinstance(item, np.ndarray):
+                if item.dtype == np.float32 and item.ndim == 1:
+                    mel = mel_spectrogram(item)
+                    num_tokens = min(mel.shape[1], AUDIO_SEQ_LENGTH)
+                    if mel.shape[1] < AUDIO_SEQ_LENGTH:
+                        padded = np.zeros((mel.shape[0], AUDIO_SEQ_LENGTH), dtype=np.float32)
+                        padded[:, : mel.shape[1]] = mel
+                        mel = padded
+                    else:
+                        mel = mel[:, :AUDIO_SEQ_LENGTH]
+                    results.append(AudioInput(features=mel, num_tokens=num_tokens))
+                else:
+                    msg = f"Audio numpy arrays must be 1D float32, got shape={item.shape} dtype={item.dtype}"
+                    raise TypeError(msg)
+            elif isinstance(item, (str, Path)):
+                features = extract_audio_features(item, max_frames=AUDIO_SEQ_LENGTH)
+                num_tokens = min(features.shape[1], AUDIO_SEQ_LENGTH)
+                results.append(AudioInput(features=features, num_tokens=num_tokens))
+            elif isinstance(item, bytes):
+                features = extract_audio_features(item, max_frames=AUDIO_SEQ_LENGTH)
+                num_tokens = min(features.shape[1], AUDIO_SEQ_LENGTH)
+                results.append(AudioInput(features=features, num_tokens=num_tokens))
+            else:
+                msg = f"Unsupported audio input type: {type(item)}"
+                raise TypeError(msg)
+        return results
