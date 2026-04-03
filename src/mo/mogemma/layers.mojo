@@ -3,13 +3,15 @@ from std.math import sqrt, erf, tanh
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
+    VisionLayerWeights,
+    VisionModelWeights,
     TensorInfo,
     KVCache,
     RoPETables,
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, mat_mat_mul, mat_mat_mul_i8
+from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, gelu, mat_mat_mul, mat_mat_mul_i8, average_pool_2d
 
 
 @always_inline
@@ -234,6 +236,67 @@ fn forward_full_attention(
 
     # 5. Output projection
     _gemm_dispatch(out_ptr, attn_out_ptr, weights.o_proj, 1, q_size, hidden_size)
+
+
+@always_inline
+fn forward_vision_attention(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [num_tokens, hidden_size]
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],    # [num_tokens, hidden_size]
+    weights: VisionLayerWeights,
+    num_tokens: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    head_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Bidirectional multi-head attention for vision transformer.
+
+    All tokens attend to all tokens — no causal mask, no KV cache, no RoPE.
+    """
+    var q_size = num_tokens * num_heads * head_dim
+    var kv_size = num_tokens * num_heads * head_dim
+    var q_ptr = scratch_ptr
+    var k_ptr = scratch_ptr + q_size
+    var v_ptr = scratch_ptr + q_size + kv_size
+
+    # Project Q, K, V: [num_tokens, hidden_size] @ [hidden_size, hidden_size]^T
+    mat_mat_mul(q_ptr, x_ptr, weights.q_proj.ptr, num_tokens, hidden_size, num_heads * head_dim)
+    mat_mat_mul(k_ptr, x_ptr, weights.k_proj.ptr, num_tokens, hidden_size, num_heads * head_dim)
+    mat_mat_mul(v_ptr, x_ptr, weights.v_proj.ptr, num_tokens, hidden_size, num_heads * head_dim)
+
+    var scale = 1.0 / sqrt(Float32(head_dim))
+    var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
+    var scores_ptr = attn_out_ptr + q_size  # [num_heads, num_tokens, num_tokens]
+
+    # Per-head attention
+    for h in range(num_heads):
+        for qi in range(num_tokens):
+            var q_head = q_ptr + qi * num_heads * head_dim + h * head_dim
+            var s_row = scores_ptr + h * num_tokens * num_tokens + qi * num_tokens
+
+            # Compute scores against all keys
+            for ki in range(num_tokens):
+                var k_head = k_ptr + ki * num_heads * head_dim + h * head_dim
+                var dot: Float32 = 0.0
+                for d in range(head_dim):
+                    dot += q_head.load(d) * k_head.load(d)
+                s_row.store(ki, dot * scale)
+
+            # Softmax over all tokens (bidirectional — no masking)
+            softmax(s_row, num_tokens)
+
+            # Weighted sum of values
+            var out_head = attn_out_ptr + qi * num_heads * head_dim + h * head_dim
+            for d in range(head_dim):
+                out_head.store(d, 0.0)
+            for vi in range(num_tokens):
+                var v_head = v_ptr + vi * num_heads * head_dim + h * head_dim
+                var prob = s_row.load(vi)
+                for d in range(head_dim):
+                    out_head.store(d, out_head.load(d) + prob * v_head.load(d))
+
+    # Output projection: [num_tokens, num_heads*head_dim] @ [hidden_size, num_heads*head_dim]^T
+    mat_mat_mul(out_ptr, attn_out_ptr, weights.o_proj.ptr, num_tokens, num_heads * head_dim, hidden_size)
 
 
 @always_inline
