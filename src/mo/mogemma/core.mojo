@@ -1508,6 +1508,57 @@ def _free_arena_impl_mojo(llm: PythonObject) raises:
         rope_ptr.free()
         llm["_rope_tables_ptr"] = 0
 
+    # Free GPU resources (safe no-op when not GPU-initialized)
+    _cleanup_gpu_resources(llm)
+
+
+def _cleanup_gpu_resources(llm: PythonObject) raises:
+    """Release all GPU resources. Safe to call when no GPU context exists."""
+    comptime if has_accelerator():
+        var builtins = Python.import_module("builtins")
+        var gpu_init = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0))
+        if gpu_init == 0:
+            return
+
+        # Free in reverse allocation order: scratch, kv_cache, persistent, stage, context
+        var scratch_addr = Int(py=builtins.getattr(llm, "get")("_gpu_scratch_ptr", 0))
+        if scratch_addr != 0:
+            var p = UnsafePointer[GPUScratch, MutExternalOrigin](unsafe_from_address=scratch_addr)
+            p.destroy_pointee()
+            p.free()
+            llm["_gpu_scratch_ptr"] = 0
+
+        var kv_addr = Int(py=builtins.getattr(llm, "get")("_gpu_kv_cache_ptr", 0))
+        if kv_addr != 0:
+            var p = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=kv_addr)
+            p.destroy_pointee()
+            p.free()
+            llm["_gpu_kv_cache_ptr"] = 0
+
+        var persist_addr = Int(py=builtins.getattr(llm, "get")("_gpu_persistent_ptr", 0))
+        if persist_addr != 0:
+            var p = UnsafePointer[PersistentBuffers, MutExternalOrigin](unsafe_from_address=persist_addr)
+            p.destroy_pointee()
+            p.free()
+            llm["_gpu_persistent_ptr"] = 0
+
+        var stage_addr = Int(py=builtins.getattr(llm, "get")("_gpu_weight_stage_ptr", 0))
+        if stage_addr != 0:
+            var p = UnsafePointer[WeightStage, MutExternalOrigin](unsafe_from_address=stage_addr)
+            p.destroy_pointee()
+            p.free()
+            llm["_gpu_weight_stage_ptr"] = 0
+
+        var ctx_addr = Int(py=builtins.getattr(llm, "get")("_gpu_context_ptr", 0))
+        if ctx_addr != 0:
+            var p = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=ctx_addr)
+            p[].cleanup()
+            p.destroy_pointee()
+            p.free()
+            llm["_gpu_context_ptr"] = 0
+
+        llm["_gpu_initialized"] = 0
+
 
 def free_arena_mojo(llm: PythonObject) raises:
     """Explicitly frees the memory arena and Gemma 4 runtime structures."""
