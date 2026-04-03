@@ -1,5 +1,5 @@
 from std.collections import List
-from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax, gelu, average_pool_2d
+from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax, gelu, average_pool_2d, top_k
 from std.memory import UnsafePointer
 from testing import assert_almost_equal
 
@@ -236,6 +236,34 @@ fn test_average_pool_2d() raises:
     _ = x[0]
 
 
+fn test_top_k() raises:
+    # Values: [0.1, 0.5, 0.3, 0.9, 0.2, 0.8, 0.4, 0.7]
+    var vals = List[Float32](length=8, fill=0.0)
+    vals[0] = 0.1; vals[1] = 0.5; vals[2] = 0.3; vals[3] = 0.9
+    vals[4] = 0.2; vals[5] = 0.8; vals[6] = 0.4; vals[7] = 0.7
+
+    var out_idx = List[Int32](length=3, fill=0)
+    var out_vals = List[Float32](length=3, fill=0.0)
+
+    var vals_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(vals.unsafe_ptr()))
+    var idx_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(out_idx.unsafe_ptr()))
+    var ov_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_vals.unsafe_ptr()))
+
+    top_k(vals_ptr, 3, 8, idx_ptr, ov_ptr)
+
+    # Top 3 should be indices 3(0.9), 5(0.8), 7(0.7)
+    if Int(out_idx[0]) != 3:
+        raise Error("top_k first index should be 3, got " + String(Int(out_idx[0])))
+    if Int(out_idx[1]) != 5:
+        raise Error("top_k second index should be 5, got " + String(Int(out_idx[1])))
+    if Int(out_idx[2]) != 7:
+        raise Error("top_k third index should be 7, got " + String(Int(out_idx[2])))
+    assert_almost_equal(out_vals[0], 0.9, atol=1e-5)
+    assert_almost_equal(out_vals[1], 0.8, atol=1e-5)
+    assert_almost_equal(out_vals[2], 0.7, atol=1e-5)
+    _ = vals[0]
+
+
 fn main() raises:
     test_rms_norm()
     test_geglu()
@@ -246,4 +274,5 @@ fn main() raises:
     test_softmax()
     test_gelu()
     test_average_pool_2d()
+    test_top_k()
     print("Mojo math primitive tests passed!")

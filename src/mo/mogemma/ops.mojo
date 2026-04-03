@@ -355,3 +355,31 @@ fn softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutExternalOrigin], 
         var e = vec_ptr.load(i)
         vec_ptr.store(i, e * inv_sum)
         i += 1
+
+
+@always_inline
+fn top_k(
+    values_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    k: Int,
+    size: Int,
+    out_indices_ptr: UnsafePointer[Int32, MutExternalOrigin],
+    out_values_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Find the k largest values and their indices from a vector.
+
+    Simple linear scan repeated k times. Output sorted descending.
+    """
+    for sel in range(k):
+        var best_val: Float32 = -1e30
+        var best_idx: Int32 = 0
+        for i in range(size):
+            var already_selected = False
+            for j in range(sel):
+                if Int(out_indices_ptr.load(j)) == i:
+                    already_selected = True
+                    break
+            if not already_selected and values_ptr.load(i) > best_val:
+                best_val = values_ptr.load(i)
+                best_idx = Int32(i)
+        out_indices_ptr.store(sel, best_idx)
+        out_values_ptr.store(sel, best_val)

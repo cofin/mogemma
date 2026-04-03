@@ -89,13 +89,100 @@ struct ModelWeights(Movable):
         self.norm = TensorInfo(0, 0, 0)
         self.lm_head = TensorInfo(0, 0, 0)
         self.layers = List[LayerWeights]()
+        self.ple_layers = List[PLELayerWeights]()
+        self.has_ple = False
+
+    var ple_layers: List[PLELayerWeights]
+    var has_ple: Bool
 
     @always_inline
     fn get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
 
-        # Simple copy loop
+        for i in range(hidden_size):
+            out_ptr.store(i, src_ptr.load(i))
+
+
+@fieldwise_init
+struct PLELayerWeights(Copyable, ImplicitlyCopyable, Movable):
+    """Per-Layer Embedding weights for E2B/E4B variants."""
+
+    var per_layer_embedding: TensorInfo
+    var per_layer_projection: TensorInfo
+    var per_layer_norm: TensorInfo
+
+    fn __init__(out self):
+        self.per_layer_embedding = TensorInfo(0, 0, 0)
+        self.per_layer_projection = TensorInfo(0, 0, 0)
+        self.per_layer_norm = TensorInfo(0, 0, 0)
+
+
+@fieldwise_init
+struct MoEExpertWeights(Copyable, ImplicitlyCopyable, Movable):
+    """Weights for a single MoE expert MLP."""
+
+    var gate_proj: TensorInfo
+    var up_proj: TensorInfo
+    var down_proj: TensorInfo
+
+    fn __init__(out self):
+        self.gate_proj = TensorInfo(0, 0, 0)
+        self.up_proj = TensorInfo(0, 0, 0)
+        self.down_proj = TensorInfo(0, 0, 0)
+
+
+@fieldwise_init
+struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
+    """Weights for a single MoE transformer layer: attention + router + experts."""
+
+    var router: TensorInfo
+    var q_proj: TensorInfo
+    var k_proj: TensorInfo
+    var v_proj: TensorInfo
+    var o_proj: TensorInfo
+    var q_norm: TensorInfo
+    var k_norm: TensorInfo
+    var input_layernorm: TensorInfo
+    var post_attention_layernorm: TensorInfo
+    var pre_feedforward_layernorm: TensorInfo
+    var post_feedforward_layernorm: TensorInfo
+    var experts: List[MoEExpertWeights]
+
+    fn __init__(out self):
+        self.router = TensorInfo(0, 0, 0)
+        self.q_proj = TensorInfo(0, 0, 0)
+        self.k_proj = TensorInfo(0, 0, 0)
+        self.v_proj = TensorInfo(0, 0, 0)
+        self.o_proj = TensorInfo(0, 0, 0)
+        self.q_norm = TensorInfo(0, 0, 0)
+        self.k_norm = TensorInfo(0, 0, 0)
+        self.input_layernorm = TensorInfo(0, 0, 0)
+        self.post_attention_layernorm = TensorInfo(0, 0, 0)
+        self.pre_feedforward_layernorm = TensorInfo(0, 0, 0)
+        self.post_feedforward_layernorm = TensorInfo(0, 0, 0)
+        self.experts = List[MoEExpertWeights]()
+
+
+@fieldwise_init
+struct MoEModelWeights(Movable):
+    """Top-level container for 26B MoE model weights."""
+
+    var embed_tokens: TensorInfo
+    var norm: TensorInfo
+    var lm_head: TensorInfo
+    var layers: List[MoELayerWeights]
+
+    fn __init__(out self):
+        self.embed_tokens = TensorInfo(0, 0, 0)
+        self.norm = TensorInfo(0, 0, 0)
+        self.lm_head = TensorInfo(0, 0, 0)
+        self.layers = List[MoELayerWeights]()
+
+    @always_inline
+    fn get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
+        var hidden_size = self.embed_tokens.shape_1
+        var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         for i in range(hidden_size):
             out_ptr.store(i, src_ptr.load(i))
 

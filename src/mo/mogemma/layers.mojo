@@ -3,6 +3,10 @@ from std.math import sqrt, erf, tanh
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
+    PLELayerWeights,
+    MoEExpertWeights,
+    MoELayerWeights,
+    MoEModelWeights,
     VisionLayerWeights,
     VisionModelWeights,
     TensorInfo,
@@ -11,7 +15,7 @@ from mogemma.model import (
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, gelu, mat_mat_mul, mat_mat_mul_i8, average_pool_2d
+from mogemma.ops import vec_mat_mul, rope_rotate, softmax, rms_norm, geglu, gelu, mat_mat_mul, mat_mat_mul_i8, average_pool_2d, top_k
 
 
 @always_inline
@@ -608,7 +612,278 @@ fn forward_gemma4_step_with_embedding(
         for i in range(hidden_size):
             current_state.store(i, next_state.load(i))
 
-    # Final norm + LM head
+    # Final norm + LM head (step_with_embedding path)
     var norm_out = next_state
     rms_norm(norm_out, current_state, model.norm.ptr, hidden_size, 1e-6)
     vec_mat_mul(out_logits_ptr, norm_out, model.lm_head.ptr, hidden_size, vocab_size)
+
+
+# ── PLE (Per-Layer Embedding) for E2B/E4B ────────────────────────────────
+
+@always_inline
+fn forward_ple_input(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    ple_weights: PLELayerWeights,
+    hidden_size: Int,
+    ple_dim: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Inject per-layer embedding into hidden state: embed → project → norm → add."""
+    var embed_ptr = scratch_ptr
+    var proj_ptr = scratch_ptr + ple_dim
+    var emb_src = ple_weights.per_layer_embedding.ptr + token_id * ple_dim
+    for i in range(ple_dim):
+        embed_ptr.store(i, emb_src.load(i))
+    vec_mat_mul(proj_ptr, embed_ptr, ple_weights.per_layer_projection.ptr, ple_dim, hidden_size)
+    var normed_ptr = scratch_ptr + ple_dim + hidden_size
+    rms_norm(normed_ptr, proj_ptr, ple_weights.per_layer_norm.ptr, hidden_size, 1e-6)
+    for i in range(hidden_size):
+        out_ptr.store(i, out_ptr.load(i) + normed_ptr.load(i))
+
+
+@always_inline
+fn forward_gemma4_ple_step(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    pos: Int,
+    model: ModelWeights,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    vocab_size: Int,
+    ple_dim: Int,
+    kv_cache: KVCache,
+    rope_tables: RoPETables,
+    k_eq_v: Bool,
+    max_seq_len: Int,
+    kv_sharing_map_ptr: UnsafePointer[Int, MutExternalOrigin],
+    num_kv_sharing_layers: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """E2B/E4B forward step with PLE injection and optional shared-KV attention."""
+    var num_layers = len(model.layers)
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + hidden_size
+    var layer_scratch = scratch_ptr + hidden_size * 2
+    var emb_scale = sqrt(Float32(hidden_size))
+    model.get_embedding(token_id, current_state)
+    for i in range(hidden_size):
+        current_state.store(i, current_state.load(i) * emb_scale)
+    for l in range(num_layers):
+        if model.has_ple and l < len(model.ple_layers):
+            forward_ple_input(current_state, token_id, model.ple_layers[l], hidden_size, ple_dim, layer_scratch)
+        var source_layer = -1
+        if num_kv_sharing_layers > 0 and l < num_kv_sharing_layers:
+            source_layer = kv_sharing_map_ptr.load(l)
+        if source_layer >= 0:
+            forward_gemma4_layer(next_state, current_state, model.layers[l], source_layer, pos, hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size, kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch)
+        else:
+            forward_gemma4_layer(next_state, current_state, model.layers[l], l, pos, hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size, kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch)
+        for i in range(hidden_size):
+            current_state.store(i, next_state.load(i))
+    var norm_out_ple = next_state
+    rms_norm(norm_out_ple, current_state, model.norm.ptr, hidden_size, 1e-6)
+    vec_mat_mul(out_logits_ptr, norm_out_ple, model.lm_head.ptr, hidden_size, vocab_size)
+
+
+# ── MoE (Mixture of Experts) for 26B ─────────────────────────────────────
+
+@always_inline
+fn forward_moe_router(
+    expert_indices_ptr: UnsafePointer[Int32, MutExternalOrigin],
+    expert_weights_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    router_weight: TensorInfo,
+    hidden_size: Int,
+    num_experts: Int,
+    k: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Route hidden state to top-k experts: logits → softmax → top_k → renormalize."""
+    var logits_ptr = scratch_ptr
+    vec_mat_mul(logits_ptr, hidden_ptr, router_weight.ptr, hidden_size, num_experts)
+    softmax(logits_ptr, num_experts)
+    top_k(logits_ptr, k, num_experts, expert_indices_ptr, expert_weights_ptr)
+    var weight_sum: Float32 = 0.0
+    for i in range(k):
+        weight_sum += expert_weights_ptr.load(i)
+    if weight_sum > 0.0:
+        var inv_sum = 1.0 / weight_sum
+        for i in range(k):
+            expert_weights_ptr.store(i, expert_weights_ptr.load(i) * inv_sum)
+
+
+@always_inline
+fn forward_moe_experts(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    hidden_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    expert_indices_ptr: UnsafePointer[Int32, MutExternalOrigin],
+    expert_weights_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    experts: List[MoEExpertWeights],
+    k: Int,
+    hidden_size: Int,
+    intermediate_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Execute selected experts and compute weighted sum."""
+    var gate_ptr = scratch_ptr
+    var up_ptr = scratch_ptr + intermediate_size
+    var geglu_out_ptr = scratch_ptr + intermediate_size * 2
+    var expert_out_ptr = scratch_ptr + intermediate_size * 3
+    for i in range(hidden_size):
+        out_ptr.store(i, 0.0)
+    for sel in range(k):
+        var idx = Int(expert_indices_ptr.load(sel))
+        var weight = expert_weights_ptr.load(sel)
+        vec_mat_mul(gate_ptr, hidden_ptr, experts[idx].gate_proj.ptr, hidden_size, intermediate_size)
+        vec_mat_mul(up_ptr, hidden_ptr, experts[idx].up_proj.ptr, hidden_size, intermediate_size)
+        geglu(geglu_out_ptr, gate_ptr, up_ptr, intermediate_size)
+        vec_mat_mul(expert_out_ptr, geglu_out_ptr, experts[idx].down_proj.ptr, intermediate_size, hidden_size)
+        for i in range(hidden_size):
+            out_ptr.store(i, out_ptr.load(i) + weight * expert_out_ptr.load(i))
+
+
+@always_inline
+fn forward_moe_layer(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    x_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    weights: MoELayerWeights,
+    layer_idx: Int,
+    pos: Int,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    num_experts: Int,
+    moe_top_k: Int,
+    moe_intermediate_size: Int,
+    kv_cache: KVCache,
+    rope_tables: RoPETables,
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Single MoE transformer layer: attention (K=V) + MoE block."""
+    var norm_x_ptr = scratch_ptr
+    rms_norm(norm_x_ptr, x_ptr, weights.input_layernorm.ptr, hidden_size, 1e-6)
+    var q_size = num_heads * head_dim
+    var kv_size = num_kv_heads * head_dim
+    var attn_out_ptr = scratch_ptr + hidden_size
+    var attn_scratch_ptr = scratch_ptr + hidden_size * 2
+    var q_ptr = attn_scratch_ptr
+    var k_ptr = attn_scratch_ptr + q_size
+    var v_ptr = attn_scratch_ptr + q_size + kv_size
+    _gemm_dispatch(q_ptr, norm_x_ptr, weights.q_proj, 1, hidden_size, q_size)
+    _gemm_dispatch(k_ptr, norm_x_ptr, weights.k_proj, 1, hidden_size, kv_size)
+    _gemm_dispatch(v_ptr, norm_x_ptr, weights.k_proj, 1, hidden_size, kv_size)  # K=V
+    if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        for h in range(num_heads):
+            rms_norm(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+    if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        for h in range(num_kv_heads):
+            rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+    if kv_cache.layer_types[layer_idx] == LAYER_TYPE_SLIDING:
+        var cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
+        var sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
+        (cos_ptr, sin_ptr) = rope_tables.get_sliding_freqs(pos)
+        for h in range(num_heads):
+            rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
+        for h in range(num_kv_heads):
+            rope_rotate(k_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
+    else:
+        var rotary_dim = rope_tables.rotary_dim
+        var cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
+        var sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
+        (cos_ptr, sin_ptr) = rope_tables.get_full_freqs(pos)
+        for h in range(num_heads):
+            rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
+        for h in range(num_kv_heads):
+            rope_rotate(k_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
+    kv_cache.write_kv(layer_idx, pos, k_ptr, v_ptr)
+    var valid_len: Int
+    var cache_size: Int
+    (valid_len, cache_size) = kv_cache.get_attention_range(layer_idx, pos)
+    var layer_k_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    var layer_v_ptr: UnsafePointer[Float32, MutExternalOrigin]
+    (layer_k_ptr, layer_v_ptr) = kv_cache.get_kv_ptrs(layer_idx)
+    var heads_per_kv = num_heads // num_kv_heads
+    var scale = 1.0 / sqrt(Float32(head_dim))
+    var attn_weighted_ptr = attn_scratch_ptr + q_size + kv_size + kv_size
+    for h in range(num_heads):
+        var kv_h = h // heads_per_kv
+        var q_head_ptr = q_ptr + h * head_dim
+        var scores_ptr = attn_weighted_ptr + q_size + h * max_seq_len
+        for t in range(valid_len):
+            var k_head_ptr = layer_k_ptr + t * kv_size + kv_h * head_dim
+            var score: Float32 = 0.0
+            for d in range(head_dim):
+                score += q_head_ptr.load(d) * k_head_ptr.load(d)
+            scores_ptr.store(t, score * scale)
+        softmax(scores_ptr, valid_len)
+        var out_head_ptr = attn_weighted_ptr + h * head_dim
+        for d in range(head_dim):
+            out_head_ptr.store(d, 0.0)
+        for t in range(valid_len):
+            var v_head_ptr = layer_v_ptr + t * kv_size + kv_h * head_dim
+            var prob = scores_ptr.load(t)
+            for d in range(head_dim):
+                out_head_ptr.store(d, out_head_ptr.load(d) + prob * v_head_ptr.load(d))
+    _gemm_dispatch(attn_out_ptr, attn_weighted_ptr, weights.o_proj, 1, q_size, hidden_size)
+    var post_attn_ptr = scratch_ptr + hidden_size * 2
+    rms_norm(post_attn_ptr, attn_out_ptr, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+    var residual_ptr = scratch_ptr + hidden_size * 3
+    for i in range(hidden_size):
+        residual_ptr.store(i, x_ptr.load(i) + post_attn_ptr.load(i))
+    var norm_residual_ptr = scratch_ptr + hidden_size * 4
+    rms_norm(norm_residual_ptr, residual_ptr, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    var moe_out_ptr = scratch_ptr + hidden_size * 5
+    var moe_scratch = scratch_ptr + hidden_size * 6
+    var expert_indices_ptr = UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(moe_scratch))
+    var expert_weights_ptr = moe_scratch + moe_top_k
+    var router_scratch = moe_scratch + moe_top_k * 2
+    forward_moe_router(expert_indices_ptr, expert_weights_ptr, norm_residual_ptr, weights.router, hidden_size, num_experts, moe_top_k, router_scratch)
+    var expert_scratch = router_scratch + num_experts
+    forward_moe_experts(moe_out_ptr, norm_residual_ptr, expert_indices_ptr, expert_weights_ptr, weights.experts, moe_top_k, hidden_size, moe_intermediate_size, expert_scratch)
+    var post_moe_ptr = scratch_ptr + hidden_size * 7
+    rms_norm(post_moe_ptr, moe_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    for i in range(hidden_size):
+        out_ptr.store(i, residual_ptr.load(i) + post_moe_ptr.load(i))
+
+
+@always_inline
+fn forward_gemma4_moe_step(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    token_id: Int,
+    pos: Int,
+    model: MoEModelWeights,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    num_experts: Int,
+    moe_top_k: Int,
+    moe_intermediate_size: Int,
+    vocab_size: Int,
+    kv_cache: KVCache,
+    rope_tables: RoPETables,
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Full 26B MoE forward step: embed → MoE layers → norm → logits."""
+    var num_layers = len(model.layers)
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + hidden_size
+    var layer_scratch = scratch_ptr + hidden_size * 2
+    var emb_scale = sqrt(Float32(hidden_size))
+    model.get_embedding(token_id, current_state)
+    for i in range(hidden_size):
+        current_state.store(i, current_state.load(i) * emb_scale)
+    for l in range(num_layers):
+        forward_moe_layer(next_state, current_state, model.layers[l], l, pos, hidden_size, num_heads, num_kv_heads, head_dim, num_experts, moe_top_k, moe_intermediate_size, kv_cache, rope_tables, max_seq_len, layer_scratch)
+        for i in range(hidden_size):
+            current_state.store(i, next_state.load(i))
+    var norm_out_moe = next_state
+    rms_norm(norm_out_moe, current_state, model.norm.ptr, hidden_size, 1e-6)
+    vec_mat_mul(out_logits_ptr, norm_out_moe, model.lm_head.ptr, hidden_size, vocab_size)

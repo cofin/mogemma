@@ -115,7 +115,7 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
 
     config = json.loads(config_path.read_text())
 
-    if config.get("num_experts", 0) > 0:
+    if config.get("num_local_experts", config.get("num_experts", 0)) > 0:
         return Gemma4Variant.MOE_26B_A4B
 
     if "hidden_size_per_layer_input" in config:
@@ -171,6 +171,34 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
     image_token_index = config.get("image_token_index")
     if image_token_index is not None:
         overrides["image_token_id"] = int(image_token_index)
+
+    # PLE (E2B/E4B)
+    ple_dim = config.get("hidden_size_per_layer_input")
+    if ple_dim is not None:
+        overrides["hidden_size_per_layer_input"] = int(ple_dim)
+        overrides["vocab_size_per_layer_input"] = int(config.get("vocab_size_per_layer_input", 262144))
+
+    # Double-wide MLP (E2B only)
+    if config.get("use_double_wide_mlp", False):
+        overrides["use_double_wide_mlp"] = 1
+
+    # KV sharing (E2B/E4B)
+    kv_sharing_map = config.get("kv_sharing_layer_map")
+    if isinstance(kv_sharing_map, list):
+        overrides["kv_sharing_layer_count"] = len(kv_sharing_map)
+
+    # Audio token ID
+    audio_token_index = config.get("audio_token_index")
+    if audio_token_index is not None:
+        overrides["audio_token_id"] = int(audio_token_index)
+
+    # MoE
+    num_experts = config.get("num_local_experts", config.get("num_experts", 0))
+    if num_experts > 0:
+        overrides["num_experts"] = int(num_experts)
+        overrides["moe_top_k"] = int(config.get("num_experts_per_tok", 8))
+        moe_intermediate = config.get("moe_intermediate_size", 704)
+        overrides["moe_intermediate_size"] = int(moe_intermediate)
 
     return overrides, layer_types
 
