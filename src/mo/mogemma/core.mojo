@@ -8,15 +8,27 @@ from std.collections import List
 from mogemma.model import (
     ModelWeights,
     LayerWeights,
+    PLELayerWeights,
+    MoEExpertWeights,
+    MoELayerWeights,
+    MoEModelWeights,
     VisionLayerWeights,
     VisionModelWeights,
+    AudioTowerWeights,
     TensorInfo,
     KVCache,
     RoPETables,
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.layers import forward_gemma4_step, forward_gemma4_step_with_embedding, forward_vision_encoder, forward_audio_encoder
+from mogemma.layers import (
+    forward_gemma4_step,
+    forward_gemma4_step_with_embedding,
+    forward_gemma4_ple_step,
+    forward_gemma4_moe_step,
+    forward_vision_encoder,
+    forward_audio_encoder,
+)
 from mogemma.ops import rms_norm, vec_mat_mul
 
 
@@ -413,6 +425,139 @@ fn _hydrate_vision_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num
     return vm^
 
 
+# ── PLE Weight Loading ─────────────────────────────────────────────────────
+
+fn _build_ple_weights(metadata_obj: PythonObject, num_layers: Int) raises -> List[PLELayerWeights]:
+    var builtins = Python.import_module("builtins")
+    var ple_layers = List[PLELayerWeights]()
+    for i in range(num_layers):
+        var pfx = "model.layers." + String(i) + ".per_layer_input"
+        var emb = metadata_obj.get(pfx + ".per_layer_embedding.weight")
+        if not builtins.bool(emb):
+            break
+        var ple = PLELayerWeights()
+        ple.per_layer_embedding = _tensor_from_meta(emb, PythonObject())
+        ple.per_layer_projection = _tensor_from_meta(metadata_obj.get(pfx + ".per_layer_projection.weight"), PythonObject())
+        ple.per_layer_norm = _tensor_from_meta(metadata_obj.get(pfx + ".per_layer_norm.weight"), PythonObject())
+        ple_layers.append(ple^)
+    return ple_layers^
+
+
+fn _flatten_ple_weights(ple_layers: List[PLELayerWeights]) -> List[Int]:
+    var appender = Appender()
+    for i in range(len(ple_layers)):
+        var ple = ple_layers[i]
+        appender.append(ple.per_layer_embedding)
+        appender.append(ple.per_layer_projection)
+        appender.append(ple.per_layer_norm)
+    return appender.finish()
+
+
+fn _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> List[PLELayerWeights]:
+    var ple_layers = List[PLELayerWeights]()
+    var h = Hydrator(ptr_array)
+    for _ in range(num_layers):
+        var ple = PLELayerWeights()
+        ple.per_layer_embedding = h.next()
+        ple.per_layer_projection = h.next()
+        ple.per_layer_norm = h.next()
+        ple_layers.append(ple^)
+    return ple_layers^
+
+
+# ── MoE Weight Loading ────────────────────────────────────────────────────
+
+fn _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: Int) raises -> MoEModelWeights:
+    var builtins = Python.import_module("builtins")
+    var m = MoEModelWeights()
+
+    m.embed_tokens = _tensor_from_meta(metadata_obj.get("model.embed_tokens.weight"), PythonObject())
+    m.norm = _tensor_from_meta(metadata_obj.get("model.norm.weight"), PythonObject())
+    m.lm_head = _tensor_from_meta(metadata_obj.get("lm_head.weight"), PythonObject())
+
+    for i in range(num_layers):
+        var pfx = "model.layers." + String(i)
+        var layer = MoELayerWeights()
+        layer.input_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".input_layernorm.weight"), PythonObject())
+        layer.post_attention_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".post_attention_layernorm.weight"), PythonObject())
+        layer.q_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.q_proj.weight"), metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale"))
+        layer.k_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.k_proj.weight"), metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale"))
+        layer.v_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.v_proj.weight"), metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale"))
+        layer.o_proj = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.o_proj.weight"), metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale"))
+        layer.q_norm = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.q_norm.weight"), PythonObject())
+        layer.k_norm = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.k_norm.weight"), PythonObject())
+        layer.pre_feedforward_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"), PythonObject())
+        layer.post_feedforward_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"), PythonObject())
+        # Router
+        layer.router = _tensor_from_meta(metadata_obj.get(pfx + ".block_sparse_moe.gate.weight"), PythonObject())
+        # 128 experts
+        for j in range(num_experts):
+            var epfx = pfx + ".block_sparse_moe.experts." + String(j)
+            var expert = MoEExpertWeights()
+            expert.gate_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w1.weight"), PythonObject())
+            expert.down_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w2.weight"), PythonObject())
+            expert.up_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w3.weight"), PythonObject())
+            layer.experts.append(expert^)
+        m.layers.append(layer^)
+
+    return m^
+
+
+fn _flatten_moe_weights(m: MoEModelWeights) -> List[Int]:
+    var appender = Appender()
+    appender.append(m.embed_tokens)
+    appender.append(m.norm)
+    appender.append(m.lm_head)
+    for i in range(len(m.layers)):
+        var layer = m.layers[i]
+        appender.append(layer.input_layernorm)
+        appender.append(layer.post_attention_layernorm)
+        appender.append(layer.q_proj)
+        appender.append(layer.k_proj)
+        appender.append(layer.v_proj)
+        appender.append(layer.o_proj)
+        appender.append(layer.q_norm)
+        appender.append(layer.k_norm)
+        appender.append(layer.pre_feedforward_layernorm)
+        appender.append(layer.post_feedforward_layernorm)
+        appender.append(layer.router)
+        for j in range(len(layer.experts)):
+            var expert = layer.experts[j]
+            appender.append(expert.gate_proj)
+            appender.append(expert.up_proj)
+            appender.append(expert.down_proj)
+    return appender.finish()
+
+
+fn _hydrate_moe_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int, num_experts: Int) -> MoEModelWeights:
+    var m = MoEModelWeights()
+    var h = Hydrator(ptr_array)
+    m.embed_tokens = h.next()
+    m.norm = h.next()
+    m.lm_head = h.next()
+    for _ in range(num_layers):
+        var layer = MoELayerWeights()
+        layer.input_layernorm = h.next()
+        layer.post_attention_layernorm = h.next()
+        layer.q_proj = h.next()
+        layer.k_proj = h.next()
+        layer.v_proj = h.next()
+        layer.o_proj = h.next()
+        layer.q_norm = h.next()
+        layer.k_norm = h.next()
+        layer.pre_feedforward_layernorm = h.next()
+        layer.post_feedforward_layernorm = h.next()
+        layer.router = h.next()
+        for _ in range(num_experts):
+            var expert = MoEExpertWeights()
+            expert.gate_proj = h.next()
+            expert.up_proj = h.next()
+            expert.down_proj = h.next()
+            layer.experts.append(expert^)
+        m.layers.append(layer^)
+    return m^
+
+
 # ── Gemma 4 Runtime Init ───────────────────────────────────────────────────
 
 def _init_model_impl_mojo(
@@ -486,6 +631,42 @@ def _init_model_impl_mojo(
         if builtins.bool(architecture_overrides_obj.get("image_token_id")):
             image_token_id = Int(py=architecture_overrides_obj["image_token_id"])
 
+    # PLE config (E2B/E4B)
+    var ple_dim = 0
+    var has_ple = False
+    var num_kv_sharing_layers = 0
+    if Int(py=builtins.len(architecture_overrides_obj)) > 0:
+        if builtins.bool(architecture_overrides_obj.get("hidden_size_per_layer_input")):
+            ple_dim = Int(py=architecture_overrides_obj["hidden_size_per_layer_input"])
+            has_ple = True
+
+    # MoE config (26B)
+    var num_experts = 0
+    var moe_top_k = 8
+    var moe_intermediate_size = 704
+    if Int(py=builtins.len(architecture_overrides_obj)) > 0:
+        if builtins.bool(architecture_overrides_obj.get("num_experts")):
+            num_experts = Int(py=architecture_overrides_obj["num_experts"])
+        if builtins.bool(architecture_overrides_obj.get("moe_top_k")):
+            moe_top_k = Int(py=architecture_overrides_obj["moe_top_k"])
+        if builtins.bool(architecture_overrides_obj.get("moe_intermediate_size")):
+            moe_intermediate_size = Int(py=architecture_overrides_obj["moe_intermediate_size"])
+
+    # Audio config
+    var audio_token_id = 0
+    var audio_hidden_size = 0
+    var audio_num_heads = 0
+    var audio_intermediate_size = 0
+    if Int(py=builtins.len(architecture_overrides_obj)) > 0:
+        if builtins.bool(architecture_overrides_obj.get("audio_token_id")):
+            audio_token_id = Int(py=architecture_overrides_obj["audio_token_id"])
+        if builtins.bool(architecture_overrides_obj.get("audio_hidden_size")):
+            audio_hidden_size = Int(py=architecture_overrides_obj["audio_hidden_size"])
+        if builtins.bool(architecture_overrides_obj.get("audio_num_heads")):
+            audio_num_heads = Int(py=architecture_overrides_obj["audio_num_heads"])
+        if builtins.bool(architecture_overrides_obj.get("audio_intermediate_size")):
+            audio_intermediate_size = Int(py=architecture_overrides_obj["audio_intermediate_size"])
+
     # Parse layer_types from overrides — passed as a Python list of ints (0=sliding, 1=full)
     var layer_types_list = List[UInt8](length=num_layers, fill=UInt8(LAYER_TYPE_SLIDING))
     if builtins.bool(architecture_overrides_obj.get("layer_types")):
@@ -545,6 +726,56 @@ def _init_model_impl_mojo(
             py_dict["vision_head_dim"] = vision_hidden_size // vision_num_heads
         else:
             py_dict["vision_head_dim"] = 0
+
+    # Build PLE weights if present (E2B/E4B)
+    py_dict["has_ple"] = 1 if has_ple else 0
+    py_dict["ple_dim"] = ple_dim
+    py_dict["audio_token_id"] = audio_token_id
+    py_dict["audio_hidden_size"] = audio_hidden_size
+    py_dict["audio_num_heads"] = audio_num_heads
+    py_dict["audio_intermediate_size"] = audio_intermediate_size
+    py_dict["audio_n_mels"] = 80
+
+    if has_ple:
+        var ple_layers = _build_ple_weights(metadata_obj, num_layers)
+        model_weights.has_ple = True
+        # Transfer PLE layers to model
+        for i in range(len(ple_layers)):
+            model_weights.ple_layers.append(ple_layers[i])
+        # Re-flatten model weights (now includes PLE)
+        ptrs = _flatten_model_weights(model_weights)
+        # Also flatten PLE separately for hydration
+        var ple_ptrs = _flatten_ple_weights(model_weights.ple_layers)
+        var ple_ptrs_np = np.zeros(len(ple_ptrs), dtype=np.uint64)
+        for i in range(len(ple_ptrs)):
+            ple_ptrs_np[i] = ple_ptrs[i]
+        py_dict["_ple_tensor_pointers"] = ple_ptrs_np
+        py_dict["num_ple_layers"] = len(model_weights.ple_layers)
+
+    # Parse KV sharing map
+    py_dict["num_kv_sharing_layers"] = 0
+    if builtins.bool(architecture_overrides_obj.get("kv_sharing_layer_map")):
+        var kv_map_obj = architecture_overrides_obj["kv_sharing_layer_map"]
+        var kv_map_len = Int(py=builtins.len(kv_map_obj))
+        var kv_map_np = np.zeros(kv_map_len, dtype=np.int64)
+        for i in range(kv_map_len):
+            kv_map_np[i] = kv_map_obj[i]
+        py_dict["_kv_sharing_map"] = kv_map_np
+        py_dict["num_kv_sharing_layers"] = kv_map_len
+
+    # MoE config
+    py_dict["num_experts"] = num_experts
+    py_dict["moe_top_k"] = moe_top_k
+    py_dict["moe_intermediate_size"] = moe_intermediate_size
+
+    # Build MoE weights if present (26B)
+    if num_experts > 0:
+        var moe_model = _build_moe_runtime(metadata_obj, num_layers, num_experts)
+        var moe_ptrs = _flatten_moe_weights(moe_model)
+        var moe_ptrs_np = np.zeros(len(moe_ptrs), dtype=np.uint64)
+        for i in range(len(moe_ptrs)):
+            moe_ptrs_np[i] = moe_ptrs[i]
+        py_dict["_moe_tensor_pointers"] = moe_ptrs_np
 
     # Allocate scratch memory
     var step_scratch_len = _step_scratch_len(hidden_size, max_seq_len, num_heads)
@@ -664,23 +895,71 @@ fn step_mojo(
         unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0])
     )
 
-    forward_gemma4_step(
-        out_logits_ptr,
-        token_id,
-        pos,
-        model,
-        hidden_size,
-        num_heads,
-        num_kv_heads,
-        head_dim,
-        intermediate_size,
-        vocab_size,
-        kv_cache_ptr[],
-        rope_tables_ptr[],
-        k_eq_v,
-        max_seq_len,
-        scratch_ptr,
-    )
+    var num_experts = Int(py=builtins.getattr(llm, "get")("num_experts", 0))
+    var has_ple_flag = Int(py=builtins.getattr(llm, "get")("has_ple", 0))
+
+    if num_experts > 0:
+        # MoE dispatch (26B)
+        var moe_top_k_val = Int(py=llm["moe_top_k"])
+        var moe_intermediate_size_val = Int(py=llm["moe_intermediate_size"])
+        var moe_ptrs_obj = llm["_moe_tensor_pointers"]
+        var moe_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
+            unsafe_from_address=Int(py=moe_ptrs_obj.__array_interface__["data"][0])
+        )
+        var moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers, num_experts)
+        forward_gemma4_moe_step(
+            out_logits_ptr, token_id, pos, moe_model,
+            hidden_size, num_heads, num_kv_heads, head_dim,
+            num_experts, moe_top_k_val, moe_intermediate_size_val, vocab_size,
+            kv_cache_ptr[], rope_tables_ptr[], max_seq_len, scratch_ptr,
+        )
+    elif has_ple_flag != 0:
+        # PLE dispatch (E2B/E4B)
+        var ple_dim = Int(py=llm["ple_dim"])
+        # Hydrate PLE weights
+        var num_ple_layers = Int(py=builtins.getattr(llm, "get")("num_ple_layers", 0))
+        if num_ple_layers > 0:
+            var ple_ptrs_obj = llm["_ple_tensor_pointers"]
+            var ple_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
+                unsafe_from_address=Int(py=ple_ptrs_obj.__array_interface__["data"][0])
+            )
+            var ple_layers = _hydrate_ple_weights(ple_ptrs_ptr, num_ple_layers)
+            model.has_ple = True
+            for i in range(len(ple_layers)):
+                model.ple_layers.append(ple_layers[i])
+
+        # KV sharing map
+        var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
+        var kv_map_ptr = UnsafePointer[Int, MutExternalOrigin](unsafe_from_address=0)
+        var kv_map_local = List[Int]()
+        if num_kv_sharing > 0:
+            var kv_map_obj = llm["_kv_sharing_map"]
+            var kv_map_raw = UnsafePointer[Int, MutExternalOrigin](
+                unsafe_from_address=Int(py=kv_map_obj.__array_interface__["data"][0])
+            )
+            # Copy to local list for stable pointer
+            for i in range(num_kv_sharing):
+                kv_map_local.append(Int(py=kv_map_obj[i]))
+            kv_map_ptr = UnsafePointer[Int, MutExternalOrigin](
+                unsafe_from_address=Int(kv_map_local.unsafe_ptr())
+            )
+
+        forward_gemma4_ple_step(
+            out_logits_ptr, token_id, pos, model,
+            hidden_size, num_heads, num_kv_heads, head_dim,
+            intermediate_size, vocab_size, ple_dim,
+            kv_cache_ptr[], rope_tables_ptr[], k_eq_v, max_seq_len,
+            kv_map_ptr, num_kv_sharing, scratch_ptr,
+        )
+        _ = kv_map_local
+    else:
+        # Standard dense dispatch (31B)
+        forward_gemma4_step(
+            out_logits_ptr, token_id, pos, model,
+            hidden_size, num_heads, num_kv_heads, head_dim,
+            intermediate_size, vocab_size,
+            kv_cache_ptr[], rope_tables_ptr[], k_eq_v, max_seq_len, scratch_ptr,
+        )
 
     llm["pos"] = pos + 1
 
@@ -793,27 +1072,33 @@ fn process_audio_mojo(
 
     var audio_head_dim = audio_hidden_size // audio_num_heads if audio_num_heads > 0 else 0
 
-    # Read features as float32 [n_mels, num_frames] flattened row-major
-    # We need to transpose to [num_frames, n_mels] for processing
+    # Read features as float32 [n_mels, num_frames]
     var features = np.asarray(features_obj, dtype=np.float32)
-    var features_t = features.T.copy()  # [num_frames, n_mels] → contiguous
+    # Transpose to [num_frames, n_mels] for frame-by-frame processing
+    var features_t = np.ascontiguousarray(features.T)
     var features_ptr = UnsafePointer[Float32, MutExternalOrigin](
         unsafe_from_address=Int(py=features_t.__array_interface__["data"][0])
     )
 
-    # Output: [num_tokens, hidden_size] — num_tokens may be reduced by conv downsampling
-    var out_tokens = num_frames  # will be reduced by conv layers
+    var out_tokens = num_frames
     var out_np = np.zeros(Python.tuple(out_tokens, hidden_size), dtype=np.float32)
     var out_ptr = UnsafePointer[Float32, MutExternalOrigin](
         unsafe_from_address=Int(py=out_np.__array_interface__["data"][0])
     )
 
-    # Store audio embeddings as individual token vectors
-    var audio_embeddings = builtins.getattr(llm, "get")("audio_embeddings")
-    if not builtins.bool(audio_embeddings):
-        audio_embeddings = Python.list()
-        llm["audio_embeddings"] = audio_embeddings
+    # Run audio encoder if audio weights are loaded
+    var has_audio_weights = builtins.bool(builtins.getattr(llm, "get")("_audio_tensor_pointers"))
+    if has_audio_weights:
+        var a_ptrs_obj = llm["_audio_tensor_pointers"]
+        var a_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
+            unsafe_from_address=Int(py=a_ptrs_obj.__array_interface__["data"][0])
+        )
+        # Hydrate AudioTowerWeights and call forward_audio_encoder
+        # (audio weight hydration would go here when HF tensor names are standardized)
+        pass
 
+    # Store audio embeddings as individual token vectors
+    var audio_embeddings = llm["audio_embeddings"]
     for t in range(out_tokens):
         var token_emb = np.zeros(hidden_size, dtype=np.float32)
         for d in range(hidden_size):
