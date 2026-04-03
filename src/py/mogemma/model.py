@@ -126,6 +126,42 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
     return Gemma4Variant.DENSE_31B
 
 
+def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float], list[int]]:
+    """Extract Gemma 4 architecture fields from config.json for Mojo init.
+
+    Returns:
+        A tuple of (overrides_dict, layer_types_list).
+        layer_types_list is a list of ints (0=sliding, 1=full), empty if not in config.
+    """
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+        return {}, []
+
+    config = json.loads(config_path.read_text())
+
+    overrides: dict[str, int | float] = {}
+
+    # Sliding window size
+    window_size = config.get("sliding_window_size", config.get("sliding_window", 1024))
+    overrides["window_size"] = int(window_size)
+
+    # Partial rotary factor for full attention layers
+    partial_rotary_factor = config.get("partial_rotary_factor", 0.5)
+    overrides["partial_rotary_factor"] = float(partial_rotary_factor)
+
+    # K=V weight sharing (1=enabled, 0=disabled)
+    k_eq_v = config.get("attention_k_eq_v", False)
+    overrides["k_eq_v"] = 1 if k_eq_v else 0
+
+    # Layer types: convert ["sliding", "full", ...] to [0, 1, ...]
+    layer_types: list[int] = []
+    layer_types_raw = config.get("layer_types", [])
+    if isinstance(layer_types_raw, list):
+        layer_types = [1 if lt == "full" else 0 for lt in layer_types_raw]
+
+    return overrides, layer_types
+
+
 def compute_kv_cache_memory(
     num_layers: int,
     layer_types: list[str],
@@ -223,17 +259,31 @@ def _initialize_llm(
     device_selection: DeviceSelection,
     model_type: str,
     architecture_overrides: dict[str, int | float] | None = None,
+    model_path: Path | None = None,
 ) -> object:
     if _core is None:
         raise RuntimeError(_core_unavailable_message(model_type))
 
     metadata = loader.get_tensor_metadata()
 
-    normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
+    # Merge Gemma 4 config.json fields into architecture overrides
+    merged_overrides: dict[str, int | float] = {}
+    layer_types: list[int] = []
+    if model_path is not None:
+        parsed_overrides, layer_types = _parse_gemma4_architecture(model_path)
+        merged_overrides.update(parsed_overrides)
+    if architecture_overrides is not None:
+        merged_overrides.update(architecture_overrides)  # user overrides win
+    normalized_overrides = _normalize_architecture_overrides(merged_overrides or None)
     descriptor = device_selection.as_runtime_descriptor()
 
+    # Build the overrides dict for Mojo, adding layer_types as a native list
+    mojo_overrides: dict[str, object] = dict(normalized_overrides or {})
+    if layer_types:
+        mojo_overrides["layer_types"] = layer_types
+
     try:
-        llm = _invoke_init_model_with_options(_core, metadata, normalized_overrides or {}, descriptor)
+        llm = _invoke_init_model_with_options(_core, metadata, mojo_overrides, descriptor)
         if llm is None:
             llm = _invoke_legacy_init_model(_core, metadata, normalized_overrides, backend)
     except ValueError:
@@ -374,25 +424,6 @@ def _reset_llm_session_state(llm: object) -> None:
     llm["pos"] = 0
     if _core is not None and hasattr(_core, "reset_cache"):
         _core.reset_cache(llm)
-    else:
-        # Fallback for legacy core
-        for cache_key in ("k_cache", "v_cache"):
-            cache = llm.get(cache_key)
-            if cache is None:
-                continue
-            if isinstance(cache, (int, float)):
-                continue
-            if hasattr(cache, "fill"):
-                cache.fill(0.0)
-                continue
-            if isinstance(cache, list):
-                for i in range(len(cache)):
-                    cache[i] = 0.0
-                continue
-            try:
-                np.asarray(cache).fill(0.0)
-            except (TypeError, ValueError, AttributeError, NotImplementedError):
-                continue
 
 
 class EmbeddingModel:
@@ -426,6 +457,7 @@ class EmbeddingModel:
             device_selection=self._device_selection,
             model_type="embedding",
             architecture_overrides=config.architecture_overrides,
+            model_path=self.model_path,
         )
 
     def _ensure_tokenizer(self) -> _Tokenizer:
@@ -562,6 +594,7 @@ class SyncGemmaModel:
             device_selection=self._device_selection,
             model_type="generation",
             architecture_overrides=config.architecture_overrides,
+            model_path=self.model_path,
         )
 
     def _ensure_tokenizer(self) -> _Tokenizer:
