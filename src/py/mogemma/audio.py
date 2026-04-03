@@ -28,11 +28,11 @@ _SAMPWIDTH_8BIT = 1
 
 
 def _hz_to_mel(hz: float) -> float:
-    return 2595.0 * np.log10(1.0 + hz / 700.0)
+    return float(2595.0 * np.log10(1.0 + hz / 700.0))
 
 
 def _mel_to_hz(mel: float) -> float:
-    return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
+    return float(700.0 * (10.0 ** (mel / 2595.0) - 1.0))
 
 
 def _mel_filterbank(n_mels: int, n_fft: int, sr: int) -> npt.NDArray[np.float32]:
@@ -68,11 +68,10 @@ def load_audio(
 
     Stereo is averaged to mono. Audio is truncated to max_seconds.
     """
-    if isinstance(source, bytes):
-        f: io.BufferedIOBase = io.BytesIO(source)
-    else:
-        f = Path(source).open("rb")  # noqa: SIM115
-    with f, wave.open(f, "rb") as wf:
+    f: io.BytesIO | io.BufferedReader = (
+        io.BytesIO(source) if isinstance(source, bytes) else Path(source).open("rb")  # noqa: SIM115
+    )
+    with f, wave.open(f) as wf:  # type: ignore[call-overload]
         channels = wf.getnchannels()
         sampwidth = wf.getsampwidth()
         framerate = wf.getframerate()
@@ -129,7 +128,8 @@ def mel_spectrogram(
         spectrum = np.abs(np.fft.rfft(frame)) ** 2
         filterbank = _mel_filterbank(n_mels, n_fft, sr)
         mel = filterbank @ spectrum.astype(np.float32)
-        return np.log(mel[:, np.newaxis] + 1e-6).astype(np.float32)
+        result: npt.NDArray[np.float32] = np.log(mel[:, np.newaxis] + 1e-6).astype(np.float32)
+        return result
 
     # Build frames
     frames = np.zeros((num_frames, n_fft), dtype=np.float32)
@@ -145,7 +145,8 @@ def mel_spectrogram(
     mel = filterbank @ spectra.T  # [n_mels, num_frames]
 
     # Log-mel
-    return np.log(mel + 1e-6).astype(np.float32)
+    log_mel: npt.NDArray[np.float32] = np.log(mel + 1e-6).astype(np.float32)
+    return log_mel
 
 
 def extract_audio_features(  # noqa: PLR0913

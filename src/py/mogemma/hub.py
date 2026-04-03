@@ -51,7 +51,7 @@ class HubManager:
         client_options: dict[str, Any] = {}
         if token:
             client_options["default_headers"] = {"Authorization": f"Bearer {token}"}
-        return HTTPStore.from_url(base_url, client_options=client_options)
+        return HTTPStore.from_url(base_url, client_options=client_options)  # type: ignore[arg-type]
 
     @staticmethod
     def _get_hf_token() -> str | None:
@@ -267,7 +267,7 @@ class HubManager:
         """Fetch and parse ``model.safetensors.index.json`` from HuggingFace."""
         try:
             result = obs.get(store, "model.safetensors.index.json")
-            return json.loads(bytes(result.bytes()))
+            return dict(json.loads(bytes(result.bytes())))
         except Exception as exc:
             msg = f"Failed to fetch model index for '{repo_id}' from HuggingFace: {exc}"
             raise self.ModelNotFoundError(msg) from exc
@@ -276,7 +276,7 @@ class HubManager:
         """Fetch and parse ``model.safetensors.index.json`` from HuggingFace (async)."""
         try:
             result = await obs.get_async(store, "model.safetensors.index.json")
-            return json.loads(bytes(await result.bytes_async()))
+            return dict(json.loads(bytes(await result.bytes_async())))
         except Exception as exc:
             msg = f"Failed to fetch model index for '{repo_id}' from HuggingFace: {exc}"
             raise self.ModelNotFoundError(msg) from exc

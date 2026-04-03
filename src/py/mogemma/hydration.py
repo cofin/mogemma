@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import obstore as obs
@@ -112,7 +112,7 @@ class ImageHydrator:
         results: list[ImageInput] = []
         for item in inputs:
             if isinstance(item, np.ndarray):
-                rgb = item.astype(np.uint8) if item.dtype != np.uint8 else item
+                rgb = cast("npt.NDArray[np.uint8]", item if item.dtype == np.uint8 else item.astype(np.uint8))
                 results.append(self.preprocess_image(rgb))
             elif isinstance(item, (str, Path)):
                 path_str = str(item)
@@ -252,7 +252,7 @@ class AudioHydrator:
         for item in inputs:
             if isinstance(item, np.ndarray):
                 if item.dtype == np.float32 and item.ndim == 1:
-                    mel = mel_spectrogram(item)
+                    mel = mel_spectrogram(item.astype(np.float32))
                     num_tokens = min(mel.shape[1], AUDIO_SEQ_LENGTH)
                     if mel.shape[1] < AUDIO_SEQ_LENGTH:
                         padded = np.zeros((mel.shape[0], AUDIO_SEQ_LENGTH), dtype=np.float32)

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from mogemma.hub import HubManager
+
+if TYPE_CHECKING:
+    from obstore.store import HTTPStore
 
 
 class TestHFTokenEnvVar:
@@ -48,8 +52,8 @@ class TestDownloadSyncUsesToken:
         calls: list[str | None] = []
         original_make_hf_store = HubManager._make_hf_store
 
-        @staticmethod
-        def tracking_make_store(repo_id: str, token: str | None = None):
+        @staticmethod  # type: ignore[misc]
+        def tracking_make_store(repo_id: str, token: str | None = None) -> HTTPStore:
             calls.append(token)
             return original_make_hf_store(repo_id, token=token)
 

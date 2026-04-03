@@ -66,7 +66,7 @@ def _make_safetensors_file(path: Path, tensors: dict[str, tuple[list[int], str, 
 
     *tensors* maps ``name -> (shape, dtype_str, raw_bytes)``.
     """
-    header: dict[str, dict] = {}
+    header: dict[str, dict[str, object]] = {}
     offset = 0
     data_parts: list[bytes] = []
     for name, (shape, dtype_str, raw) in tensors.items():
@@ -123,5 +123,7 @@ class TestSafetensorsLoaderBf16:
             meta = loader.get_tensor_metadata()
             ptr, _shape, _dtype = meta["w"]
             # Read the actual f32 values from the pointer
-            arr = np.ctypeslib.as_array((np.ctypeslib.ctypes.c_float * 3).from_address(ptr))
+            import ctypes
+
+            arr = np.ctypeslib.as_array((ctypes.c_float * 3).from_address(ptr))
             np.testing.assert_array_almost_equal(arr, [0.5, 2.0, -0.5])

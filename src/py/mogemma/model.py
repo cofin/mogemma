@@ -256,7 +256,7 @@ def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) 
 def _invoke_init_model_with_options(
     _core: object,
     metadata: dict[str, tuple[int, tuple[int, ...], str]],
-    overrides: dict[str, int | float],
+    overrides: dict[str, object],
     descriptor: dict[str, object],
 ) -> object:
     init_model_with_options = getattr(_core, "init_model_with_options", None)

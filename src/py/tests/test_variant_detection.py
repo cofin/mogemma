@@ -19,7 +19,7 @@ def tmp_model_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _write_config(model_dir: Path, config: dict) -> Path:
+def _write_config(model_dir: Path, config: dict[str, object]) -> Path:
     """Write a config.json to the model directory and return its path."""
     config_path = model_dir / "config.json"
     config_path.write_text(json.dumps(config))
@@ -28,16 +28,16 @@ def _write_config(model_dir: Path, config: dict) -> Path:
 
 class TestGemma4VariantEnum:
     def test_dense_31b_value(self) -> None:
-        assert Gemma4Variant.DENSE_31B == "gemma4_dense_31b"
+        assert Gemma4Variant.DENSE_31B.value == "gemma4_dense_31b"
 
     def test_dense_e2b_value(self) -> None:
-        assert Gemma4Variant.DENSE_E2B == "gemma4_dense_e2b"
+        assert Gemma4Variant.DENSE_E2B.value == "gemma4_dense_e2b"
 
     def test_dense_e4b_value(self) -> None:
-        assert Gemma4Variant.DENSE_E4B == "gemma4_dense_e4b"
+        assert Gemma4Variant.DENSE_E4B.value == "gemma4_dense_e4b"
 
     def test_moe_26b_value(self) -> None:
-        assert Gemma4Variant.MOE_26B_A4B == "gemma4_moe_26b"
+        assert Gemma4Variant.MOE_26B_A4B.value == "gemma4_moe_26b"
 
     def test_is_string_enum(self) -> None:
         assert isinstance(Gemma4Variant.DENSE_31B, str)

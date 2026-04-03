@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Protocol, cast
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import numpy as np
     import numpy.typing as npt
 
 TensorMetadata = dict[str, tuple[int, tuple[int, ...], str]]
@@ -71,12 +70,20 @@ class CoreModuleContract(Protocol):
         """Run one token step and return logits."""
         ...
 
-    def process_image(self, llm: object, image_array: bytes | npt.NDArray[np.generic]) -> npt.ArrayLike:
+    def step_with_embedding(
+        self, llm: object, embedding: object, temp: float, top_k: int, top_p: float
+    ) -> npt.ArrayLike:
+        """Run one step using a pre-computed embedding vector."""
+        ...
+
+    def process_image(
+        self, llm: object, patches: object, grid_h: int | None = None, grid_w: int | None = None
+    ) -> npt.ArrayLike:
         """Process a single image through the vision encoder."""
         ...
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
-        """Process multimodal images through the vision encoder."""
+    def process_audio(self, llm: object, features: object, num_tokens: int) -> None:
+        """Process audio through the audio encoder."""
         ...
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
@@ -142,13 +149,13 @@ class CoreBackend:
 
     def step_with_embedding(self, llm: object, embedding: object) -> npt.ArrayLike:
         """Step using a pre-computed embedding vector (for vision tokens)."""
-        return self._core.step_with_embedding(llm, embedding, 0.0, 0, 1.0)
+        return self._core.step_with_embedding(llm, embedding, 0.0, 0, 1.0)  # type: ignore[return-value]
 
     def process_images(self, llm: object, images: Sequence[object]) -> None:
         """Process multimodal images through the vision encoder."""
         for image in images:
             if hasattr(image, "patches"):
-                self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)
+                self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)  # type: ignore[attr-defined]
             else:
                 self._core.process_image(llm, image)
 
@@ -156,7 +163,7 @@ class CoreBackend:
         """Process audio inputs through the audio encoder."""
         for audio_input in audio_inputs:
             if hasattr(audio_input, "features"):
-                self._core.process_audio(llm, audio_input.features, audio_input.num_tokens)
+                self._core.process_audio(llm, audio_input.features, audio_input.num_tokens)  # type: ignore[attr-defined]
             else:
                 self._core.process_audio(llm, audio_input, 0)
 
