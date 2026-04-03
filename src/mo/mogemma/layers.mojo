@@ -9,6 +9,7 @@ from mogemma.model import (
     MoEModelWeights,
     VisionLayerWeights,
     VisionModelWeights,
+    AudioTowerWeights,
     TensorInfo,
     KVCache,
     RoPETables,
@@ -416,6 +417,86 @@ fn forward_vision_encoder(
 
     # 6. Vision projection → decoder hidden dim
     mat_mat_mul(out_ptr, pooled_ptr, weights.projection.ptr, pooled_tokens, vision_hidden_size, decoder_hidden_size)
+
+
+@always_inline
+fn forward_audio_encoder(
+    out_ptr: UnsafePointer[Float32, MutExternalOrigin],
+    features_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [n_mels, num_frames] (flattened)
+    weights: AudioTowerWeights,
+    num_frames: Int,
+    n_mels: Int,
+    audio_hidden_size: Int,
+    audio_num_heads: Int,
+    audio_head_dim: Int,
+    audio_intermediate_size: Int,
+    decoder_hidden_size: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Audio encoder: conv feature extraction → position embed → transformer layers → post-norm → projection.
+
+    Reuses forward_vision_layer for the transformer layers (same bidirectional attention + GELU MLP).
+    Conv layers downsample mel frames into audio_hidden_size-dim tokens.
+    """
+    var num_conv = len(weights.conv_weights)
+    var num_tokens = num_frames
+
+    # 1. Conv feature extraction (simplified: treat as linear projections over frames)
+    # First conv: [n_mels] → [audio_hidden_size] per frame
+    var conv_out_ptr = scratch_ptr
+    if num_conv > 0:
+        mat_mat_mul(conv_out_ptr, features_ptr, weights.conv_weights[0].ptr, num_tokens, n_mels, audio_hidden_size)
+        # Subsequent conv layers: [audio_hidden_size] → [audio_hidden_size] with stride-2 downsampling
+        for c in range(1, num_conv):
+            var new_tokens = num_tokens // 2
+            if new_tokens == 0:
+                new_tokens = 1
+            var next_conv_ptr = conv_out_ptr + num_tokens * audio_hidden_size
+            # Stride-2: take every other token, project
+            for t in range(new_tokens):
+                var src_idx = t * 2
+                vec_mat_mul(
+                    next_conv_ptr + t * audio_hidden_size,
+                    conv_out_ptr + src_idx * audio_hidden_size,
+                    weights.conv_weights[c].ptr,
+                    audio_hidden_size,
+                    audio_hidden_size,
+                )
+            conv_out_ptr = next_conv_ptr
+            num_tokens = new_tokens
+    else:
+        # No conv: project mel directly
+        mat_mat_mul(conv_out_ptr, features_ptr, weights.projection.ptr, num_tokens, n_mels, audio_hidden_size)
+
+    var total = num_tokens * audio_hidden_size
+
+    # 2. Add position embeddings
+    for i in range(total):
+        conv_out_ptr.store(i, conv_out_ptr.load(i) + weights.position_embedding.ptr.load(i))
+
+    # 3. Transformer layers (reuse forward_vision_layer)
+    var current_ptr = conv_out_ptr
+    var next_ptr = scratch_ptr + total * 3
+    var layer_scratch = scratch_ptr + total * 4
+
+    var num_layers = len(weights.layers)
+    for l in range(num_layers):
+        forward_vision_layer(
+            next_ptr, current_ptr, weights.layers[l],
+            num_tokens, audio_hidden_size, audio_num_heads, audio_head_dim,
+            audio_intermediate_size, layer_scratch,
+        )
+        for i in range(total):
+            current_ptr.store(i, next_ptr.load(i))
+
+    # 4. Post-LayerNorm
+    var norm_ptr = next_ptr
+    for t in range(num_tokens):
+        rms_norm(norm_ptr + t * audio_hidden_size, current_ptr + t * audio_hidden_size,
+                 weights.post_norm.ptr, audio_hidden_size, 1e-6)
+
+    # 5. Projection → decoder hidden dim
+    mat_mat_mul(out_ptr, norm_ptr, weights.projection.ptr, num_tokens, audio_hidden_size, decoder_hidden_size)
 
 
 @always_inline

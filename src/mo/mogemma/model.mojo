@@ -229,6 +229,26 @@ struct VisionModelWeights(Movable):
         self.layers = List[VisionLayerWeights]()
 
 
+@fieldwise_init
+struct AudioTowerWeights(Movable):
+    """Weights for the audio encoder tower: conv stack + transformer layers + projection."""
+
+    var conv_weights: List[TensorInfo]
+    var conv_biases: List[TensorInfo]
+    var position_embedding: TensorInfo
+    var post_norm: TensorInfo
+    var projection: TensorInfo
+    var layers: List[VisionLayerWeights]  # reuse vision layer struct (same bidirectional attn + GELU MLP)
+
+    fn __init__(out self):
+        self.conv_weights = List[TensorInfo]()
+        self.conv_biases = List[TensorInfo]()
+        self.position_embedding = TensorInfo(0, 0, 0)
+        self.post_norm = TensorInfo(0, 0, 0)
+        self.projection = TensorInfo(0, 0, 0)
+        self.layers = List[VisionLayerWeights]()
+
+
 # Layer type constants for KVCache
 alias LAYER_TYPE_SLIDING: UInt8 = 0
 alias LAYER_TYPE_FULL: UInt8 = 1
