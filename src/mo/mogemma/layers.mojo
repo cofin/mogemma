@@ -565,3 +565,50 @@ fn forward_gemma4_step(
     var norm_out = next_state
     rms_norm(norm_out, current_state, model.norm.ptr, hidden_size, 1e-6)
     vec_mat_mul(out_logits_ptr, norm_out, model.lm_head.ptr, hidden_size, vocab_size)
+
+
+@always_inline
+fn forward_gemma4_step_with_embedding(
+    out_logits_ptr: UnsafePointer[Float32, MutExternalOrigin],  # [vocab_size]
+    embedding_ptr: UnsafePointer[Float32, MutExternalOrigin],   # [hidden_size] — pre-computed embedding
+    pos: Int,
+    model: ModelWeights,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    vocab_size: Int,
+    kv_cache: KVCache,
+    rope_tables: RoPETables,
+    k_eq_v: Bool,
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutExternalOrigin],
+):
+    """Like forward_gemma4_step but uses a pre-computed embedding instead of token lookup.
+
+    Used for vision token injection during prefill.
+    """
+    var num_layers = len(model.layers)
+    var current_state = scratch_ptr
+    var next_state = scratch_ptr + hidden_size
+    var layer_scratch = scratch_ptr + hidden_size * 2
+
+    # Use provided embedding directly (already scaled by caller)
+    for i in range(hidden_size):
+        current_state.store(i, embedding_ptr.load(i))
+
+    # Layer loop (same as forward_gemma4_step)
+    for l in range(num_layers):
+        forward_gemma4_layer(
+            next_state, current_state, model.layers[l], l, pos,
+            hidden_size, num_heads, num_kv_heads, head_dim, intermediate_size,
+            kv_cache, rope_tables, k_eq_v, max_seq_len, layer_scratch,
+        )
+        for i in range(hidden_size):
+            current_state.store(i, next_state.load(i))
+
+    # Final norm + LM head
+    var norm_out = next_state
+    rms_norm(norm_out, current_state, model.norm.ptr, hidden_size, 1e-6)
+    vec_mat_mul(out_logits_ptr, norm_out, model.lm_head.ptr, hidden_size, vocab_size)

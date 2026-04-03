@@ -16,7 +16,7 @@ from mogemma.model import (
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
 )
-from mogemma.layers import forward_gemma4_step, forward_vision_encoder
+from mogemma.layers import forward_gemma4_step, forward_gemma4_step_with_embedding, forward_vision_encoder
 from mogemma.ops import rms_norm, vec_mat_mul
 
 
@@ -686,6 +686,155 @@ fn step_mojo(
     return _ensure_step_logits(out_logits, np)
 
 
+fn process_image_mojo(
+    llm: PythonObject,
+    patches_obj: PythonObject,
+    grid_h_obj: PythonObject,
+    grid_w_obj: PythonObject,
+) raises -> PythonObject:
+    """Process preprocessed image patches through the vision encoder.
+
+    Stores resulting vision embeddings in llm['vision_embeddings'] list.
+    Returns the number of output tokens (after pooling).
+    """
+    var np = Python.import_module("numpy")
+    var builtins = Python.import_module("builtins")
+
+    var num_vision_layers = Int(py=llm["num_vision_layers"])
+    if num_vision_layers == 0:
+        raise Error("No vision layers configured")
+
+    var vision_hidden_size = Int(py=llm["vision_hidden_size"])
+    var vision_num_heads = Int(py=llm["vision_num_heads"])
+    var vision_head_dim = Int(py=llm["vision_head_dim"])
+    var vision_intermediate_size = Int(py=llm["vision_intermediate_size"])
+    var hidden_size = Int(py=llm["hidden_size"])
+    var grid_h = Int(py=grid_h_obj)
+    var grid_w = Int(py=grid_w_obj)
+    var num_patches = grid_h * grid_w
+
+    # Read patches as float32 array [num_patches, patch_dim]
+    var patches = np.asarray(patches_obj, dtype=np.float32)
+    var patches_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=patches.__array_interface__["data"][0])
+    )
+
+    # Hydrate vision weights
+    var v_tensor_pointers_obj = llm["_vision_tensor_pointers"]
+    var v_tensor_pointers_ptr = UnsafePointer[Int, MutExternalOrigin](
+        unsafe_from_address=Int(py=v_tensor_pointers_obj.__array_interface__["data"][0])
+    )
+    var vision_weights = _hydrate_vision_weights(v_tensor_pointers_ptr, num_vision_layers)
+
+    # Compute output token count after pooling
+    var pool_kernel = 3
+    var pooled_h = grid_h // pool_kernel
+    var pooled_w = grid_w // pool_kernel
+    var pooled_tokens = pooled_h * pooled_w
+
+    # Allocate output: [pooled_tokens, hidden_size] (decoder dim)
+    var out_np = np.zeros(Python.tuple(pooled_tokens, hidden_size), dtype=np.float32)
+    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=out_np.__array_interface__["data"][0])
+    )
+
+    # Allocate vision scratch
+    var vision_scratch_size = num_patches * vision_hidden_size * 60 + vision_num_heads * num_patches * num_patches * 4
+    var vision_scratch = _allocate_transient_f32(vision_scratch_size)
+    var vision_scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(vision_scratch.unsafe_ptr())
+    )
+
+    forward_vision_encoder(
+        out_ptr, patches_ptr, vision_weights,
+        num_patches, grid_h, grid_w,
+        vision_hidden_size, vision_num_heads, vision_head_dim, vision_intermediate_size,
+        hidden_size, vision_scratch_ptr,
+    )
+
+    _ = vision_scratch
+
+    # Store vision embeddings as individual token vectors in the list
+    var vision_embeddings = llm["vision_embeddings"]
+    for t in range(pooled_tokens):
+        var token_emb = np.zeros(hidden_size, dtype=np.float32)
+        for d in range(hidden_size):
+            _ = token_emb.__setitem__(d, value=out_np[t][d])
+        vision_embeddings.append(token_emb)
+
+    return PythonObject(pooled_tokens)
+
+
+fn step_with_embedding_mojo(
+    llm: PythonObject,
+    embedding_obj: PythonObject,
+    temp_obj: PythonObject,
+    top_k_obj: PythonObject,
+    top_p_obj: PythonObject,
+) raises -> PythonObject:
+    """Like step_mojo but uses a pre-computed embedding vector instead of token lookup.
+
+    Used for injecting vision tokens during prefill.
+    """
+    var np = Python.import_module("numpy")
+
+    var pos = Int(py=llm["pos"])
+    var max_seq_len = Int(py=llm["max_seq_len"])
+    if pos >= max_seq_len:
+        raise Error("Sequence length exceeded")
+
+    var embedding = np.asarray(embedding_obj, dtype=np.float32)
+    var embedding_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=embedding.__array_interface__["data"][0])
+    )
+
+    var num_layers = Int(py=llm["num_layers"])
+    var tensor_pointers_obj = llm["_tensor_pointers"]
+    var tensor_pointers_ptr = UnsafePointer[Int, MutExternalOrigin](
+        unsafe_from_address=Int(py=tensor_pointers_obj.__array_interface__["data"][0])
+    )
+    var model = _hydrate_model_weights(tensor_pointers_ptr, num_layers)
+
+    var hidden_size = Int(py=llm["hidden_size"])
+    var vocab_size = Int(py=llm["vocab_size"])
+    var head_dim = Int(py=llm["head_dim"])
+    var num_heads = Int(py=llm["num_heads"])
+    var num_kv_heads = Int(py=llm["num_kv_heads"])
+    var intermediate_size = Int(py=llm["intermediate_size"])
+    var k_eq_v = Int(py=llm["k_eq_v"]) != 0
+
+    var kv_cache_ptr = UnsafePointer[KVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_kv_cache_ptr"]))
+    var rope_tables_ptr = UnsafePointer[RoPETables, MutExternalOrigin](unsafe_from_address=Int(py=llm["_rope_tables_ptr"]))
+    var scratch_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(py=llm["step_scratch"]))
+
+    var out_logits = np.zeros(vocab_size, dtype=np.float32)
+    var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](
+        unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0])
+    )
+
+    forward_gemma4_step_with_embedding(
+        out_logits_ptr,
+        embedding_ptr,
+        pos,
+        model,
+        hidden_size,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        intermediate_size,
+        vocab_size,
+        kv_cache_ptr[],
+        rope_tables_ptr[],
+        k_eq_v,
+        max_seq_len,
+        scratch_ptr,
+    )
+
+    llm["pos"] = pos + 1
+
+    return _ensure_step_logits(out_logits, np)
+
+
 fn generate_embeddings_mojo(
     llm: PythonObject,
     input_array: PythonObject,
@@ -854,6 +1003,8 @@ fn PyInit__core() -> PythonObject:
         b.def_function[free_arena_mojo]("free_arena")
         b.def_function[reset_cache_mojo]("reset_cache")
         b.def_function[test_ffi_mojo]("test_ffi")
+        b.def_function[process_image_mojo]("process_image")
+        b.def_function[step_with_embedding_mojo]("step_with_embedding")
         return b.finalize()
     except e:
         abort(String("failed to create Python module: ", e))
