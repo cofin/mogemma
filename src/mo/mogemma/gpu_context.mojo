@@ -183,11 +183,11 @@ struct WeightStage(Movable):
             List of device pointers corresponding to each tensor in the staging buffer.
         """
         self.reset()
-        var offsets = List[Int]()
+        var offsets: List[Int] = []
         for i in range(len(tensors)):
             offsets.append(self._pack_tensor(tensors[i]))
         ctx.upload(self.device_buf, self.host_buf)
-        var ptrs = List[UnsafePointer[Float32, MutAnyOrigin]]()
+        var ptrs: List[UnsafePointer[Float32, MutAnyOrigin]] = []
         var base = self.device_buf.unsafe_ptr()
         for i in range(len(offsets)):
             ptrs.append(base + offsets[i])

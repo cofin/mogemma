@@ -107,8 +107,8 @@ struct ModelWeights(Movable):
         self.embed_tokens = TensorInfo(0, 0, 0)
         self.norm = TensorInfo(0, 0, 0)
         self.lm_head = TensorInfo(0, 0, 0)
-        self.layers = List[LayerWeights]()
-        self.ple_layers = List[PLELayerWeights]()
+        self.layers = []
+        self.ple_layers = []
         self.has_ple = False
 
     var ple_layers: List[PLELayerWeights]
@@ -179,7 +179,7 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.post_attention_layernorm = TensorInfo(0, 0, 0)
         self.pre_feedforward_layernorm = TensorInfo(0, 0, 0)
         self.post_feedforward_layernorm = TensorInfo(0, 0, 0)
-        self.experts = List[MoEExpertWeights]()
+        self.experts = []
 
     def __init__(out self, *, copy: Self):
         self.router = copy.router
@@ -193,7 +193,7 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.post_attention_layernorm = copy.post_attention_layernorm
         self.pre_feedforward_layernorm = copy.pre_feedforward_layernorm
         self.post_feedforward_layernorm = copy.post_feedforward_layernorm
-        self.experts = List[MoEExpertWeights]()
+        self.experts = []
         for i in range(len(copy.experts)):
             self.experts.append(copy.experts[i])
 
@@ -209,7 +209,7 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.post_attention_layernorm = implicit_copy.post_attention_layernorm
         self.pre_feedforward_layernorm = implicit_copy.pre_feedforward_layernorm
         self.post_feedforward_layernorm = implicit_copy.post_feedforward_layernorm
-        self.experts = List[MoEExpertWeights]()
+        self.experts = []
         for i in range(len(implicit_copy.experts)):
             self.experts.append(implicit_copy.experts[i])
 
@@ -227,7 +227,7 @@ struct MoEModelWeights(Movable):
         self.embed_tokens = TensorInfo(0, 0, 0)
         self.norm = TensorInfo(0, 0, 0)
         self.lm_head = TensorInfo(0, 0, 0)
-        self.layers = List[MoELayerWeights]()
+        self.layers = []
 
     @always_inline
     def get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
@@ -276,7 +276,7 @@ struct VisionModelWeights(Movable):
         self.position_embedding = TensorInfo(0, 0, 0)
         self.post_norm = TensorInfo(0, 0, 0)
         self.projection = TensorInfo(0, 0, 0)
-        self.layers = List[VisionLayerWeights]()
+        self.layers = []
 
 
 @fieldwise_init
@@ -291,17 +291,17 @@ struct AudioTowerWeights(Movable):
     var layers: List[VisionLayerWeights]  # reuse vision layer struct (same bidirectional attn + GELU MLP)
 
     def __init__(out self):
-        self.conv_weights = List[TensorInfo]()
-        self.conv_biases = List[TensorInfo]()
+        self.conv_weights = []
+        self.conv_biases = []
         self.position_embedding = TensorInfo(0, 0, 0)
         self.post_norm = TensorInfo(0, 0, 0)
         self.projection = TensorInfo(0, 0, 0)
-        self.layers = List[VisionLayerWeights]()
+        self.layers = []
 
 
 # Layer type constants for KVCache
-alias LAYER_TYPE_SLIDING: UInt8 = 0
-alias LAYER_TYPE_FULL: UInt8 = 1
+comptime LAYER_TYPE_SLIDING: UInt8 = 0
+comptime LAYER_TYPE_FULL: UInt8 = 1
 
 
 struct KVCache(Movable):

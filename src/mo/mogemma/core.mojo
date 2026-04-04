@@ -142,7 +142,7 @@ struct Appender:
     var list: List[Int]
 
     def __init__(out self):
-        self.list = List[Int]()
+        self.list = []
 
     def append(mut self, t: TensorInfo):
         self.list.append(Int(t.ptr))
@@ -154,7 +154,7 @@ struct Appender:
         self.list.append(val)
 
     def finish(mut self) -> List[Int]:
-        var res = List[Int]()
+        var res: List[Int] = []
         for i in range(len(self.list)):
             res.append(self.list[i])
         return res^
@@ -436,7 +436,7 @@ def _hydrate_vision_weights(
 
 def _build_ple_weights(metadata_obj: PythonObject, num_layers: Int) raises -> List[PLELayerWeights]:
     var builtins = Python.import_module("builtins")
-    var ple_layers = List[PLELayerWeights]()
+    var ple_layers: List[PLELayerWeights] = []
     for i in range(num_layers):
         var pfx = "model.layers." + String(i) + ".per_layer_input"
         var emb = metadata_obj.get(pfx + ".per_layer_embedding.weight")
@@ -463,7 +463,7 @@ def _flatten_ple_weights(ple_layers: List[PLELayerWeights]) -> List[Int]:
 
 
 def _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> List[PLELayerWeights]:
-    var ple_layers = List[PLELayerWeights]()
+    var ple_layers: List[PLELayerWeights] = []
     var h = Hydrator(ptr_array)
     for _ in range(num_layers):
         var ple = PLELayerWeights()
@@ -1099,7 +1099,7 @@ def step_mojo(
         # KV sharing map
         var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
         var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=0)
-        var kv_map_local = List[Int64]()
+        var kv_map_local: List[Int64] = []
         if num_kv_sharing > 0:
             var kv_map_obj = llm["_kv_sharing_map"]
             # Copy to local list for stable pointer
