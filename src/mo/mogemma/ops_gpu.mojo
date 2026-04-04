@@ -13,8 +13,11 @@ Kernel categories:
 """
 
 from std.sys import has_accelerator
-from std.gpu import block_idx, thread_idx, block_dim, global_idx
+from std.gpu import block_idx, thread_idx, block_dim, global_idx, warp_id, lane_id
 from std.gpu.host import DeviceContext, DeviceBuffer
+from std.gpu.sync import barrier, syncwarp
+from std.gpu.primitives.warp import sum as warp_sum, max as warp_max, broadcast as warp_broadcast
+from std.gpu.primitives.block import sum as block_sum, max as block_max
 from std.memory import UnsafePointer
 from std.math import sqrt, erf, exp
 
@@ -105,3 +108,130 @@ def rope_rotate_kernel(
         var s = sin_ptr[tid]
         vec_ptr[tid] = x1 * c - x2 * s
         vec_ptr[tid + half_dim] = x2 * c + x1 * s
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Reduction GPU kernels (Task 2.5, 2.6)
+# ---------------------------------------------------------------------------
+
+
+def softmax_kernel[
+    BLOCK_SIZE: Int
+](
+    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    """GPU kernel: in-place softmax with block-level reductions.
+
+    Uses block_max and block_sum for the two-pass algorithm:
+    1. Find max value across all elements
+    2. Compute exp(x - max) and sum
+    3. Normalize by dividing by sum
+
+    Handles sizes up to BLOCK_SIZE. Each thread processes one element.
+    Launch: grid_dim = 1, block_dim = BLOCK_SIZE
+
+    BLOCK_SIZE must be a compile-time power-of-2, typically
+    optimal_block_size(size) clamped to [32, 1024].
+    """
+    var tid = thread_idx.x
+
+    # Load value or -inf for padding threads
+    var val: Float32 = -1e30
+    if tid < size:
+        val = vec_ptr[tid]
+
+    # Pass 1: block-wide max
+    var max_val = block_max[block_size=BLOCK_SIZE](val)
+
+    # Pass 2: exp and block-wide sum
+    var exp_val: Float32 = 0.0
+    if tid < size:
+        exp_val = exp(val - max_val)
+    var sum_exp = block_sum[block_size=BLOCK_SIZE](exp_val)
+
+    # Pass 3: normalize
+    if tid < size:
+        vec_ptr[tid] = exp_val / sum_exp
+
+
+def softmax_strided_kernel[
+    BLOCK_SIZE: Int
+](
+    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    """GPU kernel: in-place softmax for vectors larger than BLOCK_SIZE.
+
+    Each thread handles multiple elements via strided access, then
+    contributes partial results to block reductions.
+    Launch: grid_dim = 1, block_dim = BLOCK_SIZE
+    """
+    var tid = thread_idx.x
+
+    # Pass 1: strided max
+    var local_max: Float32 = -1e30
+    var i = tid
+    while i < size:
+        var val = vec_ptr[i]
+        if val > local_max:
+            local_max = val
+        i += BLOCK_SIZE
+    var max_val = block_max[block_size=BLOCK_SIZE](local_max)
+
+    # Pass 2: strided exp + sum
+    var local_sum: Float32 = 0.0
+    i = tid
+    while i < size:
+        var e = exp(vec_ptr[i] - max_val)
+        vec_ptr[i] = e  # store exp in-place
+        local_sum += e
+        i += BLOCK_SIZE
+    var sum_exp = block_sum[block_size=BLOCK_SIZE](local_sum)
+
+    # Pass 3: strided normalize
+    var inv_sum = 1.0 / sum_exp
+    i = tid
+    while i < size:
+        vec_ptr[i] = vec_ptr[i] * inv_sum
+        i += BLOCK_SIZE
+
+
+def rms_norm_kernel[
+    BLOCK_SIZE: Int
+](
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+    eps: Float32,
+):
+    """GPU kernel: RMS normalization with Gemma's (1+w) scaling.
+
+    Uses block_sum for the sum-of-squares reduction, then each thread
+    scales its assigned elements.
+
+    Computes: out = x / rms(x) * (1 + w)
+    where rms(x) = sqrt(mean(x^2) + eps)
+
+    Launch: grid_dim = 1, block_dim = BLOCK_SIZE
+    """
+    var tid = thread_idx.x
+
+    # Strided accumulation of sum of squares
+    var partial_sq: Float32 = 0.0
+    var i = tid
+    while i < size:
+        var val = x_ptr[i]
+        partial_sq += val * val
+        i += BLOCK_SIZE
+
+    # Block-wide sum of squares
+    var total_sq = block_sum[block_size=BLOCK_SIZE](partial_sq)
+    var inv_rms = 1.0 / sqrt(total_sq / Float32(size) + eps)
+
+    # Strided scaling with (1 + w)
+    i = tid
+    while i < size:
+        out_ptr[i] = x_ptr[i] * inv_rms * (1.0 + weight_ptr[i])
+        i += BLOCK_SIZE

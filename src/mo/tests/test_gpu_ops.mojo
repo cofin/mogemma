@@ -13,6 +13,7 @@ from std.testing import assert_almost_equal
 
 from mogemma.ops_gpu import (
     gelu_kernel, geglu_kernel, rope_rotate_kernel,
+    softmax_kernel, softmax_strided_kernel, rms_norm_kernel,
     ceildiv, optimal_block_size, BLOCK_1D, TILE_BK, TILE_BM, TILE_BN,
 )
 
@@ -206,6 +207,116 @@ def test_rope_rotate_kernel_gpu() raises:
         print("  SKIP: test_rope_rotate_kernel_gpu (no GPU)")
 
 
+def test_softmax_kernel_gpu() raises:
+    """Test softmax_kernel produces correct output on GPU (small vector)."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var size = 3
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        ctx.synchronize()
+        x_host[0] = 1.0
+        x_host[1] = 2.0
+        x_host[2] = 3.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        ctx.enqueue_copy(x_dev, x_host)
+
+        # Use BLOCK_SIZE=32 (smallest power-of-2 >= 3)
+        ctx.enqueue_function[softmax_kernel[32], softmax_kernel[32]](
+            x_dev, size,
+            grid_dim=1, block_dim=32,
+        )
+
+        ctx.enqueue_copy(x_host, x_dev)
+        ctx.synchronize()
+
+        # Expected: [0.09003057, 0.24472847, 0.66524096]
+        assert_almost_equal(x_host[0], Float32(0.09003057), atol=1e-5)
+        assert_almost_equal(x_host[1], Float32(0.24472847), atol=1e-5)
+        assert_almost_equal(x_host[2], Float32(0.66524096), atol=1e-5)
+        print("  test_softmax_kernel_gpu passed")
+    else:
+        print("  SKIP: test_softmax_kernel_gpu (no GPU)")
+
+
+def test_softmax_strided_kernel_gpu() raises:
+    """Test softmax_strided_kernel for larger vectors."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var size = 3
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        ctx.synchronize()
+        x_host[0] = 1.0
+        x_host[1] = 2.0
+        x_host[2] = 3.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        ctx.enqueue_copy(x_dev, x_host)
+
+        # Use strided variant even for small size to test it
+        ctx.enqueue_function[softmax_strided_kernel[32], softmax_strided_kernel[32]](
+            x_dev, size,
+            grid_dim=1, block_dim=32,
+        )
+
+        ctx.enqueue_copy(x_host, x_dev)
+        ctx.synchronize()
+
+        assert_almost_equal(x_host[0], Float32(0.09003057), atol=1e-5)
+        assert_almost_equal(x_host[1], Float32(0.24472847), atol=1e-5)
+        assert_almost_equal(x_host[2], Float32(0.66524096), atol=1e-5)
+        print("  test_softmax_strided_kernel_gpu passed")
+    else:
+        print("  SKIP: test_softmax_strided_kernel_gpu (no GPU)")
+
+
+def test_rms_norm_kernel_gpu() raises:
+    """Test rms_norm_kernel with Gemma's (1+w) scaling on GPU."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var size = 4
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        var w_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        var out_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        ctx.synchronize()
+
+        # x = [1, 1, 1, 1], w = [2, 2, 2, 2]
+        # rms = sqrt(4/4 + 1e-6) = 1.0, inv_rms = 1.0
+        # out = 1.0 * 1.0 * (1 + 2) = 3.0
+        for i in range(size):
+            x_host[i] = 1.0
+            w_host[i] = 2.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        var w_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        var out_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        ctx.enqueue_copy(x_dev, x_host)
+        ctx.enqueue_copy(w_dev, w_host)
+
+        ctx.enqueue_function[rms_norm_kernel[32], rms_norm_kernel[32]](
+            out_dev, x_dev, w_dev, size, Float32(1e-6),
+            grid_dim=1, block_dim=32,
+        )
+
+        ctx.enqueue_copy(out_host, out_dev)
+        ctx.synchronize()
+
+        for i in range(size):
+            assert_almost_equal(out_host[i], Float32(3.0), atol=1e-5)
+        print("  test_rms_norm_kernel_gpu passed")
+    else:
+        print("  SKIP: test_rms_norm_kernel_gpu (no GPU)")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -220,4 +331,7 @@ def main() raises:
     test_gelu_kernel_gpu()
     test_geglu_kernel_gpu()
     test_rope_rotate_kernel_gpu()
+    test_softmax_kernel_gpu()
+    test_softmax_strided_kernel_gpu()
+    test_rms_norm_kernel_gpu()
     print("GPU ops tests passed!")
