@@ -401,3 +401,104 @@ def vec_mat_mul_i8_kernel(
         tile_start += TILE_BK
 
     out_ptr[tid] = acc * scale_ptr[0]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Specialized GPU kernels (Task 2.10, 2.11)
+# ---------------------------------------------------------------------------
+
+
+def average_pool_2d_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    out_h: Int,
+    out_w: Int,
+    grid_w: Int,
+    hidden_size: Int,
+    kernel: Int,
+):
+    """GPU kernel: average pooling over kernel×kernel blocks.
+
+    One block per output spatial position, threads parallelize across
+    the hidden dimension. For SigLIP: kernel=3, 9 inputs per output.
+
+    Input layout: [grid_h * grid_w, hidden_size]
+    Output layout: [out_h * out_w, hidden_size]
+
+    Launch: grid_dim = out_h * out_w, block_dim = min(hidden_size, 1024)
+    """
+    var out_idx = block_idx.x  # output spatial position
+    var d = thread_idx.x  # hidden dimension index
+
+    if d >= hidden_size:
+        return
+
+    var oh = out_idx // out_w
+    var ow = out_idx % out_w
+    var inv_block = 1.0 / Float32(kernel * kernel)
+
+    var acc: Float32 = 0.0
+    for kh in range(kernel):
+        for kw in range(kernel):
+            var in_r = oh * kernel + kh
+            var in_c = ow * kernel + kw
+            var in_idx = (in_r * grid_w + in_c) * hidden_size + d
+            acc += x_ptr[in_idx]
+
+    out_ptr[out_idx * hidden_size + d] = acc * inv_block
+
+
+def top_k_kernel(
+    values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    k: Int,
+    size: Int,
+    out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
+    out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+):
+    """GPU kernel: find k largest values using warp-level max.
+
+    Single-warp kernel for small k (typically 8) and small size
+    (typically 128 for MoE expert selection). Warp lanes each check
+    a subset of values, warp_max finds the global winner, repeat k times.
+
+    Launch: grid_dim = 1, block_dim = 32 (one warp)
+    """
+    var tid = thread_idx.x  # lane ID within the warp
+    comptime WARP_SIZE: Int = 32
+
+    # Each lane handles a stripe of the input
+    for sel in range(k):
+        var best_val: Float32 = -1e30
+        var best_idx: Int32 = -1
+
+        # Each lane scans its assigned elements
+        var i = tid
+        while i < size:
+            # Check if already selected
+            var already = False
+            for j in range(sel):
+                if Int(out_indices_ptr[j]) == i:
+                    already = True
+                    break
+            if not already and values_ptr[i] > best_val:
+                best_val = values_ptr[i]
+                best_idx = Int32(i)
+            i += WARP_SIZE
+
+        # Warp-level max to find global winner
+        # We need the index too, so encode val+idx and reduce
+        # Use warp_max on value, then broadcast the winner's index
+        var global_max = warp_max(best_val)
+
+        # The lane with the winning value writes its index
+        # If multiple lanes have the same max, first one wins
+        var winner_idx: Int32 = -1
+        if best_val == global_max and best_idx >= 0:
+            winner_idx = best_idx
+        # Broadcast from the first matching lane
+        var winner = warp_max(winner_idx)
+
+        # Lane 0 writes the result
+        if tid == 0:
+            out_indices_ptr[sel] = winner
+            out_values_ptr[sel] = global_max

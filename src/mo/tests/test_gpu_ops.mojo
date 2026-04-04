@@ -15,6 +15,7 @@ from mogemma.ops_gpu import (
     gelu_kernel, geglu_kernel, rope_rotate_kernel,
     softmax_kernel, softmax_strided_kernel, rms_norm_kernel,
     vec_mat_mul_kernel, mat_mat_mul_kernel, vec_mat_mul_i8_kernel,
+    average_pool_2d_kernel, top_k_kernel,
     ceildiv, optimal_block_size, BLOCK_1D, TILE_BK, TILE_BM, TILE_BN,
 )
 
@@ -454,6 +455,95 @@ def test_vec_mat_mul_i8_kernel_gpu() raises:
         print("  SKIP: test_vec_mat_mul_i8_kernel_gpu (no GPU)")
 
 
+def test_average_pool_2d_kernel_gpu() raises:
+    """Test average_pool_2d_kernel on GPU."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var grid_h = 6
+        var grid_w = 6
+        var hidden_size = 2
+        var kernel = 3
+        var out_h = grid_h // kernel  # 2
+        var out_w = grid_w // kernel  # 2
+        var in_size = grid_h * grid_w * hidden_size  # 72
+        var out_size = out_h * out_w * hidden_size  # 8
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](in_size)
+        var out_host = ctx.enqueue_create_host_buffer[DType.float32](out_size)
+        ctx.synchronize()
+
+        # All 1.0 → averages should all be 1.0
+        for i in range(in_size):
+            x_host[i] = 1.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](in_size)
+        var out_dev = ctx.enqueue_create_buffer[DType.float32](out_size)
+        ctx.enqueue_copy(x_dev, x_host)
+
+        ctx.enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
+            out_dev, x_dev, out_h, out_w, grid_w, hidden_size, kernel,
+            grid_dim=out_h * out_w, block_dim=hidden_size,
+        )
+
+        ctx.enqueue_copy(out_host, out_dev)
+        ctx.synchronize()
+
+        for i in range(out_size):
+            assert_almost_equal(out_host[i], Float32(1.0), atol=1e-5)
+        print("  test_average_pool_2d_kernel_gpu passed")
+    else:
+        print("  SKIP: test_average_pool_2d_kernel_gpu (no GPU)")
+
+
+def test_top_k_kernel_gpu() raises:
+    """Test top_k_kernel on GPU."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var size = 8
+        var k = 3
+
+        var vals_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        var idx_host = ctx.enqueue_create_host_buffer[DType.int32](k)
+        var ov_host = ctx.enqueue_create_host_buffer[DType.float32](k)
+        ctx.synchronize()
+
+        # [0.1, 0.5, 0.3, 0.9, 0.2, 0.8, 0.4, 0.7]
+        vals_host[0] = 0.1
+        vals_host[1] = 0.5
+        vals_host[2] = 0.3
+        vals_host[3] = 0.9
+        vals_host[4] = 0.2
+        vals_host[5] = 0.8
+        vals_host[6] = 0.4
+        vals_host[7] = 0.7
+
+        var vals_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        var idx_dev = ctx.enqueue_create_buffer[DType.int32](k)
+        var ov_dev = ctx.enqueue_create_buffer[DType.float32](k)
+        ctx.enqueue_copy(vals_dev, vals_host)
+
+        ctx.enqueue_function[top_k_kernel, top_k_kernel](
+            vals_dev, k, size, idx_dev, ov_dev,
+            grid_dim=1, block_dim=32,
+        )
+
+        ctx.enqueue_copy(idx_host, idx_dev)
+        ctx.enqueue_copy(ov_host, ov_dev)
+        ctx.synchronize()
+
+        # Top 3: index 3 (0.9), index 5 (0.8), index 7 (0.7)
+        assert_almost_equal(ov_host[0], Float32(0.9), atol=1e-5)
+        assert_almost_equal(ov_host[1], Float32(0.8), atol=1e-5)
+        assert_almost_equal(ov_host[2], Float32(0.7), atol=1e-5)
+        print("  test_top_k_kernel_gpu passed")
+    else:
+        print("  SKIP: test_top_k_kernel_gpu (no GPU)")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -474,4 +564,6 @@ def main() raises:
     test_vec_mat_mul_kernel_gpu()
     test_mat_mat_mul_kernel_gpu()
     test_vec_mat_mul_i8_kernel_gpu()
+    test_average_pool_2d_kernel_gpu()
+    test_top_k_kernel_gpu()
     print("GPU ops tests passed!")
