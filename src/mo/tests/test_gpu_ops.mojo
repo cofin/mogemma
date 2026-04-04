@@ -16,6 +16,7 @@ from mogemma.ops_gpu import (
     softmax_kernel, softmax_strided_kernel, rms_norm_kernel,
     vec_mat_mul_kernel, mat_mat_mul_kernel, vec_mat_mul_i8_kernel,
     average_pool_2d_kernel, top_k_kernel,
+    GPUBackend,
     ceildiv, optimal_block_size, BLOCK_1D, TILE_BK, TILE_BM, TILE_BN,
 )
 
@@ -544,6 +545,40 @@ def test_top_k_kernel_gpu() raises:
         print("  SKIP: test_top_k_kernel_gpu (no GPU)")
 
 
+def test_gpu_backend_launch_gelu() raises:
+    """Test GPUBackend.launch_gelu convenience method."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var size = 4
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        var out_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        ctx.synchronize()
+        for i in range(size):
+            x_host[i] = 1.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        var out_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        ctx.enqueue_copy(x_dev, x_host)
+
+        GPUBackend.launch_gelu(ctx, out_dev, x_dev, size)
+
+        ctx.enqueue_copy(out_host, out_dev)
+        ctx.synchronize()
+
+        assert_almost_equal(out_host[0], Float32(0.8413), atol=1e-3)
+        print("  test_gpu_backend_launch_gelu passed")
+    else:
+        print("  SKIP: test_gpu_backend_launch_gelu (no GPU)")
+
+
+def test_gpu_backend_imports():
+    """Verify GPUBackend is importable."""
+    print("  test_gpu_backend_imports passed")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -555,6 +590,7 @@ def main() raises:
     test_ceildiv()
     test_optimal_block_size()
     test_comptime_constants()
+    test_gpu_backend_imports()
     test_gelu_kernel_gpu()
     test_geglu_kernel_gpu()
     test_rope_rotate_kernel_gpu()
@@ -566,4 +602,5 @@ def main() raises:
     test_vec_mat_mul_i8_kernel_gpu()
     test_average_pool_2d_kernel_gpu()
     test_top_k_kernel_gpu()
+    test_gpu_backend_launch_gelu()
     print("GPU ops tests passed!")

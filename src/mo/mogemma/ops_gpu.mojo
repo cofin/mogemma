@@ -502,3 +502,186 @@ def top_k_kernel(
         if tid == 0:
             out_indices_ptr[sel] = winner
             out_values_ptr[sel] = global_max
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: GPUBackend struct (Task 2.12)
+# ---------------------------------------------------------------------------
+
+
+struct GPUBackend:
+    """GPU dispatch struct for launching compute kernels.
+
+    Cannot implement the ComputeBackend trait because GPU kernel launches
+    require a DeviceContext, and the trait uses @staticmethod with fixed
+    signatures. Instead, GPUBackend provides matching method signatures
+    that take a DeviceContext reference. The forward path uses
+    `comptime if has_accelerator()` to dispatch between CPUBackend (trait)
+    and GPUBackend (direct calls).
+
+    Usage:
+        comptime if has_accelerator():
+            GPUBackend.launch_rms_norm(ctx, out, x, w, size, eps)
+        else:
+            CPUBackend.rms_norm(out, x, w, size, eps)
+    """
+
+    @staticmethod
+    def launch_gelu(
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        x_buf: DeviceBuffer[DType.float32],
+        size: Int,
+    ) raises:
+        var grid = ceildiv(size, BLOCK_1D)
+        ctx.enqueue_function[gelu_kernel, gelu_kernel](
+            out_buf, x_buf, size,
+            grid_dim=grid, block_dim=BLOCK_1D,
+        )
+
+    @staticmethod
+    def launch_geglu(
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        gate_buf: DeviceBuffer[DType.float32],
+        up_buf: DeviceBuffer[DType.float32],
+        size: Int,
+    ) raises:
+        var grid = ceildiv(size, BLOCK_1D)
+        ctx.enqueue_function[geglu_kernel, geglu_kernel](
+            out_buf, gate_buf, up_buf, size,
+            grid_dim=grid, block_dim=BLOCK_1D,
+        )
+
+    @staticmethod
+    def launch_rope_rotate(
+        mut ctx: DeviceContext,
+        vec_buf: DeviceBuffer[DType.float32],
+        cos_buf: DeviceBuffer[DType.float32],
+        sin_buf: DeviceBuffer[DType.float32],
+        head_dim: Int,
+    ) raises:
+        var half_dim = head_dim // 2
+        ctx.enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
+            vec_buf, cos_buf, sin_buf, half_dim,
+            grid_dim=1, block_dim=half_dim,
+        )
+
+    @staticmethod
+    def launch_softmax[
+        BLOCK_SIZE: Int
+    ](
+        mut ctx: DeviceContext,
+        vec_buf: DeviceBuffer[DType.float32],
+        size: Int,
+    ) raises:
+        if size <= BLOCK_SIZE:
+            ctx.enqueue_function[softmax_kernel[BLOCK_SIZE], softmax_kernel[BLOCK_SIZE]](
+                vec_buf, size,
+                grid_dim=1, block_dim=BLOCK_SIZE,
+            )
+        else:
+            ctx.enqueue_function[softmax_strided_kernel[BLOCK_SIZE], softmax_strided_kernel[BLOCK_SIZE]](
+                vec_buf, size,
+                grid_dim=1, block_dim=BLOCK_SIZE,
+            )
+
+    @staticmethod
+    def launch_rms_norm[
+        BLOCK_SIZE: Int
+    ](
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        x_buf: DeviceBuffer[DType.float32],
+        w_buf: DeviceBuffer[DType.float32],
+        size: Int,
+        eps: Float32,
+    ) raises:
+        ctx.enqueue_function[rms_norm_kernel[BLOCK_SIZE], rms_norm_kernel[BLOCK_SIZE]](
+            out_buf, x_buf, w_buf, size, eps,
+            grid_dim=1, block_dim=BLOCK_SIZE,
+        )
+
+    @staticmethod
+    def launch_vec_mat_mul(
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        x_buf: DeviceBuffer[DType.float32],
+        w_buf: DeviceBuffer[DType.float32],
+        in_dim: Int,
+        out_dim: Int,
+    ) raises:
+        var grid = ceildiv(out_dim, BLOCK_1D)
+        ctx.enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
+            out_buf, x_buf, w_buf, in_dim, out_dim,
+            grid_dim=grid, block_dim=BLOCK_1D,
+            shared_mem_bytes=TILE_BK * 4,
+        )
+
+    @staticmethod
+    def launch_mat_mat_mul(
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        x_buf: DeviceBuffer[DType.float32],
+        w_buf: DeviceBuffer[DType.float32],
+        batch_size: Int,
+        in_dim: Int,
+        out_dim: Int,
+    ) raises:
+        var grid_x = ceildiv(out_dim, TILE_BN)
+        var grid_y = ceildiv(batch_size, TILE_BM)
+        var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
+        ctx.enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
+            out_buf, x_buf, w_buf, batch_size, in_dim, out_dim,
+            grid_dim=(grid_x, grid_y), block_dim=(TILE_BN, TILE_BM),
+            shared_mem_bytes=shared_bytes,
+        )
+
+    @staticmethod
+    def launch_vec_mat_mul_i8(
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        x_buf: DeviceBuffer[DType.float32],
+        w_buf: DeviceBuffer[DType.int8],
+        scale_buf: DeviceBuffer[DType.float32],
+        in_dim: Int,
+        out_dim: Int,
+    ) raises:
+        var grid = ceildiv(out_dim, BLOCK_1D)
+        ctx.enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
+            out_buf, x_buf, w_buf, scale_buf, in_dim, out_dim,
+            grid_dim=grid, block_dim=BLOCK_1D,
+            shared_mem_bytes=TILE_BK * 4,
+        )
+
+    @staticmethod
+    def launch_average_pool_2d(
+        mut ctx: DeviceContext,
+        out_buf: DeviceBuffer[DType.float32],
+        x_buf: DeviceBuffer[DType.float32],
+        grid_h: Int,
+        grid_w: Int,
+        hidden_size: Int,
+        kernel: Int,
+    ) raises:
+        var out_h = grid_h // kernel
+        var out_w = grid_w // kernel
+        var block = optimal_block_size(hidden_size)
+        ctx.enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
+            out_buf, x_buf, out_h, out_w, grid_w, hidden_size, kernel,
+            grid_dim=out_h * out_w, block_dim=block,
+        )
+
+    @staticmethod
+    def launch_top_k(
+        mut ctx: DeviceContext,
+        values_buf: DeviceBuffer[DType.float32],
+        k: Int,
+        size: Int,
+        out_indices_buf: DeviceBuffer[DType.int32],
+        out_values_buf: DeviceBuffer[DType.float32],
+    ) raises:
+        ctx.enqueue_function[top_k_kernel, top_k_kernel](
+            values_buf, k, size, out_indices_buf, out_values_buf,
+            grid_dim=1, block_dim=32,
+        )
