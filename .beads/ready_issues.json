@@ -1,0 +1,204 @@
+[
+  {
+    "created_at": "2026-03-06T17:24:04.629451793Z",
+    "created_by": "cody",
+    "description": "Remove hardcoded head_dim=256 and embedding_dim=768 from core.mojo. Derive dimensions from tensor shapes with Python override support. Fix GenerationConfig default. Add QK norm correctness fix.",
+    "id": "mogemma-iqn",
+    "issue_type": "epic",
+    "priority": 1,
+    "status": "open",
+    "title": "Flow: gemma3-standard-hardening",
+    "updated_at": "2026-03-06T21:41:16.795019968Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.482033270Z",
+    "created_by": "cody",
+    "description": "Root-cause nano gibberish generation in Mojo core and establish deterministic semantic quality gates for standard Gemma generation.",
+    "id": "mogemma-3fn",
+    "issue_type": "epic",
+    "priority": 1,
+    "status": "open",
+    "title": "Flow: core-generation-fix",
+    "updated_at": "2026-03-07T20:46:39.795064076Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:05.211333291Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.9",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "2.6 Add optional arch params dict to `init_model_mojo` signature; if `head_dim` key present, use override value",
+    "updated_at": "2026-03-06T17:24:05.211333291Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:05.252520458Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.10",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "2.7 Persist resolved architecture params in runtime state so token/embedding entrypoints consume prepared values instead of re-reading tensor metadata.",
+    "updated_at": "2026-03-06T17:24:05.252520458Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:05.809638426Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.17",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "4.2 Add `architecture_overrides: dict[str, int | float] | None = None` field to both config classes",
+    "updated_at": "2026-03-06T17:24:05.809638426Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:05.854539074Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.18",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "4.3 Update `_initialize_llm` in model.py to pass architecture overrides to `_core.init_model`",
+    "updated_at": "2026-03-06T17:24:05.854539074Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:05.901868993Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.19",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "4.4 Add `ModelVariant` detection utility that checks tensor names to identify standard vs Nano, raising `ValueError` for unsupported architectures",
+    "updated_at": "2026-03-06T17:24:05.901868993Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:05.965918010Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.20",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "4.5 Validate override keys/types in Python config construction so unsupported runtime-shaping inputs fail before native init.",
+    "updated_at": "2026-03-06T17:24:05.965918010Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.018376703Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.21",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.1 Update `test_layers.mojo` fixtures to include q_norm/k_norm in LayerWeights construction",
+    "updated_at": "2026-03-06T17:24:06.018376703Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.069413404Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.22",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.2 Update `test_gemma_model.py` for new default GenerationConfig model path",
+    "updated_at": "2026-03-06T17:24:06.069413404Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.118467744Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.23",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.3 Add test: model variant detection rejects Nano with clear error message",
+    "updated_at": "2026-03-06T17:24:06.118467744Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.168179708Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.24",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.4 Add test: architecture override dict is passed through to init_model",
+    "updated_at": "2026-03-06T17:24:06.168179708Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.218936049Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.25",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.5 Add test: invalid override keys/types fail at config/model construction time with deterministic messages",
+    "updated_at": "2026-03-06T17:24:06.218936049Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.270030926Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.26",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.6 Capture a short perf sanity check (or build counter evidence) proving architecture derivation is init-only work",
+    "updated_at": "2026-03-06T17:24:06.270030926Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.322273356Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.27",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.7 Run full `uv run pytest src/py/tests/ -x -q` — all tests pass",
+    "updated_at": "2026-03-06T17:24:06.322273356Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.374409967Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.28",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.8 Run `uv run ruff check` on all modified files — clean",
+    "updated_at": "2026-03-06T17:24:06.374409967Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.427619619Z",
+    "created_by": "cody",
+    "id": "mogemma-iqn.29",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "5.9 Run `make build && make test` for Mojo compilation + Mojo tests (if available)",
+    "updated_at": "2026-03-06T17:24:06.427619619Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:06.968621315Z",
+    "created_by": "cody",
+    "id": "mogemma-3fn.6",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "2.3 Cache runtime-owned layer views, RoPE tables, and variant constants alongside the descriptor so token loops only dereference prepared state.",
+    "updated_at": "2026-03-06T17:24:06.968621315Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:07.155873274Z",
+    "created_by": "cody",
+    "id": "mogemma-3fn.8",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "3.1 `mogemma-yj1.2.3` Execute generation validation for `gemma3-270m-it` and `gemma3n-e2b-it`, capturing semantic pass/fail outcomes.",
+    "updated_at": "2026-03-06T17:24:07.155873274Z"
+  },
+  {
+    "created_at": "2026-03-06T17:24:07.217790916Z",
+    "created_by": "cody",
+    "id": "mogemma-3fn.9",
+    "issue_type": "task",
+    "priority": 2,
+    "status": "open",
+    "title": "3.2 `mogemma-yj1.2.8` Add lightweight perf checks proving descriptor-caching removes repeated model-build overhead in token loops.",
+    "updated_at": "2026-03-06T17:24:07.217790916Z"
+  }
+]
