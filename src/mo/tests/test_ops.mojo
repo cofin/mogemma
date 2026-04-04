@@ -1,7 +1,7 @@
 from std.collections import List
 from mogemma.ops import rms_norm, geglu, rope_rotate, vec_mat_mul, mat_mat_mul, softmax, gelu, average_pool_2d, top_k
 from std.memory import UnsafePointer
-from testing import assert_almost_equal
+from std.testing import assert_almost_equal
 
 
 def test_rms_norm() raises:
