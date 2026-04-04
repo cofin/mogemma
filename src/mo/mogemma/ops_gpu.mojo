@@ -18,6 +18,7 @@ from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.sync import barrier, syncwarp
 from std.gpu.primitives.warp import sum as warp_sum, max as warp_max, broadcast as warp_broadcast
 from std.gpu.primitives.block import sum as block_sum, max as block_max
+from std.gpu.memory import AddressSpace, external_memory
 from std.memory import UnsafePointer
 from std.math import sqrt, erf, exp
 
@@ -235,3 +236,168 @@ def rms_norm_kernel[
     while i < size:
         out_ptr[i] = x_ptr[i] * inv_rms * (1.0 + weight_ptr[i])
         i += BLOCK_SIZE
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Matmul GPU kernels (Task 2.7, 2.8, 2.9)
+# ---------------------------------------------------------------------------
+
+
+def vec_mat_mul_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    in_dim: Int,
+    out_dim: Int,
+):
+    """GPU kernel: tiled vector-matrix multiply with shared memory.
+
+    Computes out[o] = sum_i(x[i] * w[o, i]) where w is transposed [out_dim, in_dim].
+    Uses shared memory to tile the input vector x so all threads in a block
+    reuse the same loaded tile, avoiding redundant global memory reads.
+
+    Each thread computes one output element.
+    Launch: grid_dim = ceildiv(out_dim, BLOCK_1D), block_dim = BLOCK_1D,
+            shared_mem_bytes = TILE_BK * sizeof(Float32)
+    """
+    var tid = block_idx.x * BLOCK_1D + thread_idx.x
+    if tid >= out_dim:
+        return
+
+    var acc: Float32 = 0.0
+    var w_row = w_ptr + tid * in_dim
+
+    # Shared memory tile for input vector x
+    var x_shared = external_memory[
+        SIMD[DType.float32, 1],
+        address_space=AddressSpace.SHARED,
+        alignment=4,
+    ]()
+
+    var tile_start = 0
+    while tile_start < in_dim:
+        # Cooperative load: first TILE_BK threads load x tile
+        if thread_idx.x < TILE_BK and tile_start + thread_idx.x < in_dim:
+            x_shared[thread_idx.x] = x_ptr[tile_start + thread_idx.x]
+        barrier()
+
+        # Each thread dots its weight row tile against shared x tile
+        var tile_end = TILE_BK
+        if tile_start + tile_end > in_dim:
+            tile_end = in_dim - tile_start
+        for k in range(tile_end):
+            acc += w_row[tile_start + k] * x_shared[k]
+        barrier()
+
+        tile_start += TILE_BK
+
+    out_ptr[tid] = acc
+
+
+def mat_mat_mul_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    batch_size: Int,
+    in_dim: Int,
+    out_dim: Int,
+):
+    """GPU kernel: 2D tiled matrix multiply with shared memory.
+
+    Computes out[b, o] = sum_i(x[b, i] * w[o, i]) for batched inputs.
+    Uses BM×BK and BK×BN shared memory tiles loaded cooperatively.
+    w is stored transposed [out_dim, in_dim].
+
+    Launch: grid_dim = (ceildiv(out_dim, TILE_BN), ceildiv(batch_size, TILE_BM)),
+            block_dim = (TILE_BN, TILE_BM),
+            shared_mem_bytes = (TILE_BM*TILE_BK + TILE_BK*TILE_BN) * sizeof(Float32)
+    """
+    var row = block_idx.y * TILE_BM + thread_idx.y  # batch index
+    var col = block_idx.x * TILE_BN + thread_idx.x  # output index
+
+    if row >= batch_size or col >= out_dim:
+        return
+
+    var acc: Float32 = 0.0
+
+    # Shared memory region: x_tile [BM, BK] then w_tile [BK, BN]
+    var shared = external_memory[
+        SIMD[DType.float32, 1],
+        address_space=AddressSpace.SHARED,
+        alignment=4,
+    ]()
+    comptime x_tile_size: Int = TILE_BM * TILE_BK
+    comptime w_tile_offset: Int = x_tile_size
+
+    var num_tiles = ceildiv(in_dim, TILE_BK)
+    for tile in range(num_tiles):
+        var k_base = tile * TILE_BK
+
+        # Load x tile [BM, BK]: each thread loads one element
+        if k_base + thread_idx.x < in_dim and row < batch_size:
+            shared[thread_idx.y * TILE_BK + thread_idx.x] = x_ptr[row * in_dim + k_base + thread_idx.x]
+        else:
+            shared[thread_idx.y * TILE_BK + thread_idx.x] = 0.0
+
+        # Load w tile [BK, BN]: w is [out_dim, in_dim], need w[col, k_base+ty]
+        if k_base + thread_idx.y < in_dim and col < out_dim:
+            shared[w_tile_offset + thread_idx.y * TILE_BN + thread_idx.x] = w_ptr[col * in_dim + k_base + thread_idx.y]
+        else:
+            shared[w_tile_offset + thread_idx.y * TILE_BN + thread_idx.x] = 0.0
+
+        barrier()
+
+        # Partial dot product over tile
+        for k in range(TILE_BK):
+            if k_base + k < in_dim:
+                acc += shared[thread_idx.y * TILE_BK + k] * shared[w_tile_offset + k * TILE_BN + thread_idx.x]
+        barrier()
+
+    out_ptr[row * out_dim + col] = acc
+
+
+def vec_mat_mul_i8_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+    scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    in_dim: Int,
+    out_dim: Int,
+):
+    """GPU kernel: quantized vector-matrix multiply (int8 weights).
+
+    Same tiling as vec_mat_mul_kernel but loads int8 weights, casts to
+    float32 in the inner loop, and applies per-tensor scale after reduction.
+
+    Launch: grid_dim = ceildiv(out_dim, BLOCK_1D), block_dim = BLOCK_1D,
+            shared_mem_bytes = TILE_BK * sizeof(Float32)
+    """
+    var tid = block_idx.x * BLOCK_1D + thread_idx.x
+    if tid >= out_dim:
+        return
+
+    var acc: Float32 = 0.0
+    var w_row = w_ptr + tid * in_dim
+
+    var x_shared = external_memory[
+        SIMD[DType.float32, 1],
+        address_space=AddressSpace.SHARED,
+        alignment=4,
+    ]()
+
+    var tile_start = 0
+    while tile_start < in_dim:
+        if thread_idx.x < TILE_BK and tile_start + thread_idx.x < in_dim:
+            x_shared[thread_idx.x] = x_ptr[tile_start + thread_idx.x]
+        barrier()
+
+        var tile_end = TILE_BK
+        if tile_start + tile_end > in_dim:
+            tile_end = in_dim - tile_start
+        for k in range(tile_end):
+            acc += Float32(w_row[tile_start + k]) * x_shared[k]
+        barrier()
+
+        tile_start += TILE_BK
+
+    out_ptr[tid] = acc * scale_ptr[0]

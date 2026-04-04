@@ -14,6 +14,7 @@ from std.testing import assert_almost_equal
 from mogemma.ops_gpu import (
     gelu_kernel, geglu_kernel, rope_rotate_kernel,
     softmax_kernel, softmax_strided_kernel, rms_norm_kernel,
+    vec_mat_mul_kernel, mat_mat_mul_kernel, vec_mat_mul_i8_kernel,
     ceildiv, optimal_block_size, BLOCK_1D, TILE_BK, TILE_BM, TILE_BN,
 )
 
@@ -317,6 +318,142 @@ def test_rms_norm_kernel_gpu() raises:
         print("  SKIP: test_rms_norm_kernel_gpu (no GPU)")
 
 
+def test_vec_mat_mul_kernel_gpu() raises:
+    """Test vec_mat_mul_kernel with shared memory tiling on GPU."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var in_dim = 4
+        var out_dim = 2
+
+        # x = [1, 1, 1, 1], w = [[2,2,2,2],[2,2,2,2]] -> out = [8, 8]
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](in_dim)
+        var w_host = ctx.enqueue_create_host_buffer[DType.float32](out_dim * in_dim)
+        var out_host = ctx.enqueue_create_host_buffer[DType.float32](out_dim)
+        ctx.synchronize()
+
+        for i in range(in_dim):
+            x_host[i] = 1.0
+        for i in range(out_dim * in_dim):
+            w_host[i] = 2.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](in_dim)
+        var w_dev = ctx.enqueue_create_buffer[DType.float32](out_dim * in_dim)
+        var out_dev = ctx.enqueue_create_buffer[DType.float32](out_dim)
+        ctx.enqueue_copy(x_dev, x_host)
+        ctx.enqueue_copy(w_dev, w_host)
+
+        var grid = ceildiv(out_dim, BLOCK_1D)
+        ctx.enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
+            out_dev, x_dev, w_dev, in_dim, out_dim,
+            grid_dim=grid, block_dim=BLOCK_1D,
+            shared_mem_bytes=TILE_BK * 4,
+        )
+
+        ctx.enqueue_copy(out_host, out_dev)
+        ctx.synchronize()
+
+        assert_almost_equal(out_host[0], Float32(8.0), atol=1e-5)
+        assert_almost_equal(out_host[1], Float32(8.0), atol=1e-5)
+        print("  test_vec_mat_mul_kernel_gpu passed")
+    else:
+        print("  SKIP: test_vec_mat_mul_kernel_gpu (no GPU)")
+
+
+def test_mat_mat_mul_kernel_gpu() raises:
+    """Test mat_mat_mul_kernel 2D tiled matmul on GPU."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var batch = 2
+        var in_dim = 4
+        var out_dim = 2
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](batch * in_dim)
+        var w_host = ctx.enqueue_create_host_buffer[DType.float32](out_dim * in_dim)
+        var out_host = ctx.enqueue_create_host_buffer[DType.float32](batch * out_dim)
+        ctx.synchronize()
+
+        for i in range(batch * in_dim):
+            x_host[i] = 1.0
+        for i in range(out_dim * in_dim):
+            w_host[i] = 2.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](batch * in_dim)
+        var w_dev = ctx.enqueue_create_buffer[DType.float32](out_dim * in_dim)
+        var out_dev = ctx.enqueue_create_buffer[DType.float32](batch * out_dim)
+        ctx.enqueue_copy(x_dev, x_host)
+        ctx.enqueue_copy(w_dev, w_host)
+
+        var grid_x = ceildiv(out_dim, TILE_BN)
+        var grid_y = ceildiv(batch, TILE_BM)
+        var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
+        ctx.enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
+            out_dev, x_dev, w_dev, batch, in_dim, out_dim,
+            grid_dim=(grid_x, grid_y), block_dim=(TILE_BN, TILE_BM),
+            shared_mem_bytes=shared_bytes,
+        )
+
+        ctx.enqueue_copy(out_host, out_dev)
+        ctx.synchronize()
+
+        # 1.0 * 2.0 * 4 = 8.0 for each element
+        for i in range(batch * out_dim):
+            assert_almost_equal(out_host[i], Float32(8.0), atol=1e-5)
+        print("  test_mat_mat_mul_kernel_gpu passed")
+    else:
+        print("  SKIP: test_mat_mat_mul_kernel_gpu (no GPU)")
+
+
+def test_vec_mat_mul_i8_kernel_gpu() raises:
+    """Test vec_mat_mul_i8_kernel quantized matmul on GPU."""
+    comptime if has_accelerator():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var in_dim = 4
+        var out_dim = 2
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](in_dim)
+        var w_host = ctx.enqueue_create_host_buffer[DType.int8](out_dim * in_dim)
+        var scale_host = ctx.enqueue_create_host_buffer[DType.float32](1)
+        var out_host = ctx.enqueue_create_host_buffer[DType.float32](out_dim)
+        ctx.synchronize()
+
+        for i in range(in_dim):
+            x_host[i] = 1.0
+        for i in range(out_dim * in_dim):
+            w_host[i] = Int8(10)
+        scale_host[0] = 0.2  # dequant: 10 * 0.2 = 2.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](in_dim)
+        var w_dev = ctx.enqueue_create_buffer[DType.int8](out_dim * in_dim)
+        var scale_dev = ctx.enqueue_create_buffer[DType.float32](1)
+        var out_dev = ctx.enqueue_create_buffer[DType.float32](out_dim)
+        ctx.enqueue_copy(x_dev, x_host)
+        ctx.enqueue_copy(w_dev, w_host)
+        ctx.enqueue_copy(scale_dev, scale_host)
+
+        var grid = ceildiv(out_dim, BLOCK_1D)
+        ctx.enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
+            out_dev, x_dev, w_dev, scale_dev, in_dim, out_dim,
+            grid_dim=grid, block_dim=BLOCK_1D,
+            shared_mem_bytes=TILE_BK * 4,
+        )
+
+        ctx.enqueue_copy(out_host, out_dev)
+        ctx.synchronize()
+
+        # 1.0 * 2.0 * 4 = 8.0
+        assert_almost_equal(out_host[0], Float32(8.0), atol=1e-5)
+        assert_almost_equal(out_host[1], Float32(8.0), atol=1e-5)
+        print("  test_vec_mat_mul_i8_kernel_gpu passed")
+    else:
+        print("  SKIP: test_vec_mat_mul_i8_kernel_gpu (no GPU)")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -334,4 +471,7 @@ def main() raises:
     test_softmax_kernel_gpu()
     test_softmax_strided_kernel_gpu()
     test_rms_norm_kernel_gpu()
+    test_vec_mat_mul_kernel_gpu()
+    test_mat_mat_mul_kernel_gpu()
+    test_vec_mat_mul_i8_kernel_gpu()
     print("GPU ops tests passed!")
