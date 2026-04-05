@@ -19,6 +19,7 @@ from mogemma.layers import (
     forward_gemma4_layer,
     forward_gemma4_step,
 )
+from mogemma.ops import CPUBackend
 
 
 def alloc_zeros(size: Int) -> List[Float32]:
@@ -50,7 +51,8 @@ def test_forward_mlp() raises:
     var out = alloc_zeros(hidden_size)
     var scratch = alloc_zeros(intermediate_size * 4)
 
-    forward_mlp(get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, get_ptr(scratch))
+    var backend = CPUBackend()
+    forward_mlp(backend, get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, get_ptr(scratch))
 
     for i in range(hidden_size):
         assert_almost_equal(out[i], Float32(32.0), atol=2e-3)
@@ -94,7 +96,9 @@ def test_forward_sliding_attention() raises:
     var out = alloc_zeros(hidden_size)
     var scratch = alloc_zeros(hidden_size * 20)
 
+    var backend = CPUBackend()
     forward_sliding_attention(
+        backend,
         get_ptr(out),
         get_ptr(x),
         weights,
@@ -158,7 +162,9 @@ def test_forward_full_attention() raises:
     var out = alloc_zeros(hidden_size)
     var scratch = alloc_zeros(hidden_size * 20)
 
+    var backend = CPUBackend()
     forward_full_attention(
+        backend,
         get_ptr(out),
         get_ptr(x),
         weights,

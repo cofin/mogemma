@@ -29,7 +29,8 @@ from mogemma.layers import (
     forward_vision_encoder,
     forward_audio_encoder,
 )
-from mogemma.ops import rms_norm, vec_mat_mul
+from mogemma.ops import rms_norm, vec_mat_mul, CPUBackend
+from mogemma.ops_gpu import GPUBackend
 from std.sys import has_accelerator
 from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch
 
@@ -1003,6 +1004,103 @@ def init_model_with_options_mojo(
     return llm
 
 
+@always_inline
+def _run_step[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: AnyType](
+    mut backend: B,
+    out_logits_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    token_id: Int,
+    pos: Int,
+    model: ModelWeights,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    intermediate_size: Int,
+    vocab_size: Int,
+    kv_cache: K,
+    rope_tables: RoPETables,
+    k_eq_v: Bool,
+    max_seq_len: Int,
+    scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_experts: Int,
+    has_ple_flag: Bool,
+    ple_dim: Int,
+    kv_map_ptr: UnsafePointer[Int64, MutExternalOrigin],
+    num_kv_sharing: Int,
+    moe_model: MoEModelWeights,
+    moe_top_k: Int,
+    moe_intermediate_size: Int,
+    mut stage: S,
+    mut ctx: C,
+    persistent: P,
+):
+    if num_experts > 0:
+        # MoE streaming not fully implemented in layers.mojo yet, using placeholder
+        forward_gemma4_moe_step(
+            backend,
+            out_logits_ptr,
+            token_id,
+            pos,
+            moe_model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            num_experts,
+            moe_top_k,
+            moe_intermediate_size,
+            vocab_size,
+            kv_cache,
+            rope_tables,
+            max_seq_len,
+            scratch_ptr,
+        )
+    elif has_ple_flag:
+        # PLE streaming not fully implemented yet
+        forward_gemma4_ple_step(
+            backend,
+            out_logits_ptr,
+            token_id,
+            pos,
+            model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            ple_dim,
+            kv_cache,
+            rope_tables,
+            k_eq_v,
+            max_seq_len,
+            kv_map_ptr,
+            num_kv_sharing,
+            scratch_ptr,
+        )
+    else:
+        forward_gemma4_step(
+            backend,
+            out_logits_ptr,
+            token_id,
+            pos,
+            model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            kv_cache,
+            rope_tables,
+            k_eq_v,
+            max_seq_len,
+            scratch_ptr,
+            stage,
+            ctx,
+        )
+
+
 def step_mojo(
     llm: PythonObject,
     token_id_obj: PythonObject,
@@ -1052,39 +1150,23 @@ def step_mojo(
     )
 
     var num_experts = Int(py=builtins.getattr(llm, "get")("num_experts", 0))
-    var has_ple_flag = Int(py=builtins.getattr(llm, "get")("has_ple", 0))
+    var has_ple_flag = Int(py=builtins.getattr(llm, "get")("has_ple", 0)) != 0
 
+    var moe_top_k_val = 0
+    var moe_intermediate_size_val = 0
+    var moe_model = MoEModelWeights()
     if num_experts > 0:
-        # MoE dispatch (26B)
-        var moe_top_k_val = Int(py=llm["moe_top_k"])
-        var moe_intermediate_size_val = Int(py=llm["moe_intermediate_size"])
+        moe_top_k_val = Int(py=llm["moe_top_k"])
+        moe_intermediate_size_val = Int(py=llm["moe_intermediate_size"])
         var moe_ptrs_obj = llm["_moe_tensor_pointers"]
         var moe_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
             unsafe_from_address=Int(py=moe_ptrs_obj.__array_interface__["data"][0])
         )
-        var moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers, num_experts)
-        forward_gemma4_moe_step(
-            out_logits_ptr,
-            token_id,
-            pos,
-            moe_model,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            num_experts,
-            moe_top_k_val,
-            moe_intermediate_size_val,
-            vocab_size,
-            kv_cache_ptr[],
-            rope_tables_ptr[],
-            max_seq_len,
-            scratch_ptr,
-        )
-    elif has_ple_flag != 0:
-        # PLE dispatch (E2B/E4B)
-        var ple_dim = Int(py=llm["ple_dim"])
-        # Hydrate PLE weights
+        moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers, num_experts)
+
+    var ple_dim = 0
+    if has_ple_flag:
+        ple_dim = Int(py=llm["ple_dim"])
         var num_ple_layers = Int(py=builtins.getattr(llm, "get")("num_ple_layers", 0))
         if num_ple_layers > 0:
             var ple_ptrs_obj = llm["_ple_tensor_pointers"]
@@ -1096,18 +1178,26 @@ def step_mojo(
             for i in range(len(ple_layers)):
                 model.ple_layers.append(ple_layers[i])
 
-        # KV sharing map
-        var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
-        var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=0)
-        var kv_map_local: List[Int64] = []
-        if num_kv_sharing > 0:
-            var kv_map_obj = llm["_kv_sharing_map"]
-            # Copy to local list for stable pointer
-            for i in range(num_kv_sharing):
-                kv_map_local.append(Int64(Int(py=kv_map_obj[i])))
-            kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
+    var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
+    var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=0)
+    var kv_map_local: List[Int64] = []
+    if num_kv_sharing > 0:
+        var kv_map_obj = llm["_kv_sharing_map"]
+        for i in range(num_kv_sharing):
+            kv_map_local.append(Int64(Int(py=kv_map_obj[i])))
+        kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
 
-        forward_gemma4_ple_step(
+    var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
+    if use_gpu:
+        var ctx_ptr = UnsafePointer[GPUContext](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+        var backend = GPUBackend(ctx_ptr)
+        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
+        var gpu_scratch_ptr = UnsafePointer[GPUScratch](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
+        var stage_ptr = UnsafePointer[WeightStage](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
+        var persistent_ptr = UnsafePointer[PersistentBuffers](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
+
+        _run_step[GPUBackend, GPUKVCache, WeightStage, GPUContext, PersistentBuffers](
+            backend,
             out_logits_ptr,
             token_id,
             pos,
@@ -1118,19 +1208,27 @@ def step_mojo(
             head_dim,
             intermediate_size,
             vocab_size,
-            ple_dim,
-            kv_cache_ptr[],
+            gpu_kv_cache_ptr[],
             rope_tables_ptr[],
             k_eq_v,
             max_seq_len,
+            gpu_scratch_ptr[].ptr,
+            num_experts,
+            has_ple_flag,
+            ple_dim,
             kv_map_ptr,
             num_kv_sharing,
-            scratch_ptr,
+            moe_model,
+            moe_top_k_val,
+            moe_intermediate_size_val,
+            stage_ptr[],
+            ctx_ptr[],
+            persistent_ptr[],
         )
-        _ = kv_map_local
     else:
-        # Standard dense dispatch (31B)
-        forward_gemma4_step(
+        var backend = CPUBackend()
+        _run_step[CPUBackend, KVCache, Int, Int, Int](
+            backend,
             out_logits_ptr,
             token_id,
             pos,
@@ -1146,8 +1244,20 @@ def step_mojo(
             k_eq_v,
             max_seq_len,
             scratch_ptr,
+            num_experts,
+            has_ple_flag,
+            ple_dim,
+            kv_map_ptr,
+            num_kv_sharing,
+            moe_model,
+            moe_top_k_val,
+            moe_intermediate_size_val,
+            0, # dummy stage
+            0, # dummy ctx
+            0, # dummy persistent
         )
 
+    _ = kv_map_local
     llm["pos"] = pos + 1
 
     return _ensure_step_logits(out_logits, np)
@@ -1212,7 +1322,9 @@ def process_image_mojo(
         unsafe_from_address=Int(vision_scratch.unsafe_ptr())
     )
 
+    var backend = CPUBackend()
     forward_vision_encoder(
+        backend,
         out_ptr,
         patches_ptr,
         vision_weights,
@@ -1352,23 +1464,56 @@ def step_with_embedding_mojo(
         unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0])
     )
 
-    forward_gemma4_step_with_embedding(
-        out_logits_ptr,
-        embedding_ptr,
-        pos,
-        model,
-        hidden_size,
-        num_heads,
-        num_kv_heads,
-        head_dim,
-        intermediate_size,
-        vocab_size,
-        kv_cache_ptr[],
-        rope_tables_ptr[],
-        k_eq_v,
-        max_seq_len,
-        scratch_ptr,
-    )
+    var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
+    if use_gpu:
+        var ctx_ptr = UnsafePointer[GPUContext](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+        var backend = GPUBackend(ctx_ptr)
+        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
+        var gpu_scratch_ptr = UnsafePointer[GPUScratch](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
+        var stage_ptr = UnsafePointer[WeightStage](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
+
+        forward_gemma4_step_with_embedding(
+            backend,
+            out_logits_ptr,
+            embedding_ptr,
+            pos,
+            model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            gpu_kv_cache_ptr[],
+            rope_tables_ptr[],
+            k_eq_v,
+            max_seq_len,
+            gpu_scratch_ptr[].ptr,
+            stage_ptr[],
+            ctx_ptr[],
+        )
+    else:
+        var backend = CPUBackend()
+        forward_gemma4_step_with_embedding(
+            backend,
+            out_logits_ptr,
+            embedding_ptr,
+            pos,
+            model,
+            hidden_size,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            intermediate_size,
+            vocab_size,
+            kv_cache_ptr[],
+            rope_tables_ptr[],
+            k_eq_v,
+            max_seq_len,
+            scratch_ptr,
+            0, # dummy stage
+            0, # dummy ctx
+        )
 
     llm["pos"] = pos + 1
 
@@ -1439,10 +1584,12 @@ def generate_embeddings_mojo(
         var out_logits = _allocate_transient_f32(vocab_size)
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
+        var backend = CPUBackend()
         for t in range(actual_seq_len):
             var token_id = Int(py=seq_list[t])
 
             forward_gemma4_step(
+                backend,
                 out_logits_ptr,
                 token_id,
                 t,
@@ -1458,6 +1605,9 @@ def generate_embeddings_mojo(
                 k_eq_v,
                 max_seq_len,
                 scratch_ptr,
+                0, # dummy stage
+                0, # dummy ctx
+                0, # dummy persistent
             )
 
             # The hidden state before LM head projection is in scratch at position 1 (next_state)

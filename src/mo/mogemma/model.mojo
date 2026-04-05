@@ -1,6 +1,7 @@
 from std.memory import UnsafePointer
 from std.math import cos, sin
 from std.collections import List
+from mogemma.ops import ComputeBackend
 
 # Result structs for functions that previously returned tuples
 
@@ -19,6 +20,18 @@ struct IntPair(Copyable, ImplicitlyCopyable, Movable):
 
     var first: Int
     var second: Int
+
+
+trait KVCacheTrait:
+    """Trait for KV cache implementations (CPU/GPU)."""
+
+    def get_layer_type(self, layer: Int) -> UInt8: ...
+    def get_layer_cache_size(self, layer: Int) -> Int: ...
+    def get_layer_offset(self, layer: Int) -> Int: ...
+    def get_window_size(self) -> Int: ...
+    def get_k_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]: ...
+    def get_v_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]: ...
+    def get_attention_range(self, layer: Int, pos: Int) -> IntPair: ...
 
 
 # Model Weight Definitions for Gemma 4
@@ -115,12 +128,12 @@ struct ModelWeights(Movable):
     var has_ple: Bool
 
     @always_inline
-    def get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
+    def get_embedding[B: ComputeBackend](
+        self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    ):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
-
-        for i in range(hidden_size):
-            out_ptr.store(i, src_ptr.load(i))
+        backend.copy(out_ptr, src_ptr, hidden_size)
 
 
 @fieldwise_init
@@ -230,11 +243,12 @@ struct MoEModelWeights(Movable):
         self.layers = []
 
     @always_inline
-    def get_embedding(self, token_id: Int, out_ptr: UnsafePointer[Float32, MutExternalOrigin]):
+    def get_embedding[B: ComputeBackend](
+        self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    ):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
-        for i in range(hidden_size):
-            out_ptr.store(i, src_ptr.load(i))
+        backend.copy(out_ptr, src_ptr, hidden_size)
 
 
 @fieldwise_init
@@ -304,7 +318,7 @@ comptime LAYER_TYPE_SLIDING: UInt8 = 0
 comptime LAYER_TYPE_FULL: UInt8 = 1
 
 
-struct KVCache(Movable):
+struct KVCache(Movable, KVCacheTrait):
     """KV cache for Gemma 4 hybrid sliding-window + full global attention.
 
     Sliding-window layers use a ring buffer of `window_size` slots.
@@ -328,6 +342,30 @@ struct KVCache(Movable):
     var v_cache: List[Float32]
     var k_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var v_ptr: UnsafePointer[Float32, MutExternalOrigin]
+
+    @always_inline
+    def get_layer_type(self, layer: Int) -> UInt8:
+        return self.layer_types[layer]
+
+    @always_inline
+    def get_layer_cache_size(self, layer: Int) -> Int:
+        return self.layer_cache_sizes[layer]
+
+    @always_inline
+    def get_layer_offset(self, layer: Int) -> Int:
+        return self.layer_offsets[layer]
+
+    @always_inline
+    def get_window_size(self) -> Int:
+        return self.window_size
+
+    @always_inline
+    def get_k_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return self.k_ptr
+
+    @always_inline
+    def get_v_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return self.v_ptr
 
     def __init__(
         out self,

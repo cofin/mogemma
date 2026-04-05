@@ -509,179 +509,506 @@ def top_k_kernel(
 # ---------------------------------------------------------------------------
 
 
-struct GPUBackend:
+from mogemma.ops import ComputeBackend
+
+
+struct GPUBackend(ComputeBackend):
     """GPU dispatch struct for launching compute kernels.
 
-    Cannot implement the ComputeBackend trait because GPU kernel launches
-    require a DeviceContext, and the trait uses @staticmethod with fixed
-    signatures. Instead, GPUBackend provides matching method signatures
-    that take a DeviceContext reference. The forward path uses
-    `comptime if has_accelerator()` to dispatch between CPUBackend (trait)
-    and GPUBackend (direct calls).
-
-    Usage:
-        comptime if has_accelerator():
-            GPUBackend.launch_rms_norm(ctx, out, x, w, size, eps)
-        else:
-            CPUBackend.rms_norm(out, x, w, size, eps)
+    Implementation of ComputeBackend trait using DeviceContext for kernel launches.
+    All methods are instance methods that use the internal DeviceContext.
     """
 
-    @staticmethod
-    def launch_gelu(
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        x_buf: DeviceBuffer[DType.float32],
-        size: Int,
-    ) raises:
-        var grid = ceildiv(size, BLOCK_1D)
-        ctx.enqueue_function[gelu_kernel, gelu_kernel](
-            out_buf, x_buf, size,
-            grid_dim=grid, block_dim=BLOCK_1D,
-        )
+    var ctx: UnsafePointer[DeviceContext, MutAnyOrigin]
 
-    @staticmethod
-    def launch_geglu(
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        gate_buf: DeviceBuffer[DType.float32],
-        up_buf: DeviceBuffer[DType.float32],
-        size: Int,
-    ) raises:
-        var grid = ceildiv(size, BLOCK_1D)
-        ctx.enqueue_function[geglu_kernel, geglu_kernel](
-            out_buf, gate_buf, up_buf, size,
-            grid_dim=grid, block_dim=BLOCK_1D,
-        )
+    def __init__(out self, ctx: UnsafePointer[DeviceContext, MutAnyOrigin]):
+        self.ctx = ctx
 
-    @staticmethod
-    def launch_rope_rotate(
-        mut ctx: DeviceContext,
-        vec_buf: DeviceBuffer[DType.float32],
-        cos_buf: DeviceBuffer[DType.float32],
-        sin_buf: DeviceBuffer[DType.float32],
-        head_dim: Int,
-    ) raises:
-        var half_dim = head_dim // 2
-        ctx.enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
-            vec_buf, cos_buf, sin_buf, half_dim,
-            grid_dim=1, block_dim=half_dim,
-        )
-
-    @staticmethod
-    def launch_softmax[
-        BLOCK_SIZE: Int
-    ](
-        mut ctx: DeviceContext,
-        vec_buf: DeviceBuffer[DType.float32],
-        size: Int,
-    ) raises:
-        if size <= BLOCK_SIZE:
-            ctx.enqueue_function[softmax_kernel[BLOCK_SIZE], softmax_kernel[BLOCK_SIZE]](
-                vec_buf, size,
-                grid_dim=1, block_dim=BLOCK_SIZE,
-            )
-        else:
-            ctx.enqueue_function[softmax_strided_kernel[BLOCK_SIZE], softmax_strided_kernel[BLOCK_SIZE]](
-                vec_buf, size,
-                grid_dim=1, block_dim=BLOCK_SIZE,
-            )
-
-    @staticmethod
-    def launch_rms_norm[
-        BLOCK_SIZE: Int
-    ](
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        x_buf: DeviceBuffer[DType.float32],
-        w_buf: DeviceBuffer[DType.float32],
-        size: Int,
-        eps: Float32,
-    ) raises:
-        ctx.enqueue_function[rms_norm_kernel[BLOCK_SIZE], rms_norm_kernel[BLOCK_SIZE]](
-            out_buf, x_buf, w_buf, size, eps,
-            grid_dim=1, block_dim=BLOCK_SIZE,
-        )
-
-    @staticmethod
-    def launch_vec_mat_mul(
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        x_buf: DeviceBuffer[DType.float32],
-        w_buf: DeviceBuffer[DType.float32],
+    def vec_mat_mul(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
         in_dim: Int,
         out_dim: Int,
-    ) raises:
-        var grid = ceildiv(out_dim, BLOCK_1D)
-        ctx.enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
-            out_buf, x_buf, w_buf, in_dim, out_dim,
-            grid_dim=grid, block_dim=BLOCK_1D,
-            shared_mem_bytes=TILE_BK * 4,
-        )
+    ):
+        try:
+            var grid = ceildiv(out_dim, BLOCK_1D)
+            self.ctx[].enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
+                out_ptr, x_ptr, w_ptr, in_dim, out_dim,
+                grid_dim=grid, block_dim=BLOCK_1D,
+                shared_mem_bytes=TILE_BK * 4,
+            )
+        except e:
+            abort(String("GPU vec_mat_mul launch failed: ", e))
 
-    @staticmethod
-    def launch_mat_mat_mul(
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        x_buf: DeviceBuffer[DType.float32],
-        w_buf: DeviceBuffer[DType.float32],
+    def vec_mat_mul_i8(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+        scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+    ):
+        try:
+            var grid = ceildiv(out_dim, BLOCK_1D)
+            self.ctx[].enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
+                out_ptr, x_ptr, w_ptr, scale_ptr, in_dim, out_dim,
+                grid_dim=grid, block_dim=BLOCK_1D,
+                shared_mem_bytes=TILE_BK * 4,
+            )
+        except e:
+            abort(String("GPU vec_mat_mul_i8 launch failed: ", e))
+
+    def mat_mat_mul(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
         batch_size: Int,
         in_dim: Int,
         out_dim: Int,
-    ) raises:
-        var grid_x = ceildiv(out_dim, TILE_BN)
-        var grid_y = ceildiv(batch_size, TILE_BM)
-        var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
-        ctx.enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
-            out_buf, x_buf, w_buf, batch_size, in_dim, out_dim,
-            grid_dim=(grid_x, grid_y), block_dim=(TILE_BN, TILE_BM),
-            shared_mem_bytes=shared_bytes,
-        )
+    ):
+        try:
+            var grid_x = ceildiv(out_dim, TILE_BN)
+            var grid_y = ceildiv(batch_size, TILE_BM)
+            var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
+            self.ctx[].enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
+                out_ptr, x_ptr, w_ptr, batch_size, in_dim, out_dim,
+                grid_dim=(grid_x, grid_y), block_dim=(TILE_BN, TILE_BM),
+                shared_mem_bytes=shared_bytes,
+            )
+        except e:
+            abort(String("GPU mat_mat_mul launch failed: ", e))
 
-    @staticmethod
-    def launch_vec_mat_mul_i8(
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        x_buf: DeviceBuffer[DType.float32],
-        w_buf: DeviceBuffer[DType.int8],
-        scale_buf: DeviceBuffer[DType.float32],
-        in_dim: Int,
-        out_dim: Int,
-    ) raises:
-        var grid = ceildiv(out_dim, BLOCK_1D)
-        ctx.enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
-            out_buf, x_buf, w_buf, scale_buf, in_dim, out_dim,
-            grid_dim=grid, block_dim=BLOCK_1D,
-            shared_mem_bytes=TILE_BK * 4,
-        )
-
-    @staticmethod
-    def launch_average_pool_2d(
-        mut ctx: DeviceContext,
-        out_buf: DeviceBuffer[DType.float32],
-        x_buf: DeviceBuffer[DType.float32],
-        grid_h: Int,
-        grid_w: Int,
-        hidden_size: Int,
-        kernel: Int,
-    ) raises:
-        var out_h = grid_h // kernel
-        var out_w = grid_w // kernel
-        var block = optimal_block_size(hidden_size)
-        ctx.enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
-            out_buf, x_buf, out_h, out_w, grid_w, hidden_size, kernel,
-            grid_dim=out_h * out_w, block_dim=block,
-        )
-
-    @staticmethod
-    def launch_top_k(
-        mut ctx: DeviceContext,
-        values_buf: DeviceBuffer[DType.float32],
-        k: Int,
+    def rms_norm(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
-        out_indices_buf: DeviceBuffer[DType.int32],
-        out_values_buf: DeviceBuffer[DType.float32],
-    ) raises:
-        ctx.enqueue_function[top_k_kernel, top_k_kernel](
-            values_buf, k, size, out_indices_buf, out_values_buf,
-            grid_dim=1, block_dim=32,
-        )
+        eps: Float32,
+    ):
+        try:
+            var block = optimal_block_size(size)
+            # Use static dispatch for kernel parameters as block_size must be comptime
+            # For now, use a common size or parameterize RMSNorm launch if needed.
+            # In Gemma 4, most norms are hidden_size (3072, 4096, etc) or head_dim (128, 256).
+            # We'll use 1024 as a safe default for now, or use a helper to dispatch.
+            if block <= 1024:
+                # Need to handle different block sizes via templates if we want optimal perf
+                # For brevity in trait impl, we use 1024 and strided kernel.
+                self.ctx[].enqueue_function[rms_norm_kernel[1024], rms_norm_kernel[1024]](
+                    out_ptr, x_ptr, weight_ptr, size, eps,
+                    grid_dim=1, block_dim=1024,
+                )
+        except e:
+            abort(String("GPU rms_norm launch failed: ", e))
+
+    def softmax(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        try:
+            if size <= 1024:
+                self.ctx[].enqueue_function[softmax_strided_kernel[1024], softmax_strided_kernel[1024]](
+                    vec_ptr, size,
+                    grid_dim=1, block_dim=1024,
+                )
+        except e:
+            abort(String("GPU softmax launch failed: ", e))
+
+    def rope_rotate(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        cos_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        sin_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        head_dim: Int,
+    ):
+        try:
+            var half_dim = head_dim // 2
+            self.ctx[].enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
+                vec_ptr, cos_ptr, sin_ptr, half_dim,
+                grid_dim=1, block_dim=half_dim,
+            )
+        except e:
+            abort(String("GPU rope_rotate launch failed: ", e))
+
+    def geglu(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        gate_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        up_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[geglu_kernel, geglu_kernel](
+                out_ptr, gate_ptr, up_ptr, size,
+                grid_dim=grid, block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU geglu launch failed: ", e))
+
+    def gelu(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[gelu_kernel, gelu_kernel](
+                out_ptr, x_ptr, size,
+                grid_dim=grid, block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU gelu launch failed: ", e))
+
+    def copy(
+        mut self,
+        dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        src_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[copy_kernel, copy_kernel](
+                dst_ptr, src_ptr, size,
+                grid_dim=grid, block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU copy launch failed: ", e))
+
+    def embed_lookup(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        embed_table_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        token_id: Int,
+        hidden_size: Int,
+        scale: Float32,
+    ):
+        try:
+            var block = optimal_block_size(hidden_size)
+            self.ctx[].enqueue_function[embed_lookup_kernel, embed_lookup_kernel](
+                out_ptr, embed_table_ptr, token_id, hidden_size, scale,
+                grid_dim=1, block_dim=block,
+            )
+        except e:
+            abort(String("GPU embed_lookup launch failed: ", e))
+
+
+def embed_lookup_kernel(
+    out: UnsafePointer[Float32, MutAnyOrigin],
+    embed_table: UnsafePointer[Float32, MutAnyOrigin],
+    token_id: Int,
+    hidden_size: Int,
+    scale: Float32,
+):
+    """GPU kernel: copy one row from embedding table and apply scaling."""
+    var tid = global_idx.x
+    if tid < hidden_size:
+        out[tid] = embed_table[token_id * hidden_size + tid] * scale
+
+    def vector_add(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        a_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        b_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+    ):
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[vector_add_kernel, vector_add_kernel](
+                out_ptr, a_ptr, b_ptr, size,
+                grid_dim=grid, block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU vector_add launch failed: ", e))
+
+    def vector_add_scaled(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        a_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        b_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        scale: Float32,
+        size: Int,
+    ):
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[vector_add_scaled_kernel, vector_add_scaled_kernel](
+                out_ptr, a_ptr, b_ptr, scale, size,
+                grid_dim=grid, block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU vector_add_scaled launch failed: ", e))
+
+
+def vector_add_kernel(
+    out: UnsafePointer[Float32, MutAnyOrigin],
+    a: UnsafePointer[Float32, MutAnyOrigin],
+    b: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    var tid = global_idx.x
+    if tid < size:
+        out[tid] = a[tid] + b[tid]
+
+
+def vector_add_scaled_kernel(
+    out: UnsafePointer[Float32, MutAnyOrigin],
+    a: UnsafePointer[Float32, MutAnyOrigin],
+    b: UnsafePointer[Float32, MutAnyOrigin],
+    scale: Float32,
+    size: Int,
+):
+    var tid = global_idx.x
+    if tid < size:
+        out[tid] = a[tid] + scale * b[tid]
+
+
+def copy_kernel(
+    dst: UnsafePointer[Float32, MutAnyOrigin],
+    src: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    var tid = global_idx.x
+    if tid < size:
+        dst[tid] = src[tid]
+
+    def average_pool_2d(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        grid_h: Int, grid_w: Int, hidden_size: Int, kernel: Int,
+    ):
+        try:
+            var out_h = grid_h // kernel
+            var out_w = grid_w // kernel
+            var block = optimal_block_size(hidden_size)
+            self.ctx[].enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
+                out_ptr, x_ptr, out_h, out_w, grid_w, hidden_size, kernel,
+                grid_dim=out_h * out_w, block_dim=block,
+            )
+        except e:
+            abort(String("GPU average_pool_2d launch failed: ", e))
+
+    def top_k(
+        mut self,
+        values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k: Int, size: Int,
+        out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
+        out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    ):
+        try:
+            self.ctx[].enqueue_function[top_k_kernel, top_k_kernel](
+                values_ptr, k, size, out_indices_ptr, out_values_ptr,
+                grid_dim=1, block_dim=32,
+            )
+        except e:
+            abort(String("GPU top_k launch failed: ", e))
+
+    def kv_write(
+        mut self,
+        dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        src_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        kv_size: Int, pos: Int, cache_size: Int,
+        layer_offset: Int, is_full: Bool,
+    ):
+        try:
+            var block = ceildiv(kv_size, 32) * 32
+            if block > 1024:
+                block = 1024
+            self.ctx[].enqueue_function[kv_write_kernel, kv_write_kernel](
+                dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, is_full,
+                grid_dim=1, block_dim=block,
+            )
+        except e:
+            abort(String("GPU kv_write launch failed: ", e))
+
+    def attention_scores(
+        mut self,
+        scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        num_heads: Int, num_kv_heads: Int, head_dim: Int,
+        valid_len: Int, kv_size: Int, scale: Float32,
+    ):
+        try:
+            var block = ceildiv(valid_len, 32) * 32
+            if block > 256:
+                block = 256
+            self.ctx[].enqueue_function[attention_scores_kernel, attention_scores_kernel](
+                scores_ptr, q_ptr, k_cache_ptr, num_heads, num_kv_heads, head_dim,
+                valid_len, kv_size, scale,
+                grid_dim=num_heads, block_dim=block,
+            )
+        except e:
+            abort(String("GPU attention_scores launch failed: ", e))
+
+    def attention_value_accum(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        v_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        num_heads: Int, num_kv_heads: Int, head_dim: Int,
+        valid_len: Int, kv_size: Int,
+    ):
+        try:
+            var block = ceildiv(head_dim, 32) * 32
+            if block > 256:
+                block = 256
+            self.ctx[].enqueue_function[attention_value_accum_kernel, attention_value_accum_kernel](
+                out_ptr, scores_ptr, v_cache_ptr, num_heads, num_kv_heads, head_dim,
+                valid_len, kv_size,
+                grid_dim=num_heads, block_dim=block,
+            )
+        except e:
+            abort(String("GPU attention_value_accum launch failed: ", e))
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: GPU Attention Kernels (Task 3.1, 3.2, 3.3)
+# ---------------------------------------------------------------------------
+
+
+@always_inline
+def _kv_write_impl(
+    tid: Int,
+    dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    src_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    kv_size: Int,
+    pos: Int,
+    cache_size: Int,
+    layer_offset: Int,
+    is_full: Bool,
+):
+    """Internal implementation of KV write logic."""
+    if tid < kv_size:
+        var write_pos: Int
+        if is_full:
+            write_pos = pos
+        else:
+            write_pos = pos % cache_size
+
+        var dst_idx = layer_offset + write_pos * kv_size + tid
+        dst_ptr[dst_idx] = src_ptr[tid]
+
+
+@always_inline
+def _attention_scores_impl(
+    head: Int,
+    tid: Int,
+    block_dim_x: Int,
+    scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+    scale: Float32,
+):
+    """Internal implementation of attention score computation."""
+    var kv_h = head // (num_heads // num_kv_heads)
+    var q_head = q_ptr + head * head_dim
+
+    var t = tid
+    while t < valid_len:
+        var k_head = k_cache_ptr + t * kv_size + kv_h * head_dim
+        var dot: Float32 = 0.0
+        for d in range(head_dim):
+            dot += q_head[d] * k_head[d]
+        scores_ptr[head * valid_len + t] = dot * scale
+        t += block_dim_x
+
+
+@always_inline
+def _attention_value_accum_impl(
+    head: Int,
+    tid: Int,
+    block_dim_x: Int,
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    v_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+):
+    """Internal implementation of weighted sum accumulation."""
+    var kv_h = head // (num_heads // num_kv_heads)
+    var d = tid
+    while d < head_dim:
+        var acc: Float32 = 0.0
+        for t in range(valid_len):
+            var prob = scores_ptr[head * valid_len + t]
+            acc += prob * v_cache_ptr[t * kv_size + kv_h * head_dim + d]
+        out_ptr[head * head_dim + d] = acc
+        d += block_dim_x
+
+
+def attention_value_accum_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    v_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+):
+    """GPU kernel: compute weighted sum of V for all heads in parallel.
+
+    One thread block per head, threads parallelize across head_dim.
+    """
+    _attention_value_accum_impl(
+        block_idx.x, thread_idx.x, block_dim.x,
+        out_ptr, scores_ptr, v_cache_ptr,
+        num_heads, num_kv_heads, head_dim,
+        valid_len, kv_size
+    )
+
+
+def attention_scores_kernel(
+    scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+    scale: Float32,
+):
+    """GPU kernel: compute Q·K^T scores for all heads in parallel.
+
+    One thread block per head, threads parallelize across time steps.
+    """
+    _attention_scores_impl(
+        block_idx.x, thread_idx.x, block_dim.x,
+        scores_ptr, q_ptr, k_cache_ptr,
+        num_heads, num_kv_heads, head_dim,
+        valid_len, kv_size, scale
+    )
+
+
+def kv_write_kernel(
+    dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    src_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    kv_size: Int,
+    pos: Int,
+    cache_size: Int,
+    layer_offset: Int,
+    is_full: Bool,
+):
+    """GPU kernel: copy K/V from scratch to KV cache.
+
+    Handles ring buffer wrap for sliding layers and linear write for full layers.
+    Launch: grid_dim = 1, block_dim = ceildiv(kv_size, 32) * 32 (up to 1024)
+    """
+    _kv_write_impl(global_idx.x, dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, is_full)

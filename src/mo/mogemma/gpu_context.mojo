@@ -193,6 +193,41 @@ struct WeightStage(Movable):
             ptrs.append(base + offsets[i])
         return ptrs
 
+    def upload_layer_weights(
+        mut self, mut ctx: GPUContext, weights: LayerWeights
+    ) raises -> LayerWeights:
+        """Upload all tensors in a LayerWeights struct to the GPU staging buffer.
+
+        Returns a new LayerWeights with pointers redirected to the GPU.
+        """
+        self.reset()
+        var dev_weights = LayerWeights()
+
+        # Helper to pack one TensorInfo and update its pointer
+        @always_inline
+        def pack(info: TensorInfo) -> TensorInfo:
+            if info.shape_0 * info.shape_1 == 0:
+                return info
+            var offset = self._pack_tensor(info)
+            return TensorInfo(Int(self.device_buf.unsafe_ptr() + offset), info.shape_0, info.shape_1)
+
+        dev_weights.q_proj = pack(weights.q_proj)
+        dev_weights.k_proj = pack(weights.k_proj)
+        dev_weights.v_proj = pack(weights.v_proj)
+        dev_weights.o_proj = pack(weights.o_proj)
+        dev_weights.gate_proj = pack(weights.gate_proj)
+        dev_weights.up_proj = pack(weights.up_proj)
+        dev_weights.down_proj = pack(weights.down_proj)
+        dev_weights.input_layernorm = pack(weights.input_layernorm)
+        dev_weights.post_attention_layernorm = pack(weights.post_attention_layernorm)
+        dev_weights.q_norm = pack(weights.q_norm)
+        dev_weights.k_norm = pack(weights.k_norm)
+        dev_weights.pre_feedforward_layernorm = pack(weights.pre_feedforward_layernorm)
+        dev_weights.post_feedforward_layernorm = pack(weights.post_feedforward_layernorm)
+
+        ctx.upload(self.device_buf, self.host_buf)
+        return dev_weights
+
 
 def _upload_persistent(
     mut ctx: GPUContext, tensor: TensorInfo
@@ -278,7 +313,10 @@ struct PersistentBuffers(Movable):
         self.norm_elements = other.norm_elements
 
 
-struct GPUKVCache(Movable):
+from mogemma.model import KVCacheTrait, IntPair
+
+
+struct GPUKVCache(Movable, KVCacheTrait):
     """GPU-resident KV cache for Gemma 4 hybrid sliding-window + full attention.
 
     Same layout and offset math as CPU `KVCache`, but K/V storage lives in
@@ -303,6 +341,41 @@ struct GPUKVCache(Movable):
     var v_cache: DeviceBuffer[DType.float32]
     var k_ptr: UnsafePointer[Float32, MutAnyOrigin]
     var v_ptr: UnsafePointer[Float32, MutAnyOrigin]
+
+    @always_inline
+    def get_layer_type(self, layer: Int) -> UInt8:
+        return self.layer_types[layer]
+
+    @always_inline
+    def get_layer_cache_size(self, layer: Int) -> Int:
+        return self.layer_cache_sizes[layer]
+
+    @always_inline
+    def get_layer_offset(self, layer: Int) -> Int:
+        return self.layer_offsets[layer]
+
+    @always_inline
+    def get_window_size(self) -> Int:
+        return self.window_size
+
+    @always_inline
+    def get_k_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return self.k_ptr
+
+    @always_inline
+    def get_v_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return self.v_ptr
+
+    @always_inline
+    def get_attention_range(self, layer: Int, pos: Int) -> IntPair:
+        """Standard Gemma 4 attention range logic."""
+        if self.layer_types[layer] == 0:  # SLIDING
+            var valid = pos + 1
+            if valid > self.window_size:
+                valid = self.window_size
+            return IntPair(valid, self.window_size)
+        else:  # FULL
+            return IntPair(pos + 1, self.max_context_len)
 
     def __init__(
         out self,

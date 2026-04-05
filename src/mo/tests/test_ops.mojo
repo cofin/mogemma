@@ -279,7 +279,8 @@ def test_cpu_backend_rms_norm() raises:
     var w = List[Float32](length=4, fill=2.0)
     var out = List[Float32](length=4, fill=0.0)
 
-    CPUBackend.rms_norm(out.unsafe_ptr(), x.unsafe_ptr(), w.unsafe_ptr(), 4, 1e-6)
+    var B = CPUBackend()
+    B.rms_norm(out.unsafe_ptr(), x.unsafe_ptr(), w.unsafe_ptr(), 4, 1e-6)
 
     assert_almost_equal(out[0], 3.0, atol=1e-5)
     assert_almost_equal(out[3], 3.0, atol=1e-5)
@@ -293,7 +294,8 @@ def test_cpu_backend_vec_mat_mul() raises:
     var w = List[Float32](length=8, fill=2.0)  # 2x4
     var out = List[Float32](length=2, fill=0.0)
 
-    CPUBackend.vec_mat_mul(out.unsafe_ptr(), x.unsafe_ptr(), w.unsafe_ptr(), 4, 2)
+    var B = CPUBackend()
+    B.vec_mat_mul(out.unsafe_ptr(), x.unsafe_ptr(), w.unsafe_ptr(), 4, 2)
 
     assert_almost_equal(out[0], 8.0, atol=1e-5)
     assert_almost_equal(out[1], 8.0, atol=1e-5)
@@ -308,7 +310,8 @@ def test_cpu_backend_softmax() raises:
     x[1] = 2.0
     x[2] = 3.0
 
-    CPUBackend.softmax(x.unsafe_ptr(), 3)
+    var B = CPUBackend()
+    B.softmax(x.unsafe_ptr(), 3)
 
     assert_almost_equal(x[0], 0.09003057, atol=1e-5)
     assert_almost_equal(x[1], 0.24472847, atol=1e-5)
@@ -321,20 +324,21 @@ def test_cpu_backend_geglu() raises:
     var up = List[Float32](length=4, fill=2.0)
     var out = List[Float32](length=4, fill=0.0)
 
-    CPUBackend.geglu(out.unsafe_ptr(), gate.unsafe_ptr(), up.unsafe_ptr(), 4)
+    var B = CPUBackend()
+    B.geglu(out.unsafe_ptr(), gate.unsafe_ptr(), up.unsafe_ptr(), 4)
 
     assert_almost_equal(out[0], 1.68268, atol=1e-4)
     _ = gate[0]
     _ = up[0]
 
 
-def test_cpu_backend_trait_dispatch[B: ComputeBackend]() raises:
+def test_cpu_backend_trait_dispatch[B: ComputeBackend](mut backend: B) raises:
     """Verify compile-time trait dispatch with parameterized function."""
     var x = List[Float32](length=4, fill=1.0)
     var w = List[Float32](length=4, fill=0.0)
     var out = List[Float32](length=4, fill=0.0)
 
-    B.rms_norm(out.unsafe_ptr(), x.unsafe_ptr(), w.unsafe_ptr(), 4, 1e-6)
+    backend.rms_norm(out.unsafe_ptr(), x.unsafe_ptr(), w.unsafe_ptr(), 4, 1e-6)
 
     # (1+w) = 1.0, x/rms(x) = 1.0 → out ~= 1.0
     assert_almost_equal(out[0], 1.0, atol=1e-5)
@@ -360,5 +364,6 @@ def main() raises:
     test_cpu_backend_vec_mat_mul()
     test_cpu_backend_softmax()
     test_cpu_backend_geglu()
-    test_cpu_backend_trait_dispatch[CPUBackend]()
+    var B = CPUBackend()
+    test_cpu_backend_trait_dispatch(B)
     print("Mojo math primitive tests passed!")
