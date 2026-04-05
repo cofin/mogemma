@@ -2,7 +2,7 @@ from std.collections import List
 from std.memory import UnsafePointer
 from testing import assert_almost_equal
 from mogemma.model import VisionLayerWeights, VisionModelWeights, TensorInfo
-from mogemma.ops import gelu, average_pool_2d
+from mogemma.ops import gelu, average_pool_2d, CPUBackend
 from mogemma.layers import forward_vision_attention, forward_vision_encoder
 
 
@@ -52,7 +52,9 @@ def test_vision_attention_output_shape() raises:
     var scratch_size = num_tokens * hidden_size * 10 + num_heads * num_tokens * num_tokens
     var scratch = List[Float32](length=scratch_size, fill=0.0)
 
+    var backend = CPUBackend()
     forward_vision_attention(
+        backend,
         _make_ptr(out),
         _make_ptr(x),
         weights,
@@ -125,7 +127,9 @@ def test_vision_attention_bidirectional() raises:
     var scratch_size = num_tokens * hidden_size * 10 + num_heads * num_tokens * num_tokens
     var scratch = List[Float32](length=scratch_size, fill=0.0)
 
+    var backend = CPUBackend()
     forward_vision_attention(
+        backend,
         _make_ptr(out),
         _make_ptr(x),
         weights,
@@ -249,7 +253,11 @@ def test_vision_encoder_1layer() raises:
     var scratch_size = num_patches * vision_hidden * 60 + vision_num_heads * num_patches * num_patches * 4
     var scratch = List[Float32](length=scratch_size, fill=0.0)
 
+    var backend = CPUBackend()
+    var dummy_stage = 0
+    var dummy_ctx = 0
     forward_vision_encoder(
+        backend,
         _make_ptr(out),
         _make_ptr(patches),
         vm,
@@ -262,6 +270,8 @@ def test_vision_encoder_1layer() raises:
         vision_intermediate,
         decoder_hidden,
         _make_ptr(scratch),
+        dummy_stage,
+        dummy_ctx,
     )
 
     # Output should be non-zero

@@ -321,6 +321,54 @@ struct GPUPersistentBuffers(Movable):
 from mogemma.model import KVCacheTrait, IntPair
 
 
+# ── Device-to-Device State Copy ──────────────────────────────────────────────
+
+
+def copy_state_kernel(
+    dst: UnsafePointer[Float32, MutAnyOrigin],
+    src: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    """GPU kernel: thread-per-element device-to-device copy."""
+    from std.gpu import global_idx
+
+    var tid = global_idx.x
+    if tid < size:
+        dst[tid] = src[tid]
+
+
+def copy_state(
+    mut ctx: GPUContext,
+    dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    src_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    """Copy `size` Float32 elements between device pointers (no host involvement).
+
+    Used for layer loop state swap: current_state <- next_state.
+    Launches a simple thread-per-element kernel on the GPU.
+
+    Args:
+        ctx: GPU context for kernel launch.
+        dst_ptr: Destination device pointer.
+        src_ptr: Source device pointer.
+        size: Number of Float32 elements to copy.
+    """
+    comptime BLOCK: Int = 256
+
+    def _ceildiv(a: Int, b: Int) -> Int:
+        return (a + b - 1) // b
+
+    var grid = _ceildiv(size, BLOCK)
+    try:
+        ctx.ctx.enqueue_function[copy_state_kernel, copy_state_kernel](
+            dst_ptr, src_ptr, size,
+            grid_dim=grid, block_dim=BLOCK,
+        )
+    except e:
+        abort(String("copy_state launch failed: ", e))
+
+
 struct GPUKVCache(Movable, KVCacheTrait):
     """GPU-resident KV cache for Gemma 4 hybrid sliding-window + full attention.
 

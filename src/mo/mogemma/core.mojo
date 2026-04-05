@@ -1342,6 +1342,8 @@ def process_image_mojo(
     )
 
     var backend = CPUBackend()
+    var dummy_stage = 0
+    var dummy_ctx = 0
     forward_vision_encoder(
         backend,
         out_ptr,
@@ -1356,6 +1358,8 @@ def process_image_mojo(
         vision_intermediate_size,
         hidden_size,
         vision_scratch_ptr,
+        dummy_stage,
+        dummy_ctx,
     )
 
     _ = vision_scratch

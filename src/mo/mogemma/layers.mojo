@@ -370,7 +370,7 @@ def forward_vision_layer[B: ComputeBackend](
 
 
 @always_inline
-def forward_vision_encoder[B: ComputeBackend](
+def forward_vision_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     patches_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [num_patches, patch_dim]
@@ -384,8 +384,15 @@ def forward_vision_encoder[B: ComputeBackend](
     vision_intermediate_size: Int,
     decoder_hidden_size: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    mut stage: S,
+    mut ctx: C,
 ):
-    """Full SigLIP vision encoder: patch embed → position embed → N layers → post-norm → avg pool → project."""
+    """Full SigLIP vision encoder: patch embed → position embed → N layers → post-norm → avg pool → project.
+
+    On GPU, layer weights are streamed per-layer via WeightStage. Patch embedding,
+    position embedding, post_norm, and projection are used directly (small enough
+    or handled by caller).
+    """
     var patch_dim = weights.patch_embedding.shape_1
     var total = num_patches * vision_hidden_size
 
@@ -404,11 +411,21 @@ def forward_vision_encoder[B: ComputeBackend](
 
     var num_layers = len(weights.layers)
     for l in range(num_layers):
+        # Upload layer weights to GPU (when GPU backend)
+        var layer_weights = weights.layers[l]
+        comptime if has_accelerator():
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            layer_weights = upload_vision_layer_weights(stage_ref[], ctx_ref[], layer_weights)
+            ctx_ref[].sync()
+
         forward_vision_layer(
             backend,
             next_ptr,
             current_ptr,
-            weights.layers[l],
+            layer_weights,
             num_patches,
             vision_hidden_size,
             vision_num_heads,
@@ -417,8 +434,7 @@ def forward_vision_encoder[B: ComputeBackend](
             layer_scratch,
         )
         # Swap
-        for i in range(total):
-            current_ptr.store(i, next_ptr.load(i))
+        backend.copy(current_ptr, next_ptr, total)
 
     # 4. Post-LayerNorm
     var norm_ptr = next_ptr
@@ -444,7 +460,7 @@ def forward_vision_encoder[B: ComputeBackend](
 
 
 @always_inline
-def forward_audio_encoder[B: ComputeBackend](
+def forward_audio_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     features_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [n_mels, num_frames] (flattened)
@@ -457,11 +473,14 @@ def forward_audio_encoder[B: ComputeBackend](
     audio_intermediate_size: Int,
     decoder_hidden_size: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    mut stage: S,
+    mut ctx: C,
 ):
     """Audio encoder: conv feature extraction → position embed → transformer layers → post-norm → projection.
 
     Reuses forward_vision_layer for the transformer layers (same bidirectional attention + GELU MLP).
     Conv layers downsample mel frames into audio_hidden_size-dim tokens.
+    On GPU, transformer layer weights are streamed per-layer via WeightStage.
     """
     var num_conv = len(weights.conv_weights)
     var num_tokens = num_frames
@@ -506,11 +525,21 @@ def forward_audio_encoder[B: ComputeBackend](
 
     var num_layers = len(weights.layers)
     for l in range(num_layers):
+        # Upload layer weights to GPU (when GPU backend)
+        var layer_weights = weights.layers[l]
+        comptime if has_accelerator():
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            layer_weights = upload_vision_layer_weights(stage_ref[], ctx_ref[], layer_weights)
+            ctx_ref[].sync()
+
         forward_vision_layer(
             backend,
             next_ptr,
             current_ptr,
-            weights.layers[l],
+            layer_weights,
             num_tokens,
             audio_hidden_size,
             audio_num_heads,
@@ -518,8 +547,7 @@ def forward_audio_encoder[B: ComputeBackend](
             audio_intermediate_size,
             layer_scratch,
         )
-        for i in range(total):
-            current_ptr.store(i, next_ptr.load(i))
+        backend.copy(current_ptr, next_ptr, total)
 
     # 4. Post-LayerNorm
     var norm_ptr = next_ptr
