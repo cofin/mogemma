@@ -34,6 +34,24 @@ trait KVCacheTrait:
     def get_attention_range(self, layer: Int, pos: Int) -> IntPair: ...
 
 
+@fieldwise_init
+struct PersistentBuffers(Copyable, ImplicitlyCopyable, Movable):
+    """Container for persistent GPU buffer pointers.
+
+    On CPU path, these will be null pointers. On GPU path, they point to
+    long-lived DeviceBuffers for embeddings, norm, and LM head.
+    """
+
+    var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
+
+    def __init__(out self):
+        self.embed_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
+        self.norm_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
+        self.lm_head_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
+
+
 # Model Weight Definitions for Gemma 4
 
 

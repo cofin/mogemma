@@ -1,6 +1,13 @@
-from std.memory import UnsafePointer, rebind
+from std.memory import UnsafePointer
 from std.math import sqrt, erf, tanh
 from std.sys import has_accelerator
+
+@fieldwise_init
+struct _PersistentBuffersDummy(Copyable, ImplicitlyCopyable, Movable):
+    var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
+
 
 # Gated imports for GPU streaming
 comptime if has_accelerator():
@@ -12,6 +19,19 @@ comptime if has_accelerator():
         upload_expert_weights,
         upload_vision_layer_weights,
     )
+else:
+    # Dummy types to satisfy compiler when has_accelerator is false
+    struct WeightStage:
+        pass
+
+    struct GPUContext:
+        def sync(self):
+            pass
+
+    alias PersistentBuffers = _PersistentBuffersDummy
+
+    def upload_layer_weights(s: WeightStage, c: GPUContext, w: LayerWeights) -> LayerWeights:
+        return w
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
@@ -699,7 +719,7 @@ def forward_gemma4_step[
 
     # Embed and scale
     var emb_scale = sqrt(Float32(hidden_size))
-    var embed_ptr = model.embed_tokens.ptr.cast[MutAnyOrigin]()
+    var embed_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.embed_tokens.ptr)
     comptime if has_accelerator():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.embed_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
@@ -714,8 +734,6 @@ def forward_gemma4_step[
         comptime if has_accelerator():
             var stage_cast = rebind[WeightStage](stage)
             var ctx_cast = rebind[GPUContext](ctx)
-            weights = upload_layer_weights(stage_cast, ctx_cast, weights)
-            ctx_cast.sync()
             weights = upload_layer_weights(stage_cast, ctx_cast, weights)
             ctx_cast.sync()
 
@@ -742,8 +760,8 @@ def forward_gemma4_step[
 
     # Final norm + LM head
     var norm_out = next_state
-    var norm_ptr = model.norm.ptr.cast[MutAnyOrigin]()
-    var lm_head_ptr = model.lm_head.ptr.cast[MutAnyOrigin]()
+    var norm_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.norm.ptr)
+    var lm_head_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.lm_head.ptr)
     comptime if has_accelerator():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.norm_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):

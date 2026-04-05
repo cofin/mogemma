@@ -32,7 +32,7 @@ from mogemma.layers import (
 from mogemma.ops import rms_norm, vec_mat_mul, CPUBackend
 from mogemma.ops_gpu import GPUBackend
 from std.sys import has_accelerator
-from mogemma.gpu_context import GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch
+from mogemma.gpu_context import GPUContext, WeightStage, GPUPersistentBuffers, GPUKVCache, GPUScratch
 
 
 def _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:

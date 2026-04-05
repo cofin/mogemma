@@ -258,7 +258,7 @@ def _upload_persistent(
     return dev_buf^
 
 
-struct PersistentBuffers(Movable):
+struct GPUPersistentBuffers(Movable):
     """Persistent GPU buffers for weights that are used every step.
 
     Holds embed_tokens, lm_head, and final norm on the GPU for the
@@ -268,9 +268,6 @@ struct PersistentBuffers(Movable):
     var embed_buf: DeviceBuffer[DType.float32]
     var lm_head_buf: DeviceBuffer[DType.float32]
     var norm_buf: DeviceBuffer[DType.float32]
-    var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
     var embed_elements: Int
     var lm_head_elements: Int
     var norm_elements: Int
@@ -297,20 +294,22 @@ struct PersistentBuffers(Movable):
         self.lm_head_buf = _upload_persistent(ctx, lm_head)
         self.norm_buf = _upload_persistent(ctx, norm)
         ctx.sync()
-        self.embed_ptr = self.embed_buf.unsafe_ptr()
-        self.lm_head_ptr = self.lm_head_buf.unsafe_ptr()
-        self.norm_ptr = self.norm_buf.unsafe_ptr()
 
     def __moveinit__(out self, owned other: Self):
         self.embed_buf = other.embed_buf^
         self.lm_head_buf = other.lm_head_buf^
         self.norm_buf = other.norm_buf^
-        self.embed_ptr = other.embed_ptr
-        self.lm_head_ptr = other.lm_head_ptr
-        self.norm_ptr = other.norm_ptr
         self.embed_elements = other.embed_elements
         self.lm_head_elements = other.lm_head_elements
         self.norm_elements = other.norm_elements
+
+    def get_ptrs(self) -> PersistentBuffers:
+        """Returns a backend-agnostic PersistentBuffers struct containing device pointers."""
+        return PersistentBuffers(
+            embed_ptr=self.embed_buf.unsafe_ptr(),
+            norm_ptr=self.norm_buf.unsafe_ptr(),
+            lm_head_ptr=self.lm_head_buf.unsafe_ptr(),
+        )
 
 
 from mogemma.model import KVCacheTrait, IntPair
