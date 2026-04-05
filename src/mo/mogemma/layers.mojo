@@ -1,37 +1,14 @@
 from std.memory import UnsafePointer
 from std.math import sqrt, erf, tanh
 from std.sys import has_accelerator
-
-@fieldwise_init
-struct _PersistentBuffersDummy(Copyable, ImplicitlyCopyable, Movable):
-    var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
-
-
-# Gated imports for GPU streaming
-comptime if has_accelerator():
-    from mogemma.gpu_context import (
-        WeightStage,
-        GPUContext,
-        PersistentBuffers,
-        upload_layer_weights,
-        upload_expert_weights,
-        upload_vision_layer_weights,
-    )
-else:
-    # Dummy types to satisfy compiler when has_accelerator is false
-    struct WeightStage:
-        pass
-
-    struct GPUContext:
-        def sync(self):
-            pass
-
-    alias PersistentBuffers = _PersistentBuffersDummy
-
-    def upload_layer_weights(s: WeightStage, c: GPUContext, w: LayerWeights) -> LayerWeights:
-        return w
+from mogemma.gpu_context import (
+    WeightStage,
+    GPUContext,
+    upload_layer_weights,
+    upload_expert_weights,
+    upload_moe_attention_weights,
+    upload_vision_layer_weights,
+)
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
@@ -45,6 +22,7 @@ from mogemma.model import (
     TensorInfo,
     KVCache,
     KVCacheTrait,
+    PersistentBuffers,
     RoPETables,
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
@@ -732,10 +710,12 @@ def forward_gemma4_step[
         # 1. Orchestrate weights (CPU: use direct, GPU: stream)
         var weights = model.layers[l]
         comptime if has_accelerator():
-            var stage_cast = rebind[WeightStage](stage)
-            var ctx_cast = rebind[GPUContext](ctx)
-            weights = upload_layer_weights(stage_cast, ctx_cast, weights)
-            ctx_cast.sync()
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            weights = upload_layer_weights(stage_ref[], ctx_ref[], weights)
+            ctx_ref[].sync()
 
         forward_gemma4_layer(
             backend,
@@ -775,7 +755,7 @@ def forward_gemma4_step[
 
 @always_inline
 def forward_gemma4_step_with_embedding[
-    B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType
+    B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: AnyType
 ](
     mut backend: B,
     out_logits_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [vocab_size]
@@ -795,6 +775,7 @@ def forward_gemma4_step_with_embedding[
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
+    persistent: P,
 ):
     """Like forward_gemma4_step but uses a pre-computed embedding instead of token lookup.
 
@@ -812,12 +793,12 @@ def forward_gemma4_step_with_embedding[
     for l in range(num_layers):
         var weights = model.layers[l]
         comptime if has_accelerator():
-            from mogemma.gpu_context import WeightStage, GPUContext, upload_layer_weights
-
-            var stage_cast = rebind[WeightStage](stage)
-            var ctx_cast = rebind[GPUContext](ctx)
-            weights = upload_layer_weights(stage_cast, ctx_cast, weights)
-            ctx_cast.sync()
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            weights = upload_layer_weights(stage_ref[], ctx_ref[], weights)
+            ctx_ref[].sync()
 
         forward_gemma4_layer(
             backend,
@@ -839,10 +820,19 @@ def forward_gemma4_step_with_embedding[
         )
         backend.copy(current_state, next_state, hidden_size)
 
-    # Final norm + LM head (step_with_embedding path)
+    # Final norm + LM head — use persistent GPU buffers when available
     var norm_out = next_state
-    backend.rms_norm(norm_out, current_state, model.norm.ptr, hidden_size, 1e-6)
-    backend.vec_mat_mul(out_logits_ptr, norm_out, model.lm_head.ptr, hidden_size, vocab_size)
+    var norm_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.norm.ptr)
+    var lm_head_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.lm_head.ptr)
+    comptime if has_accelerator():
+        var p_cast = rebind[PersistentBuffers](persistent)
+        if p_cast.norm_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
+            norm_ptr = p_cast.norm_ptr
+        if p_cast.lm_head_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
+            lm_head_ptr = p_cast.lm_head_ptr
+
+    backend.rms_norm(norm_out, current_state, norm_ptr, hidden_size, 1e-6)
+    backend.vec_mat_mul(out_logits_ptr, norm_out, lm_head_ptr, hidden_size, vocab_size)
 
 
 # ── PLE (Per-Layer Embedding) for E2B/E4B ────────────────────────────────
@@ -911,13 +901,12 @@ def forward_gemma4_ple_step[
             ple_weights = model.ple_layers[l]
 
         comptime if has_accelerator():
-            from mogemma.gpu_context import WeightStage, GPUContext, upload_layer_weights
-
-            var stage_cast = rebind[WeightStage](stage)
-            var ctx_cast = rebind[GPUContext](ctx)
-            # Streaming PLE weights not fully implemented yet, but we'll stream main layer
-            weights = upload_layer_weights(stage_cast, ctx_cast, weights)
-            ctx_cast.sync()
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            weights = upload_layer_weights(stage_ref[], ctx_ref[], weights)
+            ctx_ref[].sync()
 
         if model.has_ple and l < len(model.ple_layers):
             forward_ple_input(backend, current_state, token_id, ple_weights, hidden_size, ple_dim, layer_scratch)
@@ -1006,7 +995,7 @@ def forward_moe_router[B: ComputeBackend](
 
 
 @always_inline
-def forward_moe_experts[B: ComputeBackend](
+def forward_moe_experts[B: ComputeBackend, S: AnyType, C: AnyType](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     hidden_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1017,34 +1006,46 @@ def forward_moe_experts[B: ComputeBackend](
     hidden_size: Int,
     intermediate_size: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    mut stage: S,
+    mut ctx: C,
 ):
-    """Execute selected experts and compute weighted sum."""
+    """Execute selected experts and compute weighted sum.
+
+    On GPU, each expert's weights are streamed to device on-demand via
+    upload_expert_weights — only the k selected experts are uploaded.
+    """
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
     var expert_out_ptr = scratch_ptr + intermediate_size * 3
 
-    # On GPU, we should ideally launch a single kernel for all experts or handle dispatch.
-    # For now, we use the same loop structure.
+    # Zero the output accumulator
     for i in range(hidden_size):
         out_ptr.store(i, 0.0)
 
     for sel in range(k):
-        # On GPU, these loads will fail if expert_indices_ptr is on device.
-        # But for Chapter 3, we're assuming the orchestration handles this.
         var idx = Int(expert_indices_ptr.load(sel))
         var weight = expert_weights_ptr.load(sel)
 
-        _gemm_dispatch(backend, gate_ptr, hidden_ptr, experts[idx].gate_proj, 1, hidden_size, intermediate_size)
-        _gemm_dispatch(backend, up_ptr, hidden_ptr, experts[idx].up_proj, 1, hidden_size, intermediate_size)
+        var expert = experts[idx]
+        comptime if has_accelerator():
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            expert = upload_expert_weights(stage_ref[], ctx_ref[], expert)
+            ctx_ref[].sync()
+
+        _gemm_dispatch(backend, gate_ptr, hidden_ptr, expert.gate_proj, 1, hidden_size, intermediate_size)
+        _gemm_dispatch(backend, up_ptr, hidden_ptr, expert.up_proj, 1, hidden_size, intermediate_size)
         backend.geglu(geglu_out_ptr, gate_ptr, up_ptr, intermediate_size)
-        _gemm_dispatch(backend, expert_out_ptr, geglu_out_ptr, experts[idx].down_proj, 1, intermediate_size, hidden_size)
+        _gemm_dispatch(backend, expert_out_ptr, geglu_out_ptr, expert.down_proj, 1, intermediate_size, hidden_size)
 
         backend.vector_add_scaled(out_ptr, out_ptr, expert_out_ptr, weight, hidden_size)
 
 
 @always_inline
-def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait](
+def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1062,6 +1063,8 @@ def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait](
     rope_tables: RoPETables,
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    mut stage: S,
+    mut ctx: C,
 ):
     """Single MoE transformer layer: attention (K=V) + MoE block."""
     var norm_x_ptr = scratch_ptr
@@ -1135,8 +1138,7 @@ def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait](
     var post_attn_ptr = scratch_ptr + hidden_size * 2
     backend.rms_norm(post_attn_ptr, attn_out_ptr, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
     var residual_ptr = scratch_ptr + hidden_size * 3
-    for i in range(hidden_size):
-        residual_ptr.store(i, x_ptr.load(i) + post_attn_ptr.load(i))
+    backend.vector_add(residual_ptr, x_ptr, post_attn_ptr, hidden_size)
     var norm_residual_ptr = scratch_ptr + hidden_size * 4
     backend.rms_norm(norm_residual_ptr, residual_ptr, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
     var moe_out_ptr = scratch_ptr + hidden_size * 5
@@ -1158,7 +1160,7 @@ def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait](
         router_scratch,
     )
 
-    # Experts
+    # Experts — each selected expert's weights streamed on-demand via stage/ctx
     var expert_scratch = router_scratch + num_experts
     forward_moe_experts(
         backend,
@@ -1171,12 +1173,13 @@ def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait](
         hidden_size,
         moe_intermediate_size,
         expert_scratch,
+        stage,
+        ctx,
     )
 
     var post_moe_ptr = scratch_ptr + hidden_size * 7
     backend.rms_norm(post_moe_ptr, moe_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
-    for i in range(hidden_size):
-        out_ptr.store(i, residual_ptr.load(i) + post_moe_ptr.load(i))
+    backend.vector_add(out_ptr, residual_ptr, post_moe_ptr, hidden_size)
 
 
 @always_inline
@@ -1184,26 +1187,64 @@ def forward_gemma4_moe_step[
     B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: AnyType
 ](
     mut backend: B,
-...
+    out_logits_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    token_id: Int,
+    pos: Int,
+    model: MoEModelWeights,
+    hidden_size: Int,
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    num_experts: Int,
+    moe_top_k: Int,
+    moe_intermediate_size: Int,
+    vocab_size: Int,
+    kv_cache: K,
+    rope_tables: RoPETables,
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
     persistent: P,
 ):
-    """Full 26B MoE forward step: embed → MoE layers → norm → logits."""
+    """Full 26B MoE forward step: embed → MoE layers → norm → logits.
+
+    GPU weight streaming: each MoE layer is a 2-phase upload:
+    1. Attention+router+norms via upload_moe_attention_weights (fits staging buffer)
+    2. Each selected expert via upload_expert_weights inside forward_moe_experts
+    """
     var num_layers = len(model.layers)
     var current_state = scratch_ptr
     var next_state = scratch_ptr + hidden_size
     var layer_scratch = scratch_ptr + hidden_size * 2
+
+    # Embed and scale — use persistent GPU buffer when available
     var emb_scale = sqrt(Float32(hidden_size))
-    backend.embed_lookup(current_state, model.embed_tokens.ptr, token_id, hidden_size, emb_scale)
+    var embed_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.embed_tokens.ptr)
+    comptime if has_accelerator():
+        var p_cast = rebind[PersistentBuffers](persistent)
+        if p_cast.embed_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
+            embed_ptr = p_cast.embed_ptr
+
+    backend.embed_lookup(current_state, embed_ptr, token_id, hidden_size, emb_scale)
+
+    # Layer loop with 2-phase weight streaming
     for l in range(num_layers):
+        var weights = model.layers[l]
+        comptime if has_accelerator():
+            var stage_ptr = UnsafePointer(to=stage)
+            var ctx_ptr = UnsafePointer(to=ctx)
+            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
+            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
+            # Phase 1: upload attention+router+norms (experts stay on CPU)
+            weights = upload_moe_attention_weights(stage_ref[], ctx_ref[], weights)
+            ctx_ref[].sync()
+
         forward_moe_layer(
             backend,
             next_state,
             current_state,
-            model.layers[l],
+            weights,
             l,
             pos,
             hidden_size,
@@ -1217,8 +1258,21 @@ def forward_gemma4_moe_step[
             rope_tables,
             max_seq_len,
             layer_scratch,
+            stage,
+            ctx,
         )
         backend.copy(current_state, next_state, hidden_size)
+
+    # Final norm + LM head — use persistent GPU buffers when available
     var norm_out_moe = next_state
-    backend.rms_norm(norm_out_moe, current_state, model.norm.ptr, hidden_size, 1e-6)
-    backend.vec_mat_mul(out_logits_ptr, norm_out_moe, model.lm_head.ptr, hidden_size, vocab_size)
+    var norm_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.norm.ptr)
+    var lm_head_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.lm_head.ptr)
+    comptime if has_accelerator():
+        var p_cast = rebind[PersistentBuffers](persistent)
+        if p_cast.norm_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
+            norm_ptr = p_cast.norm_ptr
+        if p_cast.lm_head_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
+            lm_head_ptr = p_cast.lm_head_ptr
+
+    backend.rms_norm(norm_out_moe, current_state, norm_ptr, hidden_size, 1e-6)
+    backend.vec_mat_mul(out_logits_ptr, norm_out_moe, lm_head_ptr, hidden_size, vocab_size)

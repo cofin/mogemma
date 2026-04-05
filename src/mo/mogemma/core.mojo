@@ -17,6 +17,8 @@ from mogemma.model import (
     AudioTowerWeights,
     TensorInfo,
     KVCache,
+    KVCacheTrait,
+    PersistentBuffers,
     RoPETables,
     LAYER_TYPE_SLIDING,
     LAYER_TYPE_FULL,
@@ -29,10 +31,17 @@ from mogemma.layers import (
     forward_vision_encoder,
     forward_audio_encoder,
 )
-from mogemma.ops import rms_norm, vec_mat_mul, CPUBackend
+from mogemma.ops import rms_norm, vec_mat_mul, CPUBackend, ComputeBackend
 from mogemma.ops_gpu import GPUBackend
 from std.sys import has_accelerator
-from mogemma.gpu_context import GPUContext, WeightStage, GPUPersistentBuffers, GPUKVCache, GPUScratch
+from std.gpu.host import DeviceContext
+from mogemma.gpu_context import (
+    GPUContext,
+    WeightStage,
+    GPUPersistentBuffers,
+    GPUKVCache,
+    GPUScratch,
+)
 
 
 def _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> PythonObject:
@@ -860,7 +869,7 @@ def _init_gpu_resources(llm: PythonObject) raises:
     """Create GPU memory infrastructure and store handles in the llm dict.
 
     Called from init_model_with_options_mojo when device_backend == "gpu".
-    Creates GPUContext, WeightStage, PersistentBuffers, GPUKVCache, and GPUScratch.
+    Creates GPUContext, WeightStage, GPUPersistentBuffers, GPUKVCache, and GPUScratch.
     All handles are heap-allocated and stored as integer pointers in the dict.
     """
     comptime if has_accelerator():
@@ -900,7 +909,7 @@ def _init_gpu_resources(llm: PythonObject) raises:
         # Create WeightStage
         var weight_stage = WeightStage(gpu_ctx, capacity=staging_capacity)
 
-        # Create PersistentBuffers — need TensorInfo for embed_tokens, lm_head, norm
+        # Create GPUPersistentBuffers — need TensorInfo for embed_tokens, lm_head, norm
         # Reconstruct from the pointer array stored in llm
         var tensor_pointers_obj = llm["_tensor_pointers"]
         var tensor_pointers_ptr = UnsafePointer[Int, MutExternalOrigin](
@@ -911,7 +920,7 @@ def _init_gpu_resources(llm: PythonObject) raises:
         var norm = _hydrate_model_weights(tensor_pointers_ptr, num_layers).norm
         var lm_head = _hydrate_model_weights(tensor_pointers_ptr, num_layers).lm_head
 
-        var persistent = PersistentBuffers(gpu_ctx, embed, lm_head, norm)
+        var persistent = GPUPersistentBuffers(gpu_ctx, embed, lm_head, norm)
 
         # Create GPUKVCache — need layer_types
         # Re-read layer types from the KVCache pointer (host-side)
@@ -944,7 +953,7 @@ def _init_gpu_resources(llm: PythonObject) raises:
         stage_ptr.init_pointee_move(weight_stage^)
         llm["_gpu_weight_stage_ptr"] = Int(stage_ptr)
 
-        var persistent_ptr = alloc[PersistentBuffers](1)
+        var persistent_ptr = alloc[GPUPersistentBuffers](1)
         persistent_ptr.init_pointee_move(persistent^)
         llm["_gpu_persistent_ptr"] = Int(persistent_ptr)
 
@@ -1054,6 +1063,9 @@ def _run_step[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: Any
             rope_tables,
             max_seq_len,
             scratch_ptr,
+            stage,
+            ctx,
+            persistent,
         )
     elif has_ple_flag:
         # PLE streaming not fully implemented yet
@@ -1077,6 +1089,9 @@ def _run_step[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: Any
             kv_map_ptr,
             num_kv_sharing,
             scratch_ptr,
+            stage,
+            ctx,
+            persistent,
         )
     else:
         forward_gemma4_step(
@@ -1098,6 +1113,7 @@ def _run_step[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: Any
             scratch_ptr,
             stage,
             ctx,
+            persistent,
         )
 
 
@@ -1189,12 +1205,12 @@ def step_mojo(
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
-        var ctx_ptr = UnsafePointer[GPUContext](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
-        var backend = GPUBackend(ctx_ptr)
-        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
-        var gpu_scratch_ptr = UnsafePointer[GPUScratch](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
-        var stage_ptr = UnsafePointer[WeightStage](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
-        var persistent_ptr = UnsafePointer[PersistentBuffers](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
+        var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
+        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
+        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
+        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
+        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
 
         _run_step[GPUBackend, GPUKVCache, WeightStage, GPUContext, PersistentBuffers](
             backend,
@@ -1223,10 +1239,13 @@ def step_mojo(
             moe_intermediate_size_val,
             stage_ptr[],
             ctx_ptr[],
-            persistent_ptr[],
+            persistent_ptr[].get_ptrs(),
         )
     else:
         var backend = CPUBackend()
+        var dummy_stage = 0
+        var dummy_ctx = 0
+        var dummy_persistent = 0
         _run_step[CPUBackend, KVCache, Int, Int, Int](
             backend,
             out_logits_ptr,
@@ -1252,9 +1271,9 @@ def step_mojo(
             moe_model,
             moe_top_k_val,
             moe_intermediate_size_val,
-            0, # dummy stage
-            0, # dummy ctx
-            0, # dummy persistent
+            dummy_stage,
+            dummy_ctx,
+            dummy_persistent,
         )
 
     _ = kv_map_local
@@ -1466,11 +1485,12 @@ def step_with_embedding_mojo(
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
-        var ctx_ptr = UnsafePointer[GPUContext](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
-        var backend = GPUBackend(ctx_ptr)
-        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
-        var gpu_scratch_ptr = UnsafePointer[GPUScratch](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
-        var stage_ptr = UnsafePointer[WeightStage](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
+        var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
+        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
+        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
+        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
+        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
 
         forward_gemma4_step_with_embedding(
             backend,
@@ -1491,9 +1511,13 @@ def step_with_embedding_mojo(
             gpu_scratch_ptr[].ptr,
             stage_ptr[],
             ctx_ptr[],
+            persistent_ptr[].get_ptrs(),
         )
     else:
         var backend = CPUBackend()
+        var dummy_stage = 0
+        var dummy_ctx = 0
+        var dummy_persistent = 0
         forward_gemma4_step_with_embedding(
             backend,
             out_logits_ptr,
@@ -1511,8 +1535,9 @@ def step_with_embedding_mojo(
             k_eq_v,
             max_seq_len,
             scratch_ptr,
-            0, # dummy stage
-            0, # dummy ctx
+            dummy_stage,
+            dummy_ctx,
+            dummy_persistent,
         )
 
     llm["pos"] = pos + 1
@@ -1585,6 +1610,9 @@ def generate_embeddings_mojo(
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
         var backend = CPUBackend()
+        var dummy_stage = 0
+        var dummy_ctx = 0
+        var dummy_persistent = 0
         for t in range(actual_seq_len):
             var token_id = Int(py=seq_list[t])
 
@@ -1605,9 +1633,9 @@ def generate_embeddings_mojo(
                 k_eq_v,
                 max_seq_len,
                 scratch_ptr,
-                0, # dummy stage
-                0, # dummy ctx
-                0, # dummy persistent
+                dummy_stage,
+                dummy_ctx,
+                dummy_persistent,
             )
 
             # The hidden state before LM head projection is in scratch at position 1 (next_state)
@@ -1687,7 +1715,7 @@ def _cleanup_gpu_resources(llm: PythonObject) raises:
 
         var persist_addr = Int(py=builtins.getattr(llm, "get")("_gpu_persistent_ptr", 0))
         if persist_addr != 0:
-            var p = UnsafePointer[PersistentBuffers, MutExternalOrigin](unsafe_from_address=persist_addr)
+            var p = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](unsafe_from_address=persist_addr)
             p.destroy_pointee()
             p.free()
             llm["_gpu_persistent_ptr"] = 0

@@ -13,6 +13,7 @@ Kernel categories:
 """
 
 from std.sys import has_accelerator
+from std.os import abort
 from std.gpu import block_idx, thread_idx, block_dim, global_idx, warp_id, lane_id
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.sync import barrier, syncwarp
@@ -699,19 +700,6 @@ struct GPUBackend(ComputeBackend):
         except e:
             abort(String("GPU embed_lookup launch failed: ", e))
 
-
-def embed_lookup_kernel(
-    out: UnsafePointer[Float32, MutAnyOrigin],
-    embed_table: UnsafePointer[Float32, MutAnyOrigin],
-    token_id: Int,
-    hidden_size: Int,
-    scale: Float32,
-):
-    """GPU kernel: copy one row from embedding table and apply scaling."""
-    var tid = global_idx.x
-    if tid < hidden_size:
-        out[tid] = embed_table[token_id * hidden_size + tid] * scale
-
     def vector_add(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -744,39 +732,6 @@ def embed_lookup_kernel(
             )
         except e:
             abort(String("GPU vector_add_scaled launch failed: ", e))
-
-
-def vector_add_kernel(
-    out: UnsafePointer[Float32, MutAnyOrigin],
-    a: UnsafePointer[Float32, MutAnyOrigin],
-    b: UnsafePointer[Float32, MutAnyOrigin],
-    size: Int,
-):
-    var tid = global_idx.x
-    if tid < size:
-        out[tid] = a[tid] + b[tid]
-
-
-def vector_add_scaled_kernel(
-    out: UnsafePointer[Float32, MutAnyOrigin],
-    a: UnsafePointer[Float32, MutAnyOrigin],
-    b: UnsafePointer[Float32, MutAnyOrigin],
-    scale: Float32,
-    size: Int,
-):
-    var tid = global_idx.x
-    if tid < size:
-        out[tid] = a[tid] + scale * b[tid]
-
-
-def copy_kernel(
-    dst: UnsafePointer[Float32, MutAnyOrigin],
-    src: UnsafePointer[Float32, MutAnyOrigin],
-    size: Int,
-):
-    var tid = global_idx.x
-    if tid < size:
-        dst[tid] = src[tid]
 
     def average_pool_2d(
         mut self,
@@ -822,7 +777,7 @@ def copy_kernel(
             if block > 1024:
                 block = 1024
             self.ctx[].enqueue_function[kv_write_kernel, kv_write_kernel](
-                dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, is_full,
+                dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, Int(is_full),
                 grid_dim=1, block_dim=block,
             )
         except e:
@@ -867,6 +822,57 @@ def copy_kernel(
             )
         except e:
             abort(String("GPU attention_value_accum launch failed: ", e))
+
+
+# ---------------------------------------------------------------------------
+# Standalone GPU Kernels
+# ---------------------------------------------------------------------------
+
+
+def embed_lookup_kernel(
+    dst: UnsafePointer[Float32, MutAnyOrigin],
+    embed_table: UnsafePointer[Float32, MutAnyOrigin],
+    token_id: Int,
+    hidden_size: Int,
+    scale: Float32,
+):
+    """GPU kernel: copy one row from embedding table and apply scaling."""
+    var tid = global_idx.x
+    if tid < hidden_size:
+        dst[tid] = embed_table[token_id * hidden_size + tid] * scale
+
+
+def vector_add_kernel(
+    dst: UnsafePointer[Float32, MutAnyOrigin],
+    a: UnsafePointer[Float32, MutAnyOrigin],
+    b: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    var tid = global_idx.x
+    if tid < size:
+        dst[tid] = a[tid] + b[tid]
+
+
+def vector_add_scaled_kernel(
+    dst: UnsafePointer[Float32, MutAnyOrigin],
+    a: UnsafePointer[Float32, MutAnyOrigin],
+    b: UnsafePointer[Float32, MutAnyOrigin],
+    scale: Float32,
+    size: Int,
+):
+    var tid = global_idx.x
+    if tid < size:
+        dst[tid] = a[tid] + scale * b[tid]
+
+
+def copy_kernel(
+    dst: UnsafePointer[Float32, MutAnyOrigin],
+    src: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+):
+    var tid = global_idx.x
+    if tid < size:
+        dst[tid] = src[tid]
 
 
 # ---------------------------------------------------------------------------
@@ -1004,11 +1010,11 @@ def kv_write_kernel(
     pos: Int,
     cache_size: Int,
     layer_offset: Int,
-    is_full: Bool,
+    is_full_int: Int,
 ):
     """GPU kernel: copy K/V from scratch to KV cache.
 
     Handles ring buffer wrap for sliding layers and linear write for full layers.
     Launch: grid_dim = 1, block_dim = ceildiv(kv_size, 32) * 32 (up to 1024)
     """
-    _kv_write_impl(global_idx.x, dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, is_full)
+    _kv_write_impl(global_idx.x, dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, Bool(is_full_int))

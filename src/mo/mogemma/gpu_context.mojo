@@ -8,13 +8,16 @@ and host↔device transfer primitives. All GPU code is gated behind
 from std.sys import has_accelerator
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from std.memory import UnsafePointer
+from std.os import abort
 from std.collections import List
 
 from mogemma.model import (
     TensorInfo,
     LayerWeights,
     MoEExpertWeights,
+    MoELayerWeights,
     VisionLayerWeights,
+    PersistentBuffers,
     PtrPair,
     IntPair,
     LAYER_TYPE_SLIDING,
@@ -86,9 +89,12 @@ struct GPUContext(Movable):
         """
         self.ctx.enqueue_copy(dst, src)
 
-    def sync(mut self) raises:
+    def sync(mut self):
         """Block until all enqueued GPU operations complete."""
-        self.ctx.synchronize()
+        try:
+            self.ctx.synchronize()
+        except e:
+            abort(String("GPU sync failed: ", e))
 
     def cleanup(mut self) raises:
         """Release GPU resources. Safe to call multiple times."""
@@ -451,23 +457,6 @@ struct GPUKVCache(Movable, KVCacheTrait):
         var v = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.v_ptr + offset))
         return PtrPair(k, v)
 
-    @always_inline
-    def get_attention_range(self, layer: Int, pos: Int) -> IntPair:
-        """Returns (valid_len, cache_size) for computing attention at the given position.
-
-        Same logic as CPU KVCache: sliding layers cap at window_size, full layers grow linearly.
-        """
-        var cache_size = self.layer_cache_sizes[layer]
-        var valid_len: Int
-        if self.layer_types[layer] == LAYER_TYPE_FULL:
-            valid_len = pos + 1
-        else:
-            if pos + 1 < cache_size:
-                valid_len = pos + 1
-            else:
-                valid_len = cache_size
-        return IntPair(valid_len, cache_size)
-
     def total_elements(self) -> Int:
         """Returns total Float32 elements allocated across all layers (per K or V)."""
         if self.num_layers == 0:
@@ -527,7 +516,7 @@ def _tensor_from_device_ptr(
 
 def upload_layer_weights(
     mut stage: WeightStage, mut ctx: GPUContext, layer: LayerWeights
-) raises -> LayerWeights:
+) -> LayerWeights:
     """Upload all tensors in a dense LayerWeights to the device staging buffer.
 
     Packs all 13 layer tensors contiguously into the staging buffer, performs
@@ -559,7 +548,10 @@ def upload_layer_weights(
     var post_ff_off = stage._pack_tensor(layer.post_feedforward_layernorm)
 
     # Single host→device copy
-    ctx.upload(stage.device_buf, stage.host_buf)
+    try:
+        ctx.upload(stage.device_buf, stage.host_buf)
+    except e:
+        abort(String("upload_layer_weights failed: ", e))
 
     # Build new LayerWeights with device pointers
     var base = stage.device_buf.unsafe_ptr()
@@ -582,7 +574,7 @@ def upload_layer_weights(
 
 def upload_expert_weights(
     mut stage: WeightStage, mut ctx: GPUContext, expert: MoEExpertWeights
-) raises -> MoEExpertWeights:
+) -> MoEExpertWeights:
     """Upload a single MoE expert's weights (gate/up/down_proj) to device staging.
 
     Only called for the 8 selected experts per token, not all 128.
@@ -601,7 +593,10 @@ def upload_expert_weights(
     var up_off = stage._pack_tensor(expert.up_proj)
     var down_off = stage._pack_tensor(expert.down_proj)
 
-    ctx.upload(stage.device_buf, stage.host_buf)
+    try:
+        ctx.upload(stage.device_buf, stage.host_buf)
+    except e:
+        abort(String("upload_expert_weights failed: ", e))
 
     var base = stage.device_buf.unsafe_ptr()
     var result = MoEExpertWeights()
@@ -611,9 +606,57 @@ def upload_expert_weights(
     return result
 
 
+def upload_moe_attention_weights(
+    mut stage: WeightStage, mut ctx: GPUContext, layer: MoELayerWeights
+) -> MoELayerWeights:
+    """Upload the attention+router+norm portion of a MoE layer to device staging.
+
+    Expert weights are NOT uploaded here — they are streamed on-demand via
+    upload_expert_weights for only the selected experts.
+
+    Returns a new MoELayerWeights with device pointers for attention/router/norms
+    and the original CPU expert list unchanged.
+    """
+    stage.reset()
+
+    var q_off = stage._pack_tensor(layer.q_proj)
+    var k_off = stage._pack_tensor(layer.k_proj)
+    var v_off = stage._pack_tensor(layer.v_proj)
+    var o_off = stage._pack_tensor(layer.o_proj)
+    var router_off = stage._pack_tensor(layer.router)
+    var in_ln_off = stage._pack_tensor(layer.input_layernorm)
+    var post_attn_off = stage._pack_tensor(layer.post_attention_layernorm)
+    var pre_ff_off = stage._pack_tensor(layer.pre_feedforward_layernorm)
+    var post_ff_off = stage._pack_tensor(layer.post_feedforward_layernorm)
+    var q_norm_off = stage._pack_tensor(layer.q_norm)
+    var k_norm_off = stage._pack_tensor(layer.k_norm)
+
+    try:
+        ctx.upload(stage.device_buf, stage.host_buf)
+    except e:
+        abort(String("upload_moe_attention_weights failed: ", e))
+
+    var base = stage.device_buf.unsafe_ptr()
+    var result = MoELayerWeights()
+    result.q_proj = _tensor_from_device_ptr(base + q_off, layer.q_proj.shape_0, layer.q_proj.shape_1)
+    result.k_proj = _tensor_from_device_ptr(base + k_off, layer.k_proj.shape_0, layer.k_proj.shape_1)
+    result.v_proj = _tensor_from_device_ptr(base + v_off, layer.v_proj.shape_0, layer.v_proj.shape_1)
+    result.o_proj = _tensor_from_device_ptr(base + o_off, layer.o_proj.shape_0, layer.o_proj.shape_1)
+    result.router = _tensor_from_device_ptr(base + router_off, layer.router.shape_0, layer.router.shape_1)
+    result.input_layernorm = _tensor_from_device_ptr(base + in_ln_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1)
+    result.post_attention_layernorm = _tensor_from_device_ptr(base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1)
+    result.pre_feedforward_layernorm = _tensor_from_device_ptr(base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1)
+    result.post_feedforward_layernorm = _tensor_from_device_ptr(base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1)
+    result.q_norm = _tensor_from_device_ptr(base + q_norm_off, layer.q_norm.shape_0, layer.q_norm.shape_1)
+    result.k_norm = _tensor_from_device_ptr(base + k_norm_off, layer.k_norm.shape_0, layer.k_norm.shape_1)
+    # Experts stay on CPU — they are streamed individually via upload_expert_weights
+    result.experts = layer.experts.copy()
+    return result
+
+
 def upload_vision_layer_weights(
     mut stage: WeightStage, mut ctx: GPUContext, layer: VisionLayerWeights
-) raises -> VisionLayerWeights:
+) -> VisionLayerWeights:
     """Upload a vision transformer layer's weights to device staging.
 
     Args:
@@ -635,7 +678,10 @@ def upload_vision_layer_weights(
     var ln1_off = stage._pack_tensor(layer.layer_norm1)
     var ln2_off = stage._pack_tensor(layer.layer_norm2)
 
-    ctx.upload(stage.device_buf, stage.host_buf)
+    try:
+        ctx.upload(stage.device_buf, stage.host_buf)
+    except e:
+        abort(String("upload_vision_layer_weights failed: ", e))
 
     var base = stage.device_buf.unsafe_ptr()
     var result = VisionLayerWeights()
