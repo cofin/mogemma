@@ -7,18 +7,19 @@ from std.testing import assert_almost_equal
 
 from mogemma.ops_gpu import _kv_write_impl, _attention_scores_impl, _attention_value_accum_impl
 
+
 def test_kv_write_kernel_logic() raises:
     """Verify kv_write_kernel logic using CPU pointers (as kernels are just functions)."""
     var kv_size = 4
     var cache_size = 2
     var layer_offset = 0
-    
+
     var src: List[Float32] = [1.0, 2.0, 3.0, 4.0]
     var dst = List[Float32](length=8, fill=0.0)
-    
+
     var src_ptr = src.unsafe_ptr()
     var dst_ptr = dst.unsafe_ptr()
-    
+
     # Task 3.1: sliding window write (ring buffer)
     # pos=0 -> write_pos=0
     for tid in range(kv_size):
@@ -26,7 +27,7 @@ def test_kv_write_kernel_logic() raises:
     for i in range(kv_size):
         if dst[i] != src[i]:
             raise Error("Sliding write at pos=0 failed")
-            
+
     # pos=2 -> write_pos=0 (wrap)
     src[0] = 5.0
     for tid in range(kv_size):
@@ -53,6 +54,7 @@ def test_kv_write_kernel_logic() raises:
 
     print("  test_kv_write_kernel_logic passed")
 
+
 def test_attention_scores_kernel_logic() raises:
     """Verify _attention_scores_impl logic using CPU pointers."""
     var num_heads = 2
@@ -76,10 +78,18 @@ def test_attention_scores_kernel_logic() raises:
     for h in range(num_heads):
         for tid in range(valid_len):
             _attention_scores_impl(
-                h, tid, valid_len,
-                s_ptr, q_ptr, k_ptr,
-                num_heads, num_kv_heads, head_dim,
-                valid_len, kv_size, scale,
+                h,
+                tid,
+                valid_len,
+                s_ptr,
+                q_ptr,
+                k_ptr,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                valid_len,
+                kv_size,
+                scale,
             )
 
     if scores[0] != 1.0 or scores[1] != 0.0:
@@ -89,38 +99,36 @@ def test_attention_scores_kernel_logic() raises:
 
     print("  test_attention_scores_kernel_logic passed")
 
+
 def test_attention_value_accum_kernel_logic() raises:
     """Verify _attention_value_accum_impl logic using CPU pointers."""
     var num_heads = 2
     var num_kv_heads = 1
     var head_dim = 2
     var valid_len = 2
-    var kv_size = num_kv_heads * head_dim # 2
-    
+    var kv_size = num_kv_heads * head_dim  # 2
+
     # Scores (after softmax): [2 heads, 2 valid]
     # Head 0: [1, 0] (attend fully to first token)
     # Head 1: [0.5, 0.5] (average both tokens)
     var scores: List[Float32] = [1.0, 0.0, 0.5, 0.5]
-    
+
     # V cache: [2 slots, 2 dim] -> [[10, 20], [30, 40]]
     var v_cache: List[Float32] = [10.0, 20.0, 30.0, 40.0]
-    
+
     # Output: [2 heads, 2 dim]
     var out = List[Float32](length=4, fill=0.0)
-    
+
     var s_ptr = scores.unsafe_ptr()
     var v_ptr = v_cache.unsafe_ptr()
     var o_ptr = out.unsafe_ptr()
-    
+
     for h in range(num_heads):
         for tid in range(head_dim):
             _attention_value_accum_impl(
-                h, tid, head_dim,
-                o_ptr, s_ptr, v_ptr,
-                num_heads, num_kv_heads, head_dim,
-                valid_len, kv_size
+                h, tid, head_dim, o_ptr, s_ptr, v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
             )
-            
+
     # Head 0: 1.0 * [10, 20] + 0.0 * [30, 40] = [10, 20]
     if out[0] != 10.0 or out[1] != 20.0:
         raise Error("Head 0 accumulation incorrect")
@@ -129,6 +137,7 @@ def test_attention_value_accum_kernel_logic() raises:
         raise Error("Head 1 accumulation incorrect")
 
     print("  test_attention_value_accum_kernel_logic passed")
+
 
 def main() raises:
     test_kv_write_kernel_logic()

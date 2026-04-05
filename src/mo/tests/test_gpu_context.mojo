@@ -12,8 +12,14 @@ from std.memory import UnsafePointer
 from std.collections import List
 
 from mogemma.gpu_context import (
-    GPUContext, WeightStage, PersistentBuffers, GPUKVCache, GPUScratch,
-    upload_layer_weights, upload_expert_weights, upload_vision_layer_weights,
+    GPUContext,
+    WeightStage,
+    PersistentBuffers,
+    GPUKVCache,
+    GPUScratch,
+    upload_layer_weights,
+    upload_expert_weights,
+    upload_vision_layer_weights,
 )
 
 
@@ -127,9 +133,7 @@ def test_weight_stage_upload_tensor() raises:
         var fake_data = List[Float32](length=12, fill=0.0)
         for i in range(12):
             fake_data[i] = Float32(Float64(i) + 1.0)
-        var fake_ptr = UnsafePointer[Float32, MutExternalOrigin](
-            unsafe_from_address=Int(fake_data.unsafe_ptr())
-        )
+        var fake_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(fake_data.unsafe_ptr()))
 
         # Create TensorInfo pointing to fake data (3x4 matrix)
         var tensor = TensorInfo(Int(fake_data.unsafe_ptr()), 3, 4)
@@ -216,9 +220,7 @@ def test_gpu_kv_cache() raises:
         var layer_types = List[UInt8](length=2, fill=UInt8(0))
         layer_types[0] = LAYER_TYPE_SLIDING
         layer_types[1] = LAYER_TYPE_FULL
-        var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](
-            unsafe_from_address=Int(layer_types.unsafe_ptr())
-        )
+        var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types.unsafe_ptr()))
 
         # Build CPU KVCache for reference
         var cpu_cache = KVCache(2, 4, 32, 512, 4096, lt_ptr)

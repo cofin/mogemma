@@ -925,18 +925,12 @@ def _init_gpu_resources(llm: PythonObject) raises:
         # Create GPUKVCache — need layer_types
         # Re-read layer types from the KVCache pointer (host-side)
         var kv_cache_ptr_int = Int(py=llm["_kv_cache_ptr"])
-        var cpu_kv_cache = UnsafePointer[KVCache, MutExternalOrigin](
-            unsafe_from_address=kv_cache_ptr_int
-        )
+        var cpu_kv_cache = UnsafePointer[KVCache, MutExternalOrigin](unsafe_from_address=kv_cache_ptr_int)
         var layer_types_list = List[UInt8](length=num_layers, fill=0)
         for i in range(num_layers):
             layer_types_list[i] = cpu_kv_cache[].layer_types[i]
-        var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](
-            unsafe_from_address=Int(layer_types_list.unsafe_ptr())
-        )
-        var gpu_kv_cache = GPUKVCache(
-            gpu_ctx, num_layers, num_kv_heads, head_dim, window_size, max_seq_len, lt_ptr
-        )
+        var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types_list.unsafe_ptr()))
+        var gpu_kv_cache = GPUKVCache(gpu_ctx, num_layers, num_kv_heads, head_dim, window_size, max_seq_len, lt_ptr)
 
         # Create GPUScratch
         var gpu_scratch = GPUScratch(gpu_ctx, hidden_size, max_seq_len, num_heads)
@@ -1014,7 +1008,9 @@ def init_model_with_options_mojo(
 
 
 @always_inline
-def _run_step[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: AnyType](
+def _run_step[
+    B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType, P: AnyType
+](
     mut backend: B,
     out_logits_ptr: UnsafePointer[Float32, MutAnyOrigin],
     token_id: Int,
@@ -1207,10 +1203,18 @@ def step_mojo(
     if use_gpu:
         var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
         var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
-        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
-        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
-        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
+        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
+        )
+        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
+        )
+        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
+        )
+        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
+        )
 
         _run_step[GPUBackend, GPUKVCache, WeightStage, GPUContext, PersistentBuffers](
             backend,
@@ -1491,10 +1495,18 @@ def step_with_embedding_mojo(
     if use_gpu:
         var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
         var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
-        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
-        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](unsafe_from_address=Int(py=llm["_weight_stage_ptr"]))
-        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
+        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
+        )
+        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
+        )
+        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
+        )
+        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
+            unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
+        )
 
         forward_gemma4_step_with_embedding(
             backend,

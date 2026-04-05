@@ -25,13 +25,26 @@ struct IntPair(Copyable, ImplicitlyCopyable, Movable):
 trait KVCacheTrait:
     """Trait for KV cache implementations (CPU/GPU)."""
 
-    def get_layer_type(self, layer: Int) -> UInt8: ...
-    def get_layer_cache_size(self, layer: Int) -> Int: ...
-    def get_layer_offset(self, layer: Int) -> Int: ...
-    def get_window_size(self) -> Int: ...
-    def get_k_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]: ...
-    def get_v_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]: ...
-    def get_attention_range(self, layer: Int, pos: Int) -> IntPair: ...
+    def get_layer_type(self, layer: Int) -> UInt8:
+        ...
+
+    def get_layer_cache_size(self, layer: Int) -> Int:
+        ...
+
+    def get_layer_offset(self, layer: Int) -> Int:
+        ...
+
+    def get_window_size(self) -> Int:
+        ...
+
+    def get_k_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        ...
+
+    def get_v_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        ...
+
+    def get_attention_range(self, layer: Int, pos: Int) -> IntPair:
+        ...
 
 
 @fieldwise_init
@@ -146,9 +159,9 @@ struct ModelWeights(Movable):
     var has_ple: Bool
 
     @always_inline
-    def get_embedding[B: ComputeBackend](
-        self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    ):
+    def get_embedding[
+        B: ComputeBackend
+    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
@@ -261,9 +274,9 @@ struct MoEModelWeights(Movable):
         self.layers = []
 
     @always_inline
-    def get_embedding[B: ComputeBackend](
-        self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    ):
+    def get_embedding[
+        B: ComputeBackend
+    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
@@ -336,7 +349,7 @@ comptime LAYER_TYPE_SLIDING: UInt8 = 0
 comptime LAYER_TYPE_FULL: UInt8 = 1
 
 
-struct KVCache(Movable, KVCacheTrait):
+struct KVCache(KVCacheTrait, Movable):
     """KV cache for Gemma 4 hybrid sliding-window + full global attention.
 
     Sliding-window layers use a ring buffer of `window_size` slots.

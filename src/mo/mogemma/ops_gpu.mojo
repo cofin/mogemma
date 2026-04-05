@@ -119,10 +119,7 @@ def rope_rotate_kernel(
 
 def softmax_kernel[
     BLOCK_SIZE: Int
-](
-    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
-    size: Int,
-):
+](vec_ptr: UnsafePointer[Float32, MutAnyOrigin], size: Int,):
     """GPU kernel: in-place softmax with block-level reductions.
 
     Uses block_max and block_sum for the two-pass algorithm:
@@ -159,10 +156,7 @@ def softmax_kernel[
 
 def softmax_strided_kernel[
     BLOCK_SIZE: Int
-](
-    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
-    size: Int,
-):
+](vec_ptr: UnsafePointer[Float32, MutAnyOrigin], size: Int,):
     """GPU kernel: in-place softmax for vectors larger than BLOCK_SIZE.
 
     Each thread handles multiple elements via strided access, then
@@ -536,8 +530,13 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(out_dim, BLOCK_1D)
             self.ctx[].enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
-                out_ptr, x_ptr, w_ptr, in_dim, out_dim,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                out_ptr,
+                x_ptr,
+                w_ptr,
+                in_dim,
+                out_dim,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
                 shared_mem_bytes=TILE_BK * 4,
             )
         except e:
@@ -555,8 +554,14 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(out_dim, BLOCK_1D)
             self.ctx[].enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
-                out_ptr, x_ptr, w_ptr, scale_ptr, in_dim, out_dim,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                out_ptr,
+                x_ptr,
+                w_ptr,
+                scale_ptr,
+                in_dim,
+                out_dim,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
                 shared_mem_bytes=TILE_BK * 4,
             )
         except e:
@@ -576,8 +581,14 @@ struct GPUBackend(ComputeBackend):
             var grid_y = ceildiv(batch_size, TILE_BM)
             var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
             self.ctx[].enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
-                out_ptr, x_ptr, w_ptr, batch_size, in_dim, out_dim,
-                grid_dim=(grid_x, grid_y), block_dim=(TILE_BN, TILE_BM),
+                out_ptr,
+                x_ptr,
+                w_ptr,
+                batch_size,
+                in_dim,
+                out_dim,
+                grid_dim=(grid_x, grid_y),
+                block_dim=(TILE_BN, TILE_BM),
                 shared_mem_bytes=shared_bytes,
             )
         except e:
@@ -601,8 +612,13 @@ struct GPUBackend(ComputeBackend):
                 # Need to handle different block sizes via templates if we want optimal perf
                 # For brevity in trait impl, we use 1024 and strided kernel.
                 self.ctx[].enqueue_function[rms_norm_kernel[1024], rms_norm_kernel[1024]](
-                    out_ptr, x_ptr, weight_ptr, size, eps,
-                    grid_dim=1, block_dim=1024,
+                    out_ptr,
+                    x_ptr,
+                    weight_ptr,
+                    size,
+                    eps,
+                    grid_dim=1,
+                    block_dim=1024,
                 )
         except e:
             abort(String("GPU rms_norm launch failed: ", e))
@@ -615,8 +631,10 @@ struct GPUBackend(ComputeBackend):
         try:
             if size <= 1024:
                 self.ctx[].enqueue_function[softmax_strided_kernel[1024], softmax_strided_kernel[1024]](
-                    vec_ptr, size,
-                    grid_dim=1, block_dim=1024,
+                    vec_ptr,
+                    size,
+                    grid_dim=1,
+                    block_dim=1024,
                 )
         except e:
             abort(String("GPU softmax launch failed: ", e))
@@ -631,8 +649,12 @@ struct GPUBackend(ComputeBackend):
         try:
             var half_dim = head_dim // 2
             self.ctx[].enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
-                vec_ptr, cos_ptr, sin_ptr, half_dim,
-                grid_dim=1, block_dim=half_dim,
+                vec_ptr,
+                cos_ptr,
+                sin_ptr,
+                half_dim,
+                grid_dim=1,
+                block_dim=half_dim,
             )
         except e:
             abort(String("GPU rope_rotate launch failed: ", e))
@@ -647,8 +669,12 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(size, BLOCK_1D)
             self.ctx[].enqueue_function[geglu_kernel, geglu_kernel](
-                out_ptr, gate_ptr, up_ptr, size,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                out_ptr,
+                gate_ptr,
+                up_ptr,
+                size,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
             )
         except e:
             abort(String("GPU geglu launch failed: ", e))
@@ -662,8 +688,11 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(size, BLOCK_1D)
             self.ctx[].enqueue_function[gelu_kernel, gelu_kernel](
-                out_ptr, x_ptr, size,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                out_ptr,
+                x_ptr,
+                size,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
             )
         except e:
             abort(String("GPU gelu launch failed: ", e))
@@ -677,8 +706,11 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(size, BLOCK_1D)
             self.ctx[].enqueue_function[copy_kernel, copy_kernel](
-                dst_ptr, src_ptr, size,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                dst_ptr,
+                src_ptr,
+                size,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
             )
         except e:
             abort(String("GPU copy launch failed: ", e))
@@ -694,8 +726,13 @@ struct GPUBackend(ComputeBackend):
         try:
             var block = optimal_block_size(hidden_size)
             self.ctx[].enqueue_function[embed_lookup_kernel, embed_lookup_kernel](
-                out_ptr, embed_table_ptr, token_id, hidden_size, scale,
-                grid_dim=1, block_dim=block,
+                out_ptr,
+                embed_table_ptr,
+                token_id,
+                hidden_size,
+                scale,
+                grid_dim=1,
+                block_dim=block,
             )
         except e:
             abort(String("GPU embed_lookup launch failed: ", e))
@@ -710,8 +747,12 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(size, BLOCK_1D)
             self.ctx[].enqueue_function[vector_add_kernel, vector_add_kernel](
-                out_ptr, a_ptr, b_ptr, size,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                out_ptr,
+                a_ptr,
+                b_ptr,
+                size,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
             )
         except e:
             abort(String("GPU vector_add launch failed: ", e))
@@ -727,8 +768,13 @@ struct GPUBackend(ComputeBackend):
         try:
             var grid = ceildiv(size, BLOCK_1D)
             self.ctx[].enqueue_function[vector_add_scaled_kernel, vector_add_scaled_kernel](
-                out_ptr, a_ptr, b_ptr, scale, size,
-                grid_dim=grid, block_dim=BLOCK_1D,
+                out_ptr,
+                a_ptr,
+                b_ptr,
+                scale,
+                size,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
             )
         except e:
             abort(String("GPU vector_add_scaled launch failed: ", e))
@@ -737,15 +783,25 @@ struct GPUBackend(ComputeBackend):
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        grid_h: Int, grid_w: Int, hidden_size: Int, kernel: Int,
+        grid_h: Int,
+        grid_w: Int,
+        hidden_size: Int,
+        kernel: Int,
     ):
         try:
             var out_h = grid_h // kernel
             var out_w = grid_w // kernel
             var block = optimal_block_size(hidden_size)
             self.ctx[].enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
-                out_ptr, x_ptr, out_h, out_w, grid_w, hidden_size, kernel,
-                grid_dim=out_h * out_w, block_dim=block,
+                out_ptr,
+                x_ptr,
+                out_h,
+                out_w,
+                grid_w,
+                hidden_size,
+                kernel,
+                grid_dim=out_h * out_w,
+                block_dim=block,
             )
         except e:
             abort(String("GPU average_pool_2d launch failed: ", e))
@@ -753,14 +809,20 @@ struct GPUBackend(ComputeBackend):
     def top_k(
         mut self,
         values_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        k: Int, size: Int,
+        k: Int,
+        size: Int,
         out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
         out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
     ):
         try:
             self.ctx[].enqueue_function[top_k_kernel, top_k_kernel](
-                values_ptr, k, size, out_indices_ptr, out_values_ptr,
-                grid_dim=1, block_dim=32,
+                values_ptr,
+                k,
+                size,
+                out_indices_ptr,
+                out_values_ptr,
+                grid_dim=1,
+                block_dim=32,
             )
         except e:
             abort(String("GPU top_k launch failed: ", e))
@@ -769,16 +831,26 @@ struct GPUBackend(ComputeBackend):
         mut self,
         dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
         src_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        kv_size: Int, pos: Int, cache_size: Int,
-        layer_offset: Int, is_full: Bool,
+        kv_size: Int,
+        pos: Int,
+        cache_size: Int,
+        layer_offset: Int,
+        is_full: Bool,
     ):
         try:
             var block = ceildiv(kv_size, 32) * 32
             if block > 1024:
                 block = 1024
             self.ctx[].enqueue_function[kv_write_kernel, kv_write_kernel](
-                dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, Int(is_full),
-                grid_dim=1, block_dim=block,
+                dst_ptr,
+                src_ptr,
+                kv_size,
+                pos,
+                cache_size,
+                layer_offset,
+                Int(is_full),
+                grid_dim=1,
+                block_dim=block,
             )
         except e:
             abort(String("GPU kv_write launch failed: ", e))
@@ -788,17 +860,29 @@ struct GPUBackend(ComputeBackend):
         scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
         q_ptr: UnsafePointer[Float32, MutAnyOrigin],
         k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        num_heads: Int, num_kv_heads: Int, head_dim: Int,
-        valid_len: Int, kv_size: Int, scale: Float32,
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+        scale: Float32,
     ):
         try:
             var block = ceildiv(valid_len, 32) * 32
             if block > 256:
                 block = 256
             self.ctx[].enqueue_function[attention_scores_kernel, attention_scores_kernel](
-                scores_ptr, q_ptr, k_cache_ptr, num_heads, num_kv_heads, head_dim,
-                valid_len, kv_size, scale,
-                grid_dim=num_heads, block_dim=block,
+                scores_ptr,
+                q_ptr,
+                k_cache_ptr,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                valid_len,
+                kv_size,
+                scale,
+                grid_dim=num_heads,
+                block_dim=block,
             )
         except e:
             abort(String("GPU attention_scores launch failed: ", e))
@@ -808,17 +892,27 @@ struct GPUBackend(ComputeBackend):
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
         v_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        num_heads: Int, num_kv_heads: Int, head_dim: Int,
-        valid_len: Int, kv_size: Int,
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
     ):
         try:
             var block = ceildiv(head_dim, 32) * 32
             if block > 256:
                 block = 256
             self.ctx[].enqueue_function[attention_value_accum_kernel, attention_value_accum_kernel](
-                out_ptr, scores_ptr, v_cache_ptr, num_heads, num_kv_heads, head_dim,
-                valid_len, kv_size,
-                grid_dim=num_heads, block_dim=block,
+                out_ptr,
+                scores_ptr,
+                v_cache_ptr,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                valid_len,
+                kv_size,
+                grid_dim=num_heads,
+                block_dim=block,
             )
         except e:
             abort(String("GPU attention_value_accum launch failed: ", e))
@@ -973,10 +1067,17 @@ def attention_value_accum_kernel(
     One thread block per head, threads parallelize across head_dim.
     """
     _attention_value_accum_impl(
-        block_idx.x, thread_idx.x, block_dim.x,
-        out_ptr, scores_ptr, v_cache_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size
+        block_idx.x,
+        thread_idx.x,
+        block_dim.x,
+        out_ptr,
+        scores_ptr,
+        v_cache_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
     )
 
 
@@ -996,10 +1097,18 @@ def attention_scores_kernel(
     One thread block per head, threads parallelize across time steps.
     """
     _attention_scores_impl(
-        block_idx.x, thread_idx.x, block_dim.x,
-        scores_ptr, q_ptr, k_cache_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size, scale
+        block_idx.x,
+        thread_idx.x,
+        block_dim.x,
+        scores_ptr,
+        q_ptr,
+        k_cache_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
+        scale,
     )
 
 

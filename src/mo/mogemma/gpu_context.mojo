@@ -44,7 +44,7 @@ struct GPUContext(Movable):
         self.ctx = DeviceContext()
         self._alive = True
 
-    def __moveinit__(out self, owned other: Self):
+    def __moveinit__(out self, ownedother: Self):
         self.ctx = other.ctx^
         self._alive = other._alive
         other._alive = False
@@ -128,7 +128,7 @@ struct WeightStage(Movable):
         self.capacity = capacity
         self._offset = 0
 
-    def __moveinit__(out self, owned other: Self):
+    def __moveinit__(out self, ownedother: Self):
         self.device_buf = other.device_buf^
         self.host_buf = other.host_buf^
         self.capacity = other.capacity
@@ -154,9 +154,7 @@ struct WeightStage(Movable):
         self._offset += num_elements
         return start
 
-    def upload_tensor(
-        mut self, mut ctx: GPUContext, tensor: TensorInfo
-    ) raises -> UnsafePointer[Float32, MutAnyOrigin]:
+    def upload_tensor(mut self, mut ctx: GPUContext, tensor: TensorInfo) raises -> UnsafePointer[Float32, MutAnyOrigin]:
         """Upload a single tensor to the device staging buffer.
 
         Copies tensor data from its source pointer to the pinned host buffer,
@@ -199,9 +197,7 @@ struct WeightStage(Movable):
             ptrs.append(base + offsets[i])
         return ptrs
 
-    def upload_layer_weights(
-        mut self, mut ctx: GPUContext, weights: LayerWeights
-    ) raises -> LayerWeights:
+    def upload_layer_weights(mut self, mut ctx: GPUContext, weights: LayerWeights) raises -> LayerWeights:
         """Upload all tensors in a LayerWeights struct to the GPU staging buffer.
 
         Returns a new LayerWeights with pointers redirected to the GPU.
@@ -235,9 +231,7 @@ struct WeightStage(Movable):
         return dev_weights
 
 
-def _upload_persistent(
-    mut ctx: GPUContext, tensor: TensorInfo
-) raises -> DeviceBuffer[DType.float32]:
+def _upload_persistent(mut ctx: GPUContext, tensor: TensorInfo) raises -> DeviceBuffer[DType.float32]:
     """Upload a tensor to a dedicated persistent DeviceBuffer.
 
     Unlike WeightStage (reusable per layer), this allocates a permanent buffer
@@ -301,7 +295,7 @@ struct GPUPersistentBuffers(Movable):
         self.norm_buf = _upload_persistent(ctx, norm)
         ctx.sync()
 
-    def __moveinit__(out self, owned other: Self):
+    def __moveinit__(out self, ownedother: Self):
         self.embed_buf = other.embed_buf^
         self.lm_head_buf = other.lm_head_buf^
         self.norm_buf = other.norm_buf^
@@ -362,14 +356,17 @@ def copy_state(
     var grid = _ceildiv(size, BLOCK)
     try:
         ctx.ctx.enqueue_function[copy_state_kernel, copy_state_kernel](
-            dst_ptr, src_ptr, size,
-            grid_dim=grid, block_dim=BLOCK,
+            dst_ptr,
+            src_ptr,
+            size,
+            grid_dim=grid,
+            block_dim=BLOCK,
         )
     except e:
         abort(String("copy_state launch failed: ", e))
 
 
-struct GPUKVCache(Movable, KVCacheTrait):
+struct GPUKVCache(KVCacheTrait, Movable):
     """GPU-resident KV cache for Gemma 4 hybrid sliding-window + full attention.
 
     Same layout and offset math as CPU `KVCache`, but K/V storage lives in
@@ -483,7 +480,7 @@ struct GPUKVCache(Movable, KVCacheTrait):
         self.k_ptr = self.k_cache.unsafe_ptr()
         self.v_ptr = self.v_cache.unsafe_ptr()
 
-    def __moveinit__(out self, owned other: Self):
+    def __moveinit__(out self, ownedother: Self):
         self.num_layers = other.num_layers
         self.num_kv_heads = other.num_kv_heads
         self.head_dim = other.head_dim
@@ -546,7 +543,7 @@ struct GPUScratch(Movable):
         self.buf = ctx.allocate_buffer[DType.float32](self.size)
         self.ptr = self.buf.unsafe_ptr()
 
-    def __moveinit__(out self, owned other: Self):
+    def __moveinit__(out self, ownedother: Self):
         self.buf = other.buf^
         self.ptr = other.ptr
         self.size = other.size
@@ -555,16 +552,12 @@ struct GPUScratch(Movable):
 # ── Layer Weight Upload Functions ─────────────────────────────────────────────
 
 
-def _tensor_from_device_ptr(
-    ptr: UnsafePointer[Float32, MutAnyOrigin], shape_0: Int, shape_1: Int
-) -> TensorInfo:
+def _tensor_from_device_ptr(ptr: UnsafePointer[Float32, MutAnyOrigin], shape_0: Int, shape_1: Int) -> TensorInfo:
     """Create a TensorInfo pointing to device memory."""
     return TensorInfo(Int(ptr), shape_0, shape_1)
 
 
-def upload_layer_weights(
-    mut stage: WeightStage, mut ctx: GPUContext, layer: LayerWeights
-) -> LayerWeights:
+def upload_layer_weights(mut stage: WeightStage, mut ctx: GPUContext, layer: LayerWeights) -> LayerWeights:
     """Upload all tensors in a dense LayerWeights to the device staging buffer.
 
     Packs all 13 layer tensors contiguously into the staging buffer, performs
@@ -611,18 +604,24 @@ def upload_layer_weights(
     result.gate_proj = _tensor_from_device_ptr(base + gate_off, layer.gate_proj.shape_0, layer.gate_proj.shape_1)
     result.up_proj = _tensor_from_device_ptr(base + up_off, layer.up_proj.shape_0, layer.up_proj.shape_1)
     result.down_proj = _tensor_from_device_ptr(base + down_off, layer.down_proj.shape_0, layer.down_proj.shape_1)
-    result.input_layernorm = _tensor_from_device_ptr(base + in_norm_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1)
-    result.post_attention_layernorm = _tensor_from_device_ptr(base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1)
+    result.input_layernorm = _tensor_from_device_ptr(
+        base + in_norm_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1
+    )
+    result.post_attention_layernorm = _tensor_from_device_ptr(
+        base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1
+    )
     result.q_norm = _tensor_from_device_ptr(base + q_norm_off, layer.q_norm.shape_0, layer.q_norm.shape_1)
     result.k_norm = _tensor_from_device_ptr(base + k_norm_off, layer.k_norm.shape_0, layer.k_norm.shape_1)
-    result.pre_feedforward_layernorm = _tensor_from_device_ptr(base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1)
-    result.post_feedforward_layernorm = _tensor_from_device_ptr(base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1)
+    result.pre_feedforward_layernorm = _tensor_from_device_ptr(
+        base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1
+    )
+    result.post_feedforward_layernorm = _tensor_from_device_ptr(
+        base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1
+    )
     return result
 
 
-def upload_expert_weights(
-    mut stage: WeightStage, mut ctx: GPUContext, expert: MoEExpertWeights
-) -> MoEExpertWeights:
+def upload_expert_weights(mut stage: WeightStage, mut ctx: GPUContext, expert: MoEExpertWeights) -> MoEExpertWeights:
     """Upload a single MoE expert's weights (gate/up/down_proj) to device staging.
 
     Only called for the 8 selected experts per token, not all 128.
@@ -691,10 +690,18 @@ def upload_moe_attention_weights(
     result.v_proj = _tensor_from_device_ptr(base + v_off, layer.v_proj.shape_0, layer.v_proj.shape_1)
     result.o_proj = _tensor_from_device_ptr(base + o_off, layer.o_proj.shape_0, layer.o_proj.shape_1)
     result.router = _tensor_from_device_ptr(base + router_off, layer.router.shape_0, layer.router.shape_1)
-    result.input_layernorm = _tensor_from_device_ptr(base + in_ln_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1)
-    result.post_attention_layernorm = _tensor_from_device_ptr(base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1)
-    result.pre_feedforward_layernorm = _tensor_from_device_ptr(base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1)
-    result.post_feedforward_layernorm = _tensor_from_device_ptr(base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1)
+    result.input_layernorm = _tensor_from_device_ptr(
+        base + in_ln_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1
+    )
+    result.post_attention_layernorm = _tensor_from_device_ptr(
+        base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1
+    )
+    result.pre_feedforward_layernorm = _tensor_from_device_ptr(
+        base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1
+    )
+    result.post_feedforward_layernorm = _tensor_from_device_ptr(
+        base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1
+    )
     result.q_norm = _tensor_from_device_ptr(base + q_norm_off, layer.q_norm.shape_0, layer.q_norm.shape_1)
     result.k_norm = _tensor_from_device_ptr(base + k_norm_off, layer.k_norm.shape_0, layer.k_norm.shape_1)
     # Experts stay on CPU — they are streamed individually via upload_expert_weights

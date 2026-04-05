@@ -12,12 +12,24 @@ from std.collections import List
 from std.testing import assert_almost_equal
 
 from mogemma.ops_gpu import (
-    gelu_kernel, geglu_kernel, rope_rotate_kernel,
-    softmax_kernel, softmax_strided_kernel, rms_norm_kernel,
-    vec_mat_mul_kernel, mat_mat_mul_kernel, vec_mat_mul_i8_kernel,
-    average_pool_2d_kernel, top_k_kernel,
+    gelu_kernel,
+    geglu_kernel,
+    rope_rotate_kernel,
+    softmax_kernel,
+    softmax_strided_kernel,
+    rms_norm_kernel,
+    vec_mat_mul_kernel,
+    mat_mat_mul_kernel,
+    vec_mat_mul_i8_kernel,
+    average_pool_2d_kernel,
+    top_k_kernel,
     GPUBackend,
-    ceildiv, optimal_block_size, BLOCK_1D, TILE_BK, TILE_BM, TILE_BN,
+    ceildiv,
+    optimal_block_size,
+    BLOCK_1D,
+    TILE_BK,
+    TILE_BM,
+    TILE_BN,
 )
 
 
@@ -105,8 +117,11 @@ def test_gelu_kernel_gpu() raises:
         ctx.enqueue_copy(x_dev, x_host)
 
         ctx.enqueue_function[gelu_kernel, gelu_kernel](
-            out_dev, x_dev, size,
-            grid_dim=1, block_dim=size,
+            out_dev,
+            x_dev,
+            size,
+            grid_dim=1,
+            block_dim=size,
         )
 
         ctx.enqueue_copy(out_host, out_dev)
@@ -146,8 +161,12 @@ def test_geglu_kernel_gpu() raises:
         ctx.enqueue_copy(up_dev, up_host)
 
         ctx.enqueue_function[geglu_kernel, geglu_kernel](
-            out_dev, gate_dev, up_dev, size,
-            grid_dim=1, block_dim=size,
+            out_dev,
+            gate_dev,
+            up_dev,
+            size,
+            grid_dim=1,
+            block_dim=size,
         )
 
         ctx.enqueue_copy(out_host, out_dev)
@@ -193,8 +212,12 @@ def test_rope_rotate_kernel_gpu() raises:
         ctx.enqueue_copy(sin_dev, sin_host)
 
         ctx.enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
-            vec_dev, cos_dev, sin_dev, half_dim,
-            grid_dim=1, block_dim=half_dim,
+            vec_dev,
+            cos_dev,
+            sin_dev,
+            half_dim,
+            grid_dim=1,
+            block_dim=half_dim,
         )
 
         ctx.enqueue_copy(vec_host, vec_dev)
@@ -229,8 +252,10 @@ def test_softmax_kernel_gpu() raises:
 
         # Use BLOCK_SIZE=32 (smallest power-of-2 >= 3)
         ctx.enqueue_function[softmax_kernel[32], softmax_kernel[32]](
-            x_dev, size,
-            grid_dim=1, block_dim=32,
+            x_dev,
+            size,
+            grid_dim=1,
+            block_dim=32,
         )
 
         ctx.enqueue_copy(x_host, x_dev)
@@ -264,8 +289,10 @@ def test_softmax_strided_kernel_gpu() raises:
 
         # Use strided variant even for small size to test it
         ctx.enqueue_function[softmax_strided_kernel[32], softmax_strided_kernel[32]](
-            x_dev, size,
-            grid_dim=1, block_dim=32,
+            x_dev,
+            size,
+            grid_dim=1,
+            block_dim=32,
         )
 
         ctx.enqueue_copy(x_host, x_dev)
@@ -306,8 +333,13 @@ def test_rms_norm_kernel_gpu() raises:
         ctx.enqueue_copy(w_dev, w_host)
 
         ctx.enqueue_function[rms_norm_kernel[32], rms_norm_kernel[32]](
-            out_dev, x_dev, w_dev, size, Float32(1e-6),
-            grid_dim=1, block_dim=32,
+            out_dev,
+            x_dev,
+            w_dev,
+            size,
+            Float32(1e-6),
+            grid_dim=1,
+            block_dim=32,
         )
 
         ctx.enqueue_copy(out_host, out_dev)
@@ -348,8 +380,13 @@ def test_vec_mat_mul_kernel_gpu() raises:
 
         var grid = ceildiv(out_dim, BLOCK_1D)
         ctx.enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
-            out_dev, x_dev, w_dev, in_dim, out_dim,
-            grid_dim=grid, block_dim=BLOCK_1D,
+            out_dev,
+            x_dev,
+            w_dev,
+            in_dim,
+            out_dim,
+            grid_dim=grid,
+            block_dim=BLOCK_1D,
             shared_mem_bytes=TILE_BK * 4,
         )
 
@@ -393,8 +430,14 @@ def test_mat_mat_mul_kernel_gpu() raises:
         var grid_y = ceildiv(batch, TILE_BM)
         var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
         ctx.enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
-            out_dev, x_dev, w_dev, batch, in_dim, out_dim,
-            grid_dim=(grid_x, grid_y), block_dim=(TILE_BN, TILE_BM),
+            out_dev,
+            x_dev,
+            w_dev,
+            batch,
+            in_dim,
+            out_dim,
+            grid_dim=(grid_x, grid_y),
+            block_dim=(TILE_BN, TILE_BM),
             shared_mem_bytes=shared_bytes,
         )
 
@@ -440,8 +483,14 @@ def test_vec_mat_mul_i8_kernel_gpu() raises:
 
         var grid = ceildiv(out_dim, BLOCK_1D)
         ctx.enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
-            out_dev, x_dev, w_dev, scale_dev, in_dim, out_dim,
-            grid_dim=grid, block_dim=BLOCK_1D,
+            out_dev,
+            x_dev,
+            w_dev,
+            scale_dev,
+            in_dim,
+            out_dim,
+            grid_dim=grid,
+            block_dim=BLOCK_1D,
             shared_mem_bytes=TILE_BK * 4,
         )
 
@@ -484,8 +533,15 @@ def test_average_pool_2d_kernel_gpu() raises:
         ctx.enqueue_copy(x_dev, x_host)
 
         ctx.enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
-            out_dev, x_dev, out_h, out_w, grid_w, hidden_size, kernel,
-            grid_dim=out_h * out_w, block_dim=hidden_size,
+            out_dev,
+            x_dev,
+            out_h,
+            out_w,
+            grid_w,
+            hidden_size,
+            kernel,
+            grid_dim=out_h * out_w,
+            block_dim=hidden_size,
         )
 
         ctx.enqueue_copy(out_host, out_dev)
@@ -528,8 +584,13 @@ def test_top_k_kernel_gpu() raises:
         ctx.enqueue_copy(vals_dev, vals_host)
 
         ctx.enqueue_function[top_k_kernel, top_k_kernel](
-            vals_dev, k, size, idx_dev, ov_dev,
-            grid_dim=1, block_dim=32,
+            vals_dev,
+            k,
+            size,
+            idx_dev,
+            ov_dev,
+            grid_dim=1,
+            block_dim=32,
         )
 
         ctx.enqueue_copy(idx_host, idx_dev)

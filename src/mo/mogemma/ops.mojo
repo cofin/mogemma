@@ -400,8 +400,10 @@ trait ComputeBackend:
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         w_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        in_dim: Int, out_dim: Int,
-    ): ...
+        in_dim: Int,
+        out_dim: Int,
+    ):
+        ...
 
     def vec_mat_mul_i8(
         mut self,
@@ -409,30 +411,38 @@ trait ComputeBackend:
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         w_ptr: UnsafePointer[Int8, MutAnyOrigin],
         scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        in_dim: Int, out_dim: Int,
-    ): ...
+        in_dim: Int,
+        out_dim: Int,
+    ):
+        ...
 
     def mat_mat_mul(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         w_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        batch_size: Int, in_dim: Int, out_dim: Int,
-    ): ...
+        batch_size: Int,
+        in_dim: Int,
+        out_dim: Int,
+    ):
+        ...
 
     def rms_norm(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        size: Int, eps: Float32,
-    ): ...
+        size: Int,
+        eps: Float32,
+    ):
+        ...
 
     def softmax(
         mut self,
         vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
-    ): ...
+    ):
+        ...
 
     def rope_rotate(
         mut self,
@@ -440,7 +450,8 @@ trait ComputeBackend:
         cos_ptr: UnsafePointer[Float32, MutAnyOrigin],
         sin_ptr: UnsafePointer[Float32, MutAnyOrigin],
         head_dim: Int,
-    ): ...
+    ):
+        ...
 
     def geglu(
         mut self,
@@ -448,21 +459,24 @@ trait ComputeBackend:
         gate_ptr: UnsafePointer[Float32, MutAnyOrigin],
         up_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
-    ): ...
+    ):
+        ...
 
     def gelu(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
-    ): ...
+    ):
+        ...
 
     def copy(
         mut self,
         dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
         src_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
-    ): ...
+    ):
+        ...
 
     def embed_lookup(
         mut self,
@@ -471,7 +485,8 @@ trait ComputeBackend:
         token_id: Int,
         hidden_size: Int,
         scale: Float32,
-    ): ...
+    ):
+        ...
 
     def vector_add(
         mut self,
@@ -479,7 +494,8 @@ trait ComputeBackend:
         a_ptr: UnsafePointer[Float32, MutAnyOrigin],
         b_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
-    ): ...
+    ):
+        ...
 
     def vector_add_scaled(
         mut self,
@@ -488,48 +504,68 @@ trait ComputeBackend:
         b_ptr: UnsafePointer[Float32, MutAnyOrigin],
         scale: Float32,
         size: Int,
-    ): ...
+    ):
+        ...
 
     def average_pool_2d(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        grid_h: Int, grid_w: Int, hidden_size: Int, kernel: Int,
-    ): ...
+        grid_h: Int,
+        grid_w: Int,
+        hidden_size: Int,
+        kernel: Int,
+    ):
+        ...
 
     def top_k(
         mut self,
         values_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        k: Int, size: Int,
+        k: Int,
+        size: Int,
         out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
         out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
-    ): ...
+    ):
+        ...
 
     def kv_write(
         mut self,
         dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
         src_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        kv_size: Int, pos: Int, cache_size: Int,
-        layer_offset: Int, is_full: Bool,
-    ): ...
+        kv_size: Int,
+        pos: Int,
+        cache_size: Int,
+        layer_offset: Int,
+        is_full: Bool,
+    ):
+        ...
 
     def attention_scores(
         mut self,
         scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
         q_ptr: UnsafePointer[Float32, MutAnyOrigin],
         k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        num_heads: Int, num_kv_heads: Int, head_dim: Int,
-        valid_len: Int, kv_size: Int, scale: Float32,
-    ): ...
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+        scale: Float32,
+    ):
+        ...
 
     def attention_value_accum(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
         v_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        num_heads: Int, num_kv_heads: Int, head_dim: Int,
-        valid_len: Int, kv_size: Int,
-    ): ...
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+    ):
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +588,8 @@ struct CPUBackend(ComputeBackend):
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         w_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        in_dim: Int, out_dim: Int,
+        in_dim: Int,
+        out_dim: Int,
     ):
         vec_mat_mul(out_ptr, x_ptr, w_ptr, in_dim, out_dim)
 
@@ -562,7 +599,8 @@ struct CPUBackend(ComputeBackend):
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         w_ptr: UnsafePointer[Int8, MutAnyOrigin],
         scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        in_dim: Int, out_dim: Int,
+        in_dim: Int,
+        out_dim: Int,
     ):
         vec_mat_mul_i8(out_ptr, x_ptr, w_ptr, scale_ptr, in_dim, out_dim)
 
@@ -571,7 +609,9 @@ struct CPUBackend(ComputeBackend):
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         w_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        batch_size: Int, in_dim: Int, out_dim: Int,
+        batch_size: Int,
+        in_dim: Int,
+        out_dim: Int,
     ):
         mat_mat_mul(out_ptr, x_ptr, w_ptr, batch_size, in_dim, out_dim)
 
@@ -580,7 +620,8 @@ struct CPUBackend(ComputeBackend):
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
         weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        size: Int, eps: Float32,
+        size: Int,
+        eps: Float32,
     ):
         rms_norm(out_ptr, x_ptr, weight_ptr, size, eps)
 
@@ -663,14 +704,18 @@ struct CPUBackend(ComputeBackend):
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         x_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        grid_h: Int, grid_w: Int, hidden_size: Int, kernel: Int,
+        grid_h: Int,
+        grid_w: Int,
+        hidden_size: Int,
+        kernel: Int,
     ):
         average_pool_2d(out_ptr, x_ptr, grid_h, grid_w, hidden_size, kernel)
 
     def top_k(
         mut self,
         values_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        k: Int, size: Int,
+        k: Int,
+        size: Int,
         out_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
         out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
     ):
@@ -680,15 +725,18 @@ struct CPUBackend(ComputeBackend):
         mut self,
         dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
         src_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        kv_size: Int, pos: Int, cache_size: Int,
-        layer_offset: Int, is_full: Bool,
+        kv_size: Int,
+        pos: Int,
+        cache_size: Int,
+        layer_offset: Int,
+        is_full: Bool,
     ):
         var write_pos: Int
         if is_full:
             write_pos = pos
         else:
             write_pos = pos % cache_size
-        
+
         var dst = dst_ptr + layer_offset + write_pos * kv_size
         for i in range(kv_size):
             dst.store(i, src_ptr.load(i))
@@ -698,8 +746,12 @@ struct CPUBackend(ComputeBackend):
         scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
         q_ptr: UnsafePointer[Float32, MutAnyOrigin],
         k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        num_heads: Int, num_kv_heads: Int, head_dim: Int,
-        valid_len: Int, kv_size: Int, scale: Float32,
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+        scale: Float32,
     ):
         var heads_per_kv = num_heads // num_kv_heads
         for h in range(num_heads):
@@ -718,8 +770,11 @@ struct CPUBackend(ComputeBackend):
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
         scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
         v_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
-        num_heads: Int, num_kv_heads: Int, head_dim: Int,
-        valid_len: Int, kv_size: Int,
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
     ):
         var heads_per_kv = num_heads // num_kv_heads
         for h in range(num_heads):

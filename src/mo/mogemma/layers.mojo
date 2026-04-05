@@ -44,7 +44,9 @@ from mogemma.ops import (
 
 
 @always_inline
-def _gemm_dispatch[B: ComputeBackend](
+def _gemm_dispatch[
+    B: ComputeBackend
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -63,7 +65,9 @@ def _gemm_dispatch[B: ComputeBackend](
 
 
 @always_inline
-def forward_sliding_attention[B: ComputeBackend, K: KVCacheTrait](
+def forward_sliding_attention[
+    B: ComputeBackend, K: KVCacheTrait
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -133,18 +137,14 @@ def forward_sliding_attention[B: ComputeBackend, K: KVCacheTrait](
     var scores_ptr = attn_out_ptr + q_size
 
     backend.attention_scores(
-        scores_ptr, q_ptr, layer_k_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size, scale
+        scores_ptr, q_ptr, layer_k_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size, scale
     )
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
 
     backend.attention_value_accum(
-        attn_out_ptr, scores_ptr, layer_v_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size
+        attn_out_ptr, scores_ptr, layer_v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
     )
 
     # 5. Output projection
@@ -152,7 +152,9 @@ def forward_sliding_attention[B: ComputeBackend, K: KVCacheTrait](
 
 
 @always_inline
-def forward_full_attention[B: ComputeBackend, K: KVCacheTrait](
+def forward_full_attention[
+    B: ComputeBackend, K: KVCacheTrait
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -223,18 +225,14 @@ def forward_full_attention[B: ComputeBackend, K: KVCacheTrait](
     var scores_ptr = attn_out_ptr + q_size
 
     backend.attention_scores(
-        scores_ptr, q_ptr, layer_k_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size, scale
+        scores_ptr, q_ptr, layer_k_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size, scale
     )
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
 
     backend.attention_value_accum(
-        attn_out_ptr, scores_ptr, layer_v_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size
+        attn_out_ptr, scores_ptr, layer_v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
     )
 
     # 5. Output projection
@@ -242,7 +240,9 @@ def forward_full_attention[B: ComputeBackend, K: KVCacheTrait](
 
 
 @always_inline
-def forward_vision_attention[B: ComputeBackend](
+def forward_vision_attention[
+    B: ComputeBackend
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [num_tokens, hidden_size]
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [num_tokens, hidden_size]
@@ -306,7 +306,9 @@ def forward_vision_attention[B: ComputeBackend](
 
 
 @always_inline
-def forward_vision_layer[B: ComputeBackend](
+def forward_vision_layer[
+    B: ComputeBackend
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [num_tokens, hidden_size]
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [num_tokens, hidden_size]
@@ -324,7 +326,9 @@ def forward_vision_layer[B: ComputeBackend](
     # Pre-attention LayerNorm (reuse rms_norm — SigLIP weights are scale-only)
     var norm1_ptr = scratch_ptr
     for t in range(num_tokens):
-        backend.rms_norm(norm1_ptr + t * hidden_size, x_ptr + t * hidden_size, weights.layer_norm1.ptr, hidden_size, 1e-6)
+        backend.rms_norm(
+            norm1_ptr + t * hidden_size, x_ptr + t * hidden_size, weights.layer_norm1.ptr, hidden_size, 1e-6
+        )
 
     # Bidirectional attention
     var attn_out_ptr = scratch_ptr + total
@@ -370,7 +374,9 @@ def forward_vision_layer[B: ComputeBackend](
 
 
 @always_inline
-def forward_vision_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
+def forward_vision_encoder[
+    B: ComputeBackend, S: AnyType, C: AnyType
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     patches_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [num_patches, patch_dim]
@@ -398,7 +404,9 @@ def forward_vision_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
 
     # 1. Patch embedding: [num_patches, patch_dim] @ [vision_hidden, patch_dim]^T → [num_patches, vision_hidden]
     var embedded_ptr = scratch_ptr
-    _gemm_dispatch(backend, embedded_ptr, patches_ptr, weights.patch_embedding, num_patches, patch_dim, vision_hidden_size)
+    _gemm_dispatch(
+        backend, embedded_ptr, patches_ptr, weights.patch_embedding, num_patches, patch_dim, vision_hidden_size
+    )
 
     # 2. Add position embeddings (learned, [max_patches, vision_hidden])
     for i in range(total):
@@ -456,11 +464,15 @@ def forward_vision_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
     var pooled_h = grid_h // pool_kernel
     var pooled_w = grid_w // pool_kernel
     var pooled_tokens = pooled_h * pooled_w
-    _gemm_dispatch(backend, out_ptr, pooled_ptr, weights.projection, pooled_tokens, vision_hidden_size, decoder_hidden_size)
+    _gemm_dispatch(
+        backend, out_ptr, pooled_ptr, weights.projection, pooled_tokens, vision_hidden_size, decoder_hidden_size
+    )
 
 
 @always_inline
-def forward_audio_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
+def forward_audio_encoder[
+    B: ComputeBackend, S: AnyType, C: AnyType
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     features_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [n_mels, num_frames] (flattened)
@@ -489,7 +501,9 @@ def forward_audio_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
     # First conv: [n_mels] → [audio_hidden_size] per frame
     var conv_out_ptr = scratch_ptr
     if num_conv > 0:
-        _gemm_dispatch(backend, conv_out_ptr, features_ptr, weights.conv_weights[0], num_tokens, n_mels, audio_hidden_size)
+        _gemm_dispatch(
+            backend, conv_out_ptr, features_ptr, weights.conv_weights[0], num_tokens, n_mels, audio_hidden_size
+        )
         # Subsequent conv layers: [audio_hidden_size] → [audio_hidden_size] with stride-2 downsampling
         for c in range(1, num_conv):
             var new_tokens = num_tokens // 2
@@ -565,7 +579,9 @@ def forward_audio_encoder[B: ComputeBackend, S: AnyType, C: AnyType](
 
 
 @always_inline
-def forward_mlp[B: ComputeBackend](
+def forward_mlp[
+    B: ComputeBackend
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [batch_size, hidden_size]
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [batch_size, hidden_size]
@@ -598,7 +614,9 @@ def forward_mlp[B: ComputeBackend](
 
 
 @always_inline
-def forward_gemma4_layer[B: ComputeBackend, K: KVCacheTrait](
+def forward_gemma4_layer[
+    B: ComputeBackend, K: KVCacheTrait
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [hidden_size]
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],  # [hidden_size]
@@ -867,7 +885,9 @@ def forward_gemma4_step_with_embedding[
 
 
 @always_inline
-def forward_ple_input[B: ComputeBackend](
+def forward_ple_input[
+    B: ComputeBackend
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     token_id: Int,
@@ -924,7 +944,7 @@ def forward_gemma4_ple_step[
     backend.embed_lookup(current_state, model.embed_tokens.ptr, token_id, hidden_size, emb_scale)
     for l in range(num_layers):
         var weights = model.layers[l]
-        var ple_weights = PLELayerWeights() # placeholder if no PLE
+        var ple_weights = PLELayerWeights()  # placeholder if no PLE
         if model.has_ple and l < len(model.ple_layers):
             ple_weights = model.ple_layers[l]
 
@@ -989,7 +1009,9 @@ def forward_gemma4_ple_step[
 
 
 @always_inline
-def forward_moe_router[B: ComputeBackend](
+def forward_moe_router[
+    B: ComputeBackend
+](
     mut backend: B,
     expert_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
     expert_weights_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1023,7 +1045,9 @@ def forward_moe_router[B: ComputeBackend](
 
 
 @always_inline
-def forward_moe_experts[B: ComputeBackend, S: AnyType, C: AnyType](
+def forward_moe_experts[
+    B: ComputeBackend, S: AnyType, C: AnyType
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     hidden_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1073,7 +1097,9 @@ def forward_moe_experts[B: ComputeBackend, S: AnyType, C: AnyType](
 
 
 @always_inline
-def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType](
+def forward_moe_layer[
+    B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType
+](
     mut backend: B,
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1150,16 +1176,12 @@ def forward_moe_layer[B: ComputeBackend, K: KVCacheTrait, S: AnyType, C: AnyType
     var scores_ptr = attn_weighted_ptr + q_size
 
     backend.attention_scores(
-        scores_ptr, q_ptr, layer_k_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size, scale
+        scores_ptr, q_ptr, layer_k_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size, scale
     )
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
     backend.attention_value_accum(
-        attn_weighted_ptr, scores_ptr, layer_v_ptr,
-        num_heads, num_kv_heads, head_dim,
-        valid_len, kv_size
+        attn_weighted_ptr, scores_ptr, layer_v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
     )
 
     _gemm_dispatch(backend, attn_out_ptr, attn_weighted_ptr, weights.o_proj, 1, q_size, hidden_size)
