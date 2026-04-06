@@ -530,10 +530,16 @@ struct GPUKVCache(KVCacheTrait, Movable):
         var grid = (total + BLOCK - 1) // BLOCK
         try:
             ctx.ctx.enqueue_function[_zero_kernel, _zero_kernel](
-                self.k_ptr, total, grid_dim=grid, block_dim=BLOCK,
+                self.k_ptr,
+                total,
+                grid_dim=grid,
+                block_dim=BLOCK,
             )
             ctx.ctx.enqueue_function[_zero_kernel, _zero_kernel](
-                self.v_ptr, total, grid_dim=grid, block_dim=BLOCK,
+                self.v_ptr,
+                total,
+                grid_dim=grid,
+                block_dim=BLOCK,
             )
         except e:
             abort(String("GPUKVCache.reset failed: ", e))

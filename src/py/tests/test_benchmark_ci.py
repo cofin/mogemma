@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "perf-benchmark.yml"
 
@@ -61,6 +60,7 @@ def test_benchmark_script_runs_synthetic(tmp_path: Path) -> None:
         text=True,
         timeout=30,
         cwd=str(tmp_path),
+        check=False,
     )
     assert result.returncode == 0, f"Benchmark failed: {result.stderr}"
     payload = json.loads(result.stdout)
