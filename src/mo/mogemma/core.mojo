@@ -1345,26 +1345,52 @@ def process_image_mojo(
         unsafe_from_address=Int(vision_scratch.unsafe_ptr())
     )
 
-    var backend = CPUBackend()
-    var dummy_stage = 0
-    var dummy_ctx = 0
-    forward_vision_encoder(
-        backend,
-        out_ptr,
-        patches_ptr,
-        vision_weights,
-        num_patches,
-        grid_h,
-        grid_w,
-        vision_hidden_size,
-        vision_num_heads,
-        vision_head_dim,
-        vision_intermediate_size,
-        hidden_size,
-        vision_scratch_ptr,
-        dummy_stage,
-        dummy_ctx,
-    )
+    var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
+    if use_gpu:
+        comptime if has_accelerator():
+            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_context_ptr"]))
+            var gpu_backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
+            var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"])
+            )
+            forward_vision_encoder(
+                gpu_backend,
+                out_ptr,
+                patches_ptr,
+                vision_weights,
+                num_patches,
+                grid_h,
+                grid_w,
+                vision_hidden_size,
+                vision_num_heads,
+                vision_head_dim,
+                vision_intermediate_size,
+                hidden_size,
+                vision_scratch_ptr,
+                stage_ptr[],
+                ctx_ptr[],
+            )
+    else:
+        var backend = CPUBackend()
+        var dummy_stage = 0
+        var dummy_ctx = 0
+        forward_vision_encoder(
+            backend,
+            out_ptr,
+            patches_ptr,
+            vision_weights,
+            num_patches,
+            grid_h,
+            grid_w,
+            vision_hidden_size,
+            vision_num_heads,
+            vision_head_dim,
+            vision_intermediate_size,
+            hidden_size,
+            vision_scratch_ptr,
+            dummy_stage,
+            dummy_ctx,
+        )
 
     _ = vision_scratch
 
@@ -1428,8 +1454,16 @@ def process_audio_mojo(
             unsafe_from_address=Int(py=a_ptrs_obj.__array_interface__["data"][0])
         )
         # Hydrate AudioTowerWeights and call forward_audio_encoder
-        # (audio weight hydration would go here when HF tensor names are standardized)
-        pass
+        # TODO: audio weight hydration pending HF tensor name standardization
+        var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
+        if use_gpu:
+            # GPU path: forward_audio_encoder[GPUBackend] with weight streaming
+            # (blocked on audio weight hydration — same as CPU path)
+            pass
+        else:
+            # CPU path: forward_audio_encoder[CPUBackend]
+            # (blocked on audio weight hydration)
+            pass
 
     # Store audio embeddings as individual token vectors
     var audio_embeddings = llm["audio_embeddings"]
@@ -1609,13 +1643,12 @@ def generate_embeddings_mojo(
     # Output: [batch_size, hidden_size]
     var result_np = np.zeros(Python.tuple(batch_size, hidden_size), dtype=np.float32)
 
+    var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
+
     # For each batch item, run forward pass for each token and mean-pool
     for b in range(batch_size):
         var seq_list = input_array[b]
         var actual_seq_len = Int(py=builtins.len(seq_list))
-
-        # Reset KV cache for each sequence
-        kv_cache_ptr[].reset()
 
         # Accumulator for mean pooling
         var emb_acc = _allocate_transient_f32(hidden_size)
@@ -1625,42 +1658,86 @@ def generate_embeddings_mojo(
         var out_logits = _allocate_transient_f32(vocab_size)
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
-        var backend = CPUBackend()
-        var dummy_stage = 0
-        var dummy_ctx = 0
-        var dummy_persistent = 0
-        for t in range(actual_seq_len):
-            var token_id = Int(py=seq_list[t])
+        if use_gpu:
+            comptime if has_accelerator():
+                var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_context_ptr"]))
+                var gpu_backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
+                var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"]))
+                var gpu_scratch_ptr_obj = UnsafePointer[GPUScratch, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"]))
+                var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"]))
+                var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"]))
 
-            forward_gemma4_step(
-                backend,
-                out_logits_ptr,
-                token_id,
-                t,
-                model,
-                hidden_size,
-                num_heads,
-                num_kv_heads,
-                head_dim,
-                intermediate_size,
-                vocab_size,
-                kv_cache_ptr[],
-                rope_tables_ptr[],
-                k_eq_v,
-                max_seq_len,
-                scratch_ptr,
-                dummy_stage,
-                dummy_ctx,
-                dummy_persistent,
-            )
+                # Reset GPU KV cache for each sequence
+                gpu_kv_cache_ptr[].reset(ctx_ptr[])
+                ctx_ptr[].sync()
 
-            # The hidden state before LM head projection is in scratch at position 1 (next_state)
-            # Actually forward_gemma4_step writes logits, but we need the hidden state for embeddings.
-            # For mean-pooling, we use the norm output which is at scratch_ptr + hidden_size
-            # (next_state = scratch_ptr + hidden_size, which has the RMSNorm'd output after final layer)
-            var norm_out_ptr = scratch_ptr + hidden_size
-            for i in range(hidden_size):
-                emb_acc_ptr.store(i, emb_acc_ptr.load(i) + norm_out_ptr.load(i))
+                for t in range(actual_seq_len):
+                    var token_id = Int(py=seq_list[t])
+                    forward_gemma4_step(
+                        gpu_backend,
+                        out_logits_ptr,
+                        token_id,
+                        t,
+                        model,
+                        hidden_size,
+                        num_heads,
+                        num_kv_heads,
+                        head_dim,
+                        intermediate_size,
+                        vocab_size,
+                        gpu_kv_cache_ptr[],
+                        rope_tables_ptr[],
+                        k_eq_v,
+                        max_seq_len,
+                        gpu_scratch_ptr_obj[].ptr,
+                        stage_ptr[],
+                        ctx_ptr[],
+                        persistent_ptr[].get_ptrs(),
+                    )
+
+                    # Download hidden state from GPU scratch for mean-pooling
+                    # norm_out is at scratch_ptr + hidden_size
+                    var gpu_norm_ptr = gpu_scratch_ptr_obj[].ptr + hidden_size
+                    # Download to host via a simple copy (embeddings are small: hidden_size floats)
+                    for i in range(hidden_size):
+                        emb_acc_ptr.store(i, emb_acc_ptr.load(i) + gpu_norm_ptr.load(i))
+        else:
+            # Reset CPU KV cache for each sequence
+            kv_cache_ptr[].reset()
+
+            var backend = CPUBackend()
+            var dummy_stage = 0
+            var dummy_ctx = 0
+            var dummy_persistent = 0
+            for t in range(actual_seq_len):
+                var token_id = Int(py=seq_list[t])
+
+                forward_gemma4_step(
+                    backend,
+                    out_logits_ptr,
+                    token_id,
+                    t,
+                    model,
+                    hidden_size,
+                    num_heads,
+                    num_kv_heads,
+                    head_dim,
+                    intermediate_size,
+                    vocab_size,
+                    kv_cache_ptr[],
+                    rope_tables_ptr[],
+                    k_eq_v,
+                    max_seq_len,
+                    scratch_ptr,
+                    dummy_stage,
+                    dummy_ctx,
+                    dummy_persistent,
+                )
+
+                # The hidden state before LM head projection is at scratch + hidden_size
+                var norm_out_ptr = scratch_ptr + hidden_size
+                for i in range(hidden_size):
+                    emb_acc_ptr.store(i, emb_acc_ptr.load(i) + norm_out_ptr.load(i))
 
         # Mean pool
         var scale = 1.0 / Float32(actual_seq_len)
@@ -1760,11 +1837,26 @@ def free_arena_mojo(llm: PythonObject) raises:
 
 
 def reset_cache_mojo(llm: PythonObject) raises:
-    """Zeros the hybrid KV cache buffers."""
-    var kv_cache_ptr_int = Int(py=llm["_kv_cache_ptr"])
-    if kv_cache_ptr_int != 0:
-        var kv_cache_ptr = UnsafePointer[KVCache, MutExternalOrigin](unsafe_from_address=kv_cache_ptr_int)
-        kv_cache_ptr[].reset()
+    """Zeros the hybrid KV cache buffers (CPU or GPU)."""
+    var builtins = Python.import_module("builtins")
+    var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
+
+    if use_gpu:
+        comptime if has_accelerator():
+            var gpu_kv_addr = Int(py=llm["_gpu_kv_cache_ptr"])
+            var gpu_ctx_addr = Int(py=llm["_gpu_context_ptr"])
+            if gpu_kv_addr != 0 and gpu_ctx_addr != 0:
+                var gpu_kv = UnsafePointer[GPUKVCache, MutExternalOrigin](unsafe_from_address=gpu_kv_addr)
+                var gpu_ctx = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=gpu_ctx_addr)
+                gpu_kv[].reset(gpu_ctx[])
+                gpu_ctx[].sync()
+    else:
+        var kv_cache_ptr_int = Int(py=llm["_kv_cache_ptr"])
+        if kv_cache_ptr_int != 0:
+            var kv_cache_ptr = UnsafePointer[KVCache, MutExternalOrigin](unsafe_from_address=kv_cache_ptr_int)
+            kv_cache_ptr[].reset()
+
+    llm["pos"] = 0
 
 
 def test_ffi_mojo(

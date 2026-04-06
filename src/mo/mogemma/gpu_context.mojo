@@ -510,6 +510,34 @@ struct GPUKVCache(KVCacheTrait, Movable):
         var kv_stride = self.num_kv_heads * self.head_dim
         return self.layer_offsets[last] + self.layer_cache_sizes[last] * kv_stride
 
+    def reset(mut self, mut ctx: GPUContext):
+        """Zero all GPU KV cache buffers using a kernel launch."""
+        var total = self.total_elements()
+        if total == 0:
+            return
+
+        def _zero_kernel(
+            ptr: UnsafePointer[Float32, MutAnyOrigin],
+            size: Int,
+        ):
+            from std.gpu import global_idx
+
+            var tid = global_idx.x
+            if tid < size:
+                ptr[tid] = 0.0
+
+        comptime BLOCK: Int = 256
+        var grid = (total + BLOCK - 1) // BLOCK
+        try:
+            ctx.ctx.enqueue_function[_zero_kernel, _zero_kernel](
+                self.k_ptr, total, grid_dim=grid, block_dim=BLOCK,
+            )
+            ctx.ctx.enqueue_function[_zero_kernel, _zero_kernel](
+                self.v_ptr, total, grid_dim=grid, block_dim=BLOCK,
+            )
+        except e:
+            abort(String("GPUKVCache.reset failed: ", e))
+
 
 struct GPUScratch(Movable):
     """GPU-resident scratch buffer for intermediate computation results.
