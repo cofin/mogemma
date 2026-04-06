@@ -29,6 +29,10 @@ Different CI runners have different baselines. Baselines should be strictly sepa
 
 CI/release validation now executes generation benchmarks in `.github/workflows/ci.yml` through the `check-release` job.
 
+## Automated CI Benchmarks
+
+Standard CPU baselines are captured automatically in GitHub Actions via `.github/workflows/perf-benchmark.yml`. This workflow runs on every push to `main` and on every pull request, executing both generation and embedding benchmarks with synthetic stubs. Results are uploaded as artifacts (retained for 90 days) and visible in the Actions tab. This is purely informational — the workflow does not gate or fail PRs based on variance.
+
 ## Baseline artifacts
 
 Latest captured snapshots are stored in this directory:
