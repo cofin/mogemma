@@ -246,7 +246,10 @@ def resolve_device_selection(device: str, *, gpu_available: bool | None = None) 
             strict=True,
             availability_source="override" if gpu_available is not None else "env:MOGEMMA_GPU_AVAILABLE",
         )
-    msg = f"Requested device '{requested_label}' is unavailable on this host."
+    msg = (
+        f"Requested device '{requested_label}' is unavailable on this host. "
+        "Set MOGEMMA_GPU_AVAILABLE=1 if a GPU is present, or use device='cpu'."
+    )
     raise RuntimeError(msg)
 
 

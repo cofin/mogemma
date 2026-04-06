@@ -21,6 +21,9 @@ UNSTABLE_MOJO_TESTS = {"test_layers.mojo"}
         "test_vision_model.mojo",
         "test_vision_encoder.mojo",
         "test_gpu_attention.mojo",
+        "test_gpu_ops.mojo",
+        "test_gpu_context.mojo",
+        "test_gpu_forward.mojo",
     ],
 )
 def test_mojo_unit_tests(test_file: str) -> None:

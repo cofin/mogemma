@@ -537,6 +537,8 @@ class SyncEmbeddingModel:
     def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
         """Generate embeddings for text by tokenizing in Python, then running Mojo inference."""
         with tracer.start_as_current_span("SyncEmbeddingModel.embed") as span:
+            span.set_attribute("device", self._device_selection.requested)
+            span.set_attribute("backend", self._device_selection.backend)
             if isinstance(text, str):
                 text = [text]
             if not text:
@@ -685,6 +687,8 @@ class SyncGemmaModel:
             _format_gemma4_prompt(prompt, system_prompt=system_prompt) if self._instruction_tuned else prompt
         )
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
+            span.set_attribute("device", self._device_selection.requested)
+            span.set_attribute("backend", self._device_selection.backend)
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
             tokenizer.enable_padding()

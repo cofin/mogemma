@@ -143,6 +143,10 @@ embeddings = SyncEmbeddingModel(
 )
 ```
 
+> **GPU Requirements:** GPU acceleration requires Mojo nightly with GPU support,
+> compatible GPU drivers (NVIDIA CUDA, AMD ROCm, or Apple Metal), and sufficient VRAM
+> for model weights and KV cache.
+
 ## Runtime Requirements
 
 MoGemma leverages the latest Mojo features for maximum performance.

@@ -207,6 +207,14 @@ def _run_benchmark() -> dict[str, object]:
         "metrics": metrics,
     }
 
+    # Add GPU-specific metrics when available
+    if args.device.startswith("gpu"):
+        payload["gpu_device_name"] = args.device
+        if isinstance(metrics, dict):
+            gpu_keys = {k: v for k, v in metrics.items() if k.startswith("gpu_")}
+            if gpu_keys:
+                payload.setdefault("gpu_metrics", {}).update(gpu_keys)
+
     if args.baseline_json:
         baseline_path = Path(args.baseline_json)
         with baseline_path.open("r") as f:
