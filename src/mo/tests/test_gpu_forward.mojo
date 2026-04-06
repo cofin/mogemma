@@ -31,7 +31,7 @@ def _make_identity_matrix(size: Int) -> List[Float32]:
     var m = List[Float32](length=size * size, fill=0.0)
     for i in range(size):
         m[i * size + i] = 1.0
-    return m
+    return m^
 
 
 def _make_ones(n: Int) -> List[Float32]:

@@ -309,6 +309,9 @@ struct GPUPersistentBuffers(Movable):
             embed_ptr=self.embed_buf.unsafe_ptr(),
             norm_ptr=self.norm_buf.unsafe_ptr(),
             lm_head_ptr=self.lm_head_buf.unsafe_ptr(),
+            embed_elements=self.embed_elements,
+            lm_head_elements=self.lm_head_elements,
+            norm_elements=self.norm_elements,
         )
 
 

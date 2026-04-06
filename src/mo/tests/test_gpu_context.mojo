@@ -189,7 +189,14 @@ def test_persistent_buffers() raises:
         var norm_data = List[Float32](length=4, fill=1.0)
         var norm = TensorInfo(Int(norm_data.unsafe_ptr()), 4, 1)
 
-        var persistent = PersistentBuffers(ctx, embed, head, norm)
+        var persistent = PersistentBuffers(
+            embed_ptr=UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=Int(embed.ptr)),
+            norm_ptr=UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=Int(norm.ptr)),
+            lm_head_ptr=UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=Int(head.ptr)),
+            embed_elements=32,
+            lm_head_elements=32,
+            norm_elements=4,
+        )
 
         # Verify sizes
         if persistent.embed_elements != 32:

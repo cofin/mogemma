@@ -58,11 +58,17 @@ struct PersistentBuffers(Copyable, ImplicitlyCopyable, Movable):
     var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
     var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
     var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var embed_elements: Int
+    var lm_head_elements: Int
+    var norm_elements: Int
 
     def __init__(out self):
         self.embed_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
         self.norm_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
         self.lm_head_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
+        self.embed_elements = 0
+        self.lm_head_elements = 0
+        self.norm_elements = 0
 
 
 # Model Weight Definitions for Gemma 4
