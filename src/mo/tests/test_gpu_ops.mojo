@@ -624,7 +624,7 @@ def test_gpu_backend_launch_gelu() raises:
         var out_dev = ctx.enqueue_create_buffer[DType.float32](size)
         ctx.enqueue_copy(x_dev, x_host)
 
-        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](0)) # DUMMY for parsing
+        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](0))  # DUMMY for parsing
         backend.gelu(out_dev.unsafe_ptr(), x_dev.unsafe_ptr(), size)
 
         ctx.enqueue_copy(out_host, out_dev)

@@ -1201,50 +1201,53 @@ def step_mojo(
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
-        var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
-        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
-        )
-        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
-        )
-        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
-        )
-        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
-        )
+        comptime if has_accelerator():
+            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+            var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
+            var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
+            )
+            var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
+            )
+            var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
+            )
+            var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
+            )
 
-        _run_step[GPUBackend, GPUKVCache, WeightStage, GPUContext, PersistentBuffers](
-            backend,
-            out_logits_ptr,
-            token_id,
-            pos,
-            model,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            intermediate_size,
-            vocab_size,
-            gpu_kv_cache_ptr[],
-            rope_tables_ptr[],
-            k_eq_v,
-            max_seq_len,
-            gpu_scratch_ptr[].ptr,
-            num_experts,
-            has_ple_flag,
-            ple_dim,
-            kv_map_ptr,
-            num_kv_sharing,
-            moe_model,
-            moe_top_k_val,
-            moe_intermediate_size_val,
-            stage_ptr[],
-            ctx_ptr[],
-            persistent_ptr[].get_ptrs(),
-        )
+            _run_step[GPUBackend, GPUKVCache, WeightStage, GPUContext, PersistentBuffers](
+                backend,
+                out_logits_ptr,
+                token_id,
+                pos,
+                model,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                vocab_size,
+                gpu_kv_cache_ptr[],
+                rope_tables_ptr[],
+                k_eq_v,
+                max_seq_len,
+                gpu_scratch_ptr[].ptr,
+                num_experts,
+                has_ple_flag,
+                ple_dim,
+                kv_map_ptr,
+                num_kv_sharing,
+                moe_model,
+                moe_top_k_val,
+                moe_intermediate_size_val,
+                stage_ptr[],
+                ctx_ptr[],
+                persistent_ptr[].get_ptrs(),
+            )
+        else:
+            abort("GPU not available at compile time")
     else:
         var backend = CPUBackend()
         var dummy_stage = 0
@@ -1529,42 +1532,45 @@ def step_with_embedding_mojo(
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
-        var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
-        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-        var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
-        )
-        var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
-        )
-        var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
-        )
-        var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
-            unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
-        )
+        comptime if has_accelerator():
+            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+            var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
+            var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
+            )
+            var gpu_scratch_ptr = UnsafePointer[GPUScratch, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
+            )
+            var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
+            )
+            var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
+            )
 
-        forward_gemma4_step_with_embedding(
-            backend,
-            out_logits_ptr,
-            embedding_ptr,
-            pos,
-            model,
-            hidden_size,
-            num_heads,
-            num_kv_heads,
-            head_dim,
-            intermediate_size,
-            vocab_size,
-            gpu_kv_cache_ptr[],
-            rope_tables_ptr[],
-            k_eq_v,
-            max_seq_len,
-            gpu_scratch_ptr[].ptr,
-            stage_ptr[],
-            ctx_ptr[],
-            persistent_ptr[].get_ptrs(),
-        )
+            forward_gemma4_step_with_embedding(
+                backend,
+                out_logits_ptr,
+                embedding_ptr,
+                pos,
+                model,
+                hidden_size,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                intermediate_size,
+                vocab_size,
+                gpu_kv_cache_ptr[],
+                rope_tables_ptr[],
+                k_eq_v,
+                max_seq_len,
+                gpu_scratch_ptr[].ptr,
+                stage_ptr[],
+                ctx_ptr[],
+                persistent_ptr[].get_ptrs(),
+            )
+        else:
+            abort("GPU not available at compile time")
     else:
         var backend = CPUBackend()
         var dummy_stage = 0
