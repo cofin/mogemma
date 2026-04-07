@@ -1202,7 +1202,9 @@ def step_mojo(
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
         comptime if has_accelerator():
-            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
+            )
             var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
             var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
@@ -1211,7 +1213,7 @@ def step_mojo(
                 unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
             )
             var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-                unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
+                unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"])
             )
             var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
@@ -1533,7 +1535,9 @@ def step_with_embedding_mojo(
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
         comptime if has_accelerator():
-            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](unsafe_from_address=Int(py=llm["_gpu_ctx_ptr"]))
+            var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
+                unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
+            )
             var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
             var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
@@ -1542,7 +1546,7 @@ def step_with_embedding_mojo(
                 unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
             )
             var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-                unsafe_from_address=Int(py=llm["_weight_stage_ptr"])
+                unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"])
             )
             var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
