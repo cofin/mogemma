@@ -82,9 +82,9 @@ asyncio.run(main())
 Generate dense vector embeddings natively through Mojo's optimized batched kernel operations. Pass a single string or a list of strings to process them in parallel.
 
 ```python
-from mogemma import EmbeddingModel
+from mogemma import SyncEmbeddingModel
 
-model = EmbeddingModel()
+model = SyncEmbeddingModel()
 embeddings = model.embed(["Hello, world!", "Mojo runs Gemma inference."])
 print(embeddings.shape)  # (2, 768)
 ```
@@ -126,7 +126,7 @@ Current runtime status:
 - `gpu` / `gpu:N` execute via a mathematically verified runtime polyfill
 
 ```python
-from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncGemmaModel
 
 generation = SyncGemmaModel(
     GenerationConfig(
@@ -135,13 +135,17 @@ generation = SyncGemmaModel(
     )
 )
 
-embeddings = EmbeddingModel(
+embeddings = SyncEmbeddingModel(
     EmbeddingConfig(
         model_path="gemma3-1b-it",
         device="cpu",
     )
 )
 ```
+
+> **GPU Requirements:** GPU acceleration requires Mojo nightly with GPU support,
+> compatible GPU drivers (NVIDIA CUDA, AMD ROCm, or Apple Metal), and sufficient VRAM
+> for model weights and KV cache.
 
 ## Runtime Requirements
 

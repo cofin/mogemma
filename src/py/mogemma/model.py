@@ -1,7 +1,8 @@
-"""Model wrappers for Gemma 3 inference."""
+"""Model wrappers for Gemma 4 inference."""
 
 import asyncio
 import contextlib
+import json
 from collections.abc import AsyncIterator, Generator, Sequence
 from enum import Enum
 from pathlib import Path
@@ -75,15 +76,17 @@ class _Tokenizer:
 _EXPECTED_MATRIX_DIMS = 2
 _BOS_TOKEN_ID = 2
 _EOS_TOKEN_ID_ALIASES = ("<end_of_turn>", "</s>", "<eos>", "<|eos|>")
-_INSTRUCTION_START = "<start_of_turn>"
-_INSTRUCTION_END = "<end_of_turn>"
+_TURN_START = "<start_of_turn>"
+_TURN_END = "<end_of_turn>"
 
 
-class ModelVariant(str, Enum):
-    """Enumeration of supported model architectural variants."""
+class Gemma4Variant(str, Enum):
+    """Enumeration of supported Gemma 4 architectural variants."""
 
-    STANDARD = "gemma_standard"
-    NANO = "gemma_nano"
+    DENSE_31B = "gemma4_dense_31b"
+    DENSE_E2B = "gemma4_dense_e2b"
+    DENSE_E4B = "gemma4_dense_e4b"
+    MOE_26B_A4B = "gemma4_moe_26b"
 
 
 def _resolve_model_path(raw_model_path: str | Path, cache_path: str | Path | None = None) -> Path:
@@ -103,13 +106,139 @@ def _core_unavailable_message(model_type: str) -> str:
     )
 
 
-def _detect_model_variant(metadata: dict[str, tuple[int, tuple[int, ...], str]]) -> ModelVariant:
-    """Classify model variant from tensor metadata names."""
-    keys = metadata.keys()
-    # Nano conversion emits per-layer map and Laurel tensors absent in standard Gemma.
-    if any(".per_layer_map." in name or ".laurel." in name or ".post_laurel_layernorm." in name for name in keys):
-        return ModelVariant.NANO
-    return ModelVariant.STANDARD
+def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
+    """Classify Gemma 4 model variant from HuggingFace config.json."""
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+        msg = f"No config.json found in {model_dir}"
+        raise FileNotFoundError(msg)
+
+    config = json.loads(config_path.read_text())
+
+    if config.get("num_local_experts", config.get("num_experts", 0)) > 0:
+        return Gemma4Variant.MOE_26B_A4B
+
+    if "hidden_size_per_layer_input" in config:
+        if config.get("use_double_wide_mlp", False):
+            return Gemma4Variant.DENSE_E2B
+        return Gemma4Variant.DENSE_E4B
+
+    return Gemma4Variant.DENSE_31B
+
+
+def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float], list[int]]:
+    """Extract Gemma 4 architecture fields from config.json for Mojo init.
+
+    Returns:
+        A tuple of (overrides_dict, layer_types_list).
+        layer_types_list is a list of ints (0=sliding, 1=full), empty if not in config.
+    """
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+        return {}, []
+
+    config = json.loads(config_path.read_text())
+
+    overrides: dict[str, int | float] = {}
+
+    # Sliding window size
+    window_size = config.get("sliding_window_size", config.get("sliding_window", 1024))
+    overrides["window_size"] = int(window_size)
+
+    # Partial rotary factor for full attention layers
+    partial_rotary_factor = config.get("partial_rotary_factor", 0.5)
+    overrides["partial_rotary_factor"] = float(partial_rotary_factor)
+
+    # K=V weight sharing (1=enabled, 0=disabled)
+    k_eq_v = config.get("attention_k_eq_v", False)
+    overrides["k_eq_v"] = 1 if k_eq_v else 0
+
+    # Layer types: convert ["sliding", "full", ...] to [0, 1, ...]
+    layer_types: list[int] = []
+    layer_types_raw = config.get("layer_types", [])
+    if isinstance(layer_types_raw, list):
+        layer_types = [1 if lt == "full" else 0 for lt in layer_types_raw]
+
+    # Vision config (if present)
+    vision_config = config.get("vision_config")
+    if isinstance(vision_config, dict):
+        overrides["num_vision_layers"] = int(vision_config.get("num_hidden_layers", 0))
+        overrides["vision_hidden_size"] = int(vision_config.get("hidden_size", 0))
+        overrides["vision_num_heads"] = int(vision_config.get("num_attention_heads", 0))
+        overrides["vision_intermediate_size"] = int(vision_config.get("intermediate_size", 0))
+
+    # Image token ID
+    image_token_index = config.get("image_token_index")
+    if image_token_index is not None:
+        overrides["image_token_id"] = int(image_token_index)
+
+    # PLE (E2B/E4B)  # noqa: ERA001
+    ple_dim = config.get("hidden_size_per_layer_input")
+    if ple_dim is not None:
+        overrides["hidden_size_per_layer_input"] = int(ple_dim)
+        overrides["vocab_size_per_layer_input"] = int(config.get("vocab_size_per_layer_input", 262144))
+
+    # Double-wide MLP (E2B only)
+    if config.get("use_double_wide_mlp", False):
+        overrides["use_double_wide_mlp"] = 1
+
+    # KV sharing (E2B/E4B)
+    kv_sharing_map = config.get("kv_sharing_layer_map")
+    if isinstance(kv_sharing_map, list):
+        overrides["kv_sharing_layer_count"] = len(kv_sharing_map)
+
+    # Audio token ID
+    audio_token_index = config.get("audio_token_index")
+    if audio_token_index is not None:
+        overrides["audio_token_id"] = int(audio_token_index)
+
+    # MoE
+    num_experts = config.get("num_local_experts", config.get("num_experts", 0))
+    if num_experts > 0:
+        overrides["num_experts"] = int(num_experts)
+        overrides["moe_top_k"] = int(config.get("num_experts_per_tok", 8))
+        moe_intermediate = config.get("moe_intermediate_size", 704)
+        overrides["moe_intermediate_size"] = int(moe_intermediate)
+
+    return overrides, layer_types
+
+
+def compute_kv_cache_memory(  # noqa: PLR0913
+    num_layers: int, layer_types: list[str], window_size: int, max_context_len: int, num_kv_heads: int, head_dim: int
+) -> int:
+    """Compute total bytes for the hybrid KV cache (K + V arenas combined).
+
+    Args:
+        num_layers: Total number of transformer layers.
+        layer_types: Per-layer type strings ("sliding" or "full").
+        window_size: Sliding-window size in tokens.
+        max_context_len: Maximum context length for full-attention layers.
+        num_kv_heads: Number of KV heads per layer.
+        head_dim: Dimension per attention head.
+
+    Returns:
+        Total bytes for both K and V caches combined.
+
+    Raises:
+        ValueError: If max_context_len < window_size or layer_types length mismatch.
+    """
+    if len(layer_types) != num_layers:
+        msg = f"layer_types length ({len(layer_types)}) != num_layers ({num_layers})"
+        raise ValueError(msg)
+    if max_context_len < window_size:
+        msg = f"max_context_len ({max_context_len}) must be >= window_size ({window_size})"
+        raise ValueError(msg)
+
+    kv_stride = num_kv_heads * head_dim
+    total_elements = 0
+    for lt in layer_types:
+        if lt == "full":
+            total_elements += max_context_len * kv_stride
+        else:
+            total_elements += window_size * kv_stride
+
+    # Float32 = 4 bytes, x2 for K and V
+    return total_elements * 4 * 2
 
 
 def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) -> dict[str, int | float] | None:
@@ -127,7 +256,7 @@ def _normalize_architecture_overrides(overrides: dict[str, int | float] | None) 
 def _invoke_init_model_with_options(
     _core: object,
     metadata: dict[str, tuple[int, tuple[int, ...], str]],
-    overrides: dict[str, int | float],
+    overrides: dict[str, object],
     descriptor: dict[str, object],
 ) -> object:
     init_model_with_options = getattr(_core, "init_model_with_options", None)
@@ -159,24 +288,38 @@ def _invoke_legacy_init_model(
         raise RuntimeError(msg) from exc
 
 
-def _initialize_llm(
+def _initialize_llm(  # noqa: PLR0913
     loader: ModelLoader,
     backend: GenerationBackend | EmbeddingBackend,
     *,
     device_selection: DeviceSelection,
     model_type: str,
     architecture_overrides: dict[str, int | float] | None = None,
+    model_path: Path | None = None,
 ) -> object:
     if _core is None:
         raise RuntimeError(_core_unavailable_message(model_type))
 
     metadata = loader.get_tensor_metadata()
 
-    normalized_overrides = _normalize_architecture_overrides(architecture_overrides)
+    # Merge Gemma 4 config.json fields into architecture overrides
+    merged_overrides: dict[str, int | float] = {}
+    layer_types: list[int] = []
+    if model_path is not None:
+        parsed_overrides, layer_types = _parse_gemma4_architecture(model_path)
+        merged_overrides.update(parsed_overrides)
+    if architecture_overrides is not None:
+        merged_overrides.update(architecture_overrides)  # user overrides win
+    normalized_overrides = _normalize_architecture_overrides(merged_overrides or None)
     descriptor = device_selection.as_runtime_descriptor()
 
+    # Build the overrides dict for Mojo, adding layer_types as a native list
+    mojo_overrides: dict[str, object] = dict(normalized_overrides or {})
+    if layer_types:
+        mojo_overrides["layer_types"] = layer_types
+
     try:
-        llm = _invoke_init_model_with_options(_core, metadata, normalized_overrides or {}, descriptor)
+        llm = _invoke_init_model_with_options(_core, metadata, mojo_overrides, descriptor)
         if llm is None:
             llm = _invoke_legacy_init_model(_core, metadata, normalized_overrides, backend)
     except ValueError:
@@ -276,11 +419,33 @@ def _is_instruction_tuned_model(model_path: Path, config_model_path: str | Path)
     return configured.endswith("-it") or resolved.endswith("-it")
 
 
-def _format_instruction_prompt(prompt: str) -> str:
-    """Wrap plain user prompts in Gemma instruction-turn format."""
-    if _INSTRUCTION_START in prompt or _INSTRUCTION_END in prompt:
+def _format_gemma4_prompt(prompt: str | list[dict[str, str]], *, system_prompt: str | None = None) -> str:
+    """Format prompt using Gemma 4 chat template.
+
+    Supports plain strings, system prompts, and multi-turn message lists.
+    """
+    if isinstance(prompt, list):
+        return _format_messages(prompt)
+
+    if _TURN_START in prompt or _TURN_END in prompt:
         return prompt
-    return f"{_INSTRUCTION_START}user\n{prompt}\n{_INSTRUCTION_END}\n{_INSTRUCTION_START}model\n"
+
+    parts: list[str] = []
+    if system_prompt is not None:
+        parts.append(f"{_TURN_START}system\n{system_prompt}\n{_TURN_END}\n")
+    parts.append(f"{_TURN_START}user\n{prompt}\n{_TURN_END}\n{_TURN_START}model\n")
+    return "".join(parts)
+
+
+def _format_messages(messages: list[dict[str, str]]) -> str:
+    """Format a list of role/content messages into Gemma 4 chat template."""
+    parts: list[str] = []
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        parts.append(f"{_TURN_START}{role}\n{content}\n{_TURN_END}\n")
+    parts.append(f"{_TURN_START}model\n")
+    return "".join(parts)
 
 
 def _reset_llm_session_state(llm: object) -> None:
@@ -291,29 +456,10 @@ def _reset_llm_session_state(llm: object) -> None:
     llm["pos"] = 0
     if _core is not None and hasattr(_core, "reset_cache"):
         _core.reset_cache(llm)
-    else:
-        # Fallback for legacy core
-        for cache_key in ("k_cache", "v_cache"):
-            cache = llm.get(cache_key)
-            if cache is None:
-                continue
-            if isinstance(cache, (int, float)):
-                continue
-            if hasattr(cache, "fill"):
-                cache.fill(0.0)
-                continue
-            if isinstance(cache, list):
-                for i in range(len(cache)):
-                    cache[i] = 0.0
-                continue
-            try:
-                np.asarray(cache).fill(0.0)
-            except (TypeError, ValueError, AttributeError, NotImplementedError):
-                continue
 
 
-class EmbeddingModel:
-    """Python interface for the Gemma 3 embedding engine."""
+class SyncEmbeddingModel:
+    """Python interface for the Gemma 4 embedding engine."""
 
     def __init__(self, config: EmbeddingConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
         """Initialize the embedding model.
@@ -343,6 +489,7 @@ class EmbeddingModel:
             device_selection=self._device_selection,
             model_type="embedding",
             architecture_overrides=config.architecture_overrides,
+            model_path=self.model_path,
         )
 
     def _ensure_tokenizer(self) -> _Tokenizer:
@@ -389,7 +536,9 @@ class EmbeddingModel:
 
     def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
         """Generate embeddings for text by tokenizing in Python, then running Mojo inference."""
-        with tracer.start_as_current_span("EmbeddingModel.embed") as span:
+        with tracer.start_as_current_span("SyncEmbeddingModel.embed") as span:
+            span.set_attribute("device", self._device_selection.requested)
+            span.set_attribute("backend", self._device_selection.backend)
             if isinstance(text, str):
                 text = [text]
             if not text:
@@ -448,7 +597,7 @@ class EmbeddingModel:
 
 
 class SyncGemmaModel:
-    """Python interface for the Gemma 3 text generation engine."""
+    """Python interface for the Gemma 4 text generation engine."""
 
     def __init__(self, config: GenerationConfig | str | None = None, tokenizer: _Tokenizer | None = None) -> None:
         """Initialize the text model.
@@ -479,6 +628,7 @@ class SyncGemmaModel:
             device_selection=self._device_selection,
             model_type="generation",
             architecture_overrides=config.architecture_overrides,
+            model_path=self.model_path,
         )
 
     def _ensure_tokenizer(self) -> _Tokenizer:
@@ -496,19 +646,49 @@ class SyncGemmaModel:
         msg = f"No tokenizer.model found in {self.model_path}"
         raise FileNotFoundError(msg)
 
+    def _get_image_token_id(self) -> int | None:
+        """Get the image placeholder token ID from the LLM config, if vision is enabled."""
+        if isinstance(self._llm, dict):
+            token_id = self._llm.get("image_token_id", 0)
+            if token_id and int(token_id) > 0:
+                return int(token_id)
+        return None
+
+    def _get_audio_token_id(self) -> int | None:
+        """Get the audio placeholder token ID from the LLM config, if audio is enabled."""
+        if isinstance(self._llm, dict):
+            token_id = self._llm.get("audio_token_id", 0)
+            if token_id and int(token_id) > 0:
+                return int(token_id)
+        return None
+
     def generate(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> str:
         """Generate text from the given prompt."""
-        return "".join(list(self.generate_stream(prompt, images=images)))
+        return "".join(list(self.generate_stream(prompt, images=images, audio=audio, system_prompt=system_prompt)))
 
-    def generate_stream(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+    def generate_stream(  # noqa: C901, PLR0912, PLR0915
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
         tokenizer = self._ensure_tokenizer()
-        prompt_to_encode = _format_instruction_prompt(prompt) if self._instruction_tuned else prompt
+        prompt_to_encode = (
+            _format_gemma4_prompt(prompt, system_prompt=system_prompt) if self._instruction_tuned else prompt
+        )
         with tracer.start_as_current_span("SyncGemmaModel.generate_stream") as span:
+            span.set_attribute("device", self._device_selection.requested)
+            span.set_attribute("backend", self._device_selection.backend)
             span.set_attribute("prompt_length", len(prompt))
             tokenizer.enable_truncation(max_length=self.config.max_sequence_length)
             tokenizer.enable_padding()
@@ -522,12 +702,39 @@ class SyncGemmaModel:
 
         _reset_llm_session_state(self._llm)
 
+        # Process images through vision encoder if provided
+        image_token_id = self._get_image_token_id()
+        vision_embeddings: list[object] = []
         if images is not None:
             hydrated = ImageHydrator().hydrate(images)
             self._backend.process_images(self._llm, hydrated)
+            if isinstance(self._llm, dict):
+                vision_embeddings = list(self._llm.get("vision_embeddings", []))
 
+        # Process audio through audio encoder if provided
+        audio_token_id = self._get_audio_token_id()
+        audio_embeddings: list[object] = []
+        if audio is not None:
+            from .hydration import AudioHydrator  # noqa: PLC0415
+
+            audio_hydrated = AudioHydrator().hydrate(audio)
+            self._backend.process_audio(self._llm, audio_hydrated)
+            if isinstance(self._llm, dict):
+                audio_embeddings = list(self._llm.get("audio_embeddings", []))
+
+        # Prefill with token merging: replace <image>/<audio> placeholders with embeddings
+        vision_idx = 0
+        audio_idx = 0
         for t in tokens[:-1]:
-            self._backend.step(self._llm, int(t), self.config.temperature, self.config.top_k, self.config.top_p)
+            tok = int(t)
+            if image_token_id is not None and tok == image_token_id and vision_idx < len(vision_embeddings):
+                self._backend.step_with_embedding(self._llm, vision_embeddings[vision_idx])
+                vision_idx += 1
+            elif audio_token_id is not None and tok == audio_token_id and audio_idx < len(audio_embeddings):
+                self._backend.step_with_embedding(self._llm, audio_embeddings[audio_idx])
+                audio_idx += 1
+            else:
+                self._backend.step(self._llm, tok, self.config.temperature, self.config.top_k, self.config.top_p)
 
         if tokens:
             current_token = int(tokens[-1])
@@ -595,16 +802,26 @@ class AsyncGemmaModel:
         self._model = SyncGemmaModel(config)
 
     async def generate(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> str:
         """Generate text asynchronously."""
-        return await asyncio.to_thread(self._model.generate, prompt, images)
+        return await asyncio.to_thread(self._model.generate, prompt, images, audio, system_prompt=system_prompt)
 
     async def generate_stream(
-        self, prompt: str, images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None
+        self,
+        prompt: str,
+        images: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        audio: Sequence[str | Path | bytes | npt.NDArray[np.generic]] | None = None,
+        *,
+        system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
         """Generate text as an async stream of tokens."""
-        generator = self._model.generate_stream(prompt, images=images)
+        generator = self._model.generate_stream(prompt, images=images, audio=audio, system_prompt=system_prompt)
 
         def get_next() -> str | None:
             try:
@@ -629,3 +846,45 @@ class AsyncGemmaModel:
     def tokenizer(self) -> _Tokenizer:
         """Access to the underlying tokenizer."""
         return self._model.tokenizer
+
+
+class AsyncEmbeddingModel:
+    """Asynchronous wrapper for SyncEmbeddingModel."""
+
+    def __init__(self, config: EmbeddingConfig | str | None = None) -> None:
+        """Initialize the async embedding model.
+
+        Args:
+            config: Model ID string, ``EmbeddingConfig``, or ``None`` for defaults.
+        """
+        self._model = SyncEmbeddingModel(config)
+
+    async def embed(self, text: str | list[str]) -> npt.NDArray[np.float32]:
+        """Generate embeddings for text asynchronously."""
+        return await asyncio.to_thread(self._model.embed, text)
+
+    async def embed_tokens(self, tokens: Sequence[Sequence[int]] | npt.NDArray[np.int32]) -> npt.NDArray[np.float32]:
+        """Generate embeddings from pre-tokenized IDs asynchronously."""
+        return await asyncio.to_thread(self._model.embed_tokens, tokens)
+
+    @property
+    def tokenizer(self) -> _Tokenizer:
+        """Access to the underlying tokenizer."""
+        return self._model.tokenizer
+
+    def close(self) -> None:
+        """Release underlying resources."""
+        if hasattr(self, "_model"):
+            self._model.close()
+
+    def __del__(self) -> None:
+        """Cleanup on garbage collection."""
+        self.close()
+
+    async def __aenter__(self) -> Self:
+        """Enter the async context manager."""
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Exit the async context manager and release resources."""
+        self.close()

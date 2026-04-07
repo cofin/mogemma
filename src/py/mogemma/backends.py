@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Protocol, cast
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import numpy as np
     import numpy.typing as npt
 
 TensorMetadata = dict[str, tuple[int, tuple[int, ...], str]]
@@ -71,12 +70,20 @@ class CoreModuleContract(Protocol):
         """Run one token step and return logits."""
         ...
 
-    def process_image(self, llm: object, image_array: bytes | npt.NDArray[np.generic]) -> npt.ArrayLike:
+    def step_with_embedding(
+        self, llm: object, embedding: object, temp: float, top_k: int, top_p: float
+    ) -> npt.ArrayLike:
+        """Run one step using a pre-computed embedding vector."""
+        ...
+
+    def process_image(
+        self, llm: object, patches: object, grid_h: int | None = None, grid_w: int | None = None
+    ) -> npt.ArrayLike:
         """Process a single image through the vision encoder."""
         ...
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
-        """Process multimodal images through the vision encoder."""
+    def process_audio(self, llm: object, features: object, num_tokens: int) -> None:
+        """Process audio through the audio encoder."""
         ...
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
@@ -97,8 +104,16 @@ class GenerationBackend(Protocol):
         """Run one autoregressive step and return logits."""
         ...
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
+    def step_with_embedding(self, llm: object, embedding: object) -> npt.ArrayLike:
+        """Run one step using a pre-computed embedding vector (for vision tokens)."""
+        ...
+
+    def process_images(self, llm: object, images: Sequence[object]) -> None:
         """Process multimodal images through the vision encoder."""
+        ...
+
+    def process_audio(self, llm: object, audio_inputs: Sequence[object]) -> None:
+        """Process audio inputs through the audio encoder."""
         ...
 
 
@@ -132,14 +147,25 @@ class CoreBackend:
         """Step the LLM context to decode the next token logits."""
         return self._core.step(llm, token_id, temp, top_k, top_p)
 
-    def process_images(self, llm: object, images: Sequence[bytes | npt.NDArray[np.generic]]) -> None:
+    def step_with_embedding(self, llm: object, embedding: object) -> npt.ArrayLike:
+        """Step using a pre-computed embedding vector (for vision tokens)."""
+        return self._core.step_with_embedding(llm, embedding, 0.0, 0, 1.0)  # type: ignore[return-value]
+
+    def process_images(self, llm: object, images: Sequence[object]) -> None:
         """Process multimodal images through the vision encoder."""
-        if hasattr(self._core, "process_image"):
-            for image in images:
+        for image in images:
+            if hasattr(image, "patches"):
+                self._core.process_image(llm, image.patches, image.grid_h, image.grid_w)  # type: ignore[attr-defined]
+            else:
                 self._core.process_image(llm, image)
-        else:
-            msg = "Core module does not support process_image"
-            raise NotImplementedError(msg)
+
+    def process_audio(self, llm: object, audio_inputs: Sequence[object]) -> None:
+        """Process audio inputs through the audio encoder."""
+        for audio_input in audio_inputs:
+            if hasattr(audio_input, "features"):
+                self._core.process_audio(llm, audio_input.features, audio_input.num_tokens)  # type: ignore[attr-defined]
+            else:
+                self._core.process_audio(llm, audio_input, 0)
 
     def generate_embeddings(self, llm: object, tokens: Sequence[Sequence[int]]) -> npt.ArrayLike:
         """Generate numerical embeddings from sequences of tokens."""
@@ -220,7 +246,10 @@ def resolve_device_selection(device: str, *, gpu_available: bool | None = None) 
             strict=True,
             availability_source="override" if gpu_available is not None else "env:MOGEMMA_GPU_AVAILABLE",
         )
-    msg = f"Requested device '{requested_label}' is unavailable on this host."
+    msg = (
+        f"Requested device '{requested_label}' is unavailable on this host. "
+        "Set MOGEMMA_GPU_AVAILABLE=1 if a GPU is present, or use device='cpu'."
+    )
     raise RuntimeError(msg)
 
 

@@ -17,14 +17,13 @@ dependencies = [
     "numpy",
     "typing_extensions",
     "safetensors",
-    "tensorstore",
 ]
-description = "Python/Mojo interface for Google Gemma 3"
+description = "Python/Mojo interface for Google Gemma 4"
 license = { file = "LICENSE" }
 name = "mogemma"
 readme = "README.md"
 requires-python = ">=3.10"
-version = "0.3.0"
+version = "0.4.0"
 
 [project.urls]
 Issue = "https://github.com/cofin/mogemma/issues/"
@@ -143,17 +142,26 @@ split-on-trailing-comma = false
 
 [tool.ruff.lint.per-file-ignores]
 "src/py/tests/test_*.py" = [
+    "ANN202",
     "ARG001",
     "D100",
     "D101",
     "D102",
     "D103",
     "D107",
-    "S101",
-    "S603",
-    "PLR2004",
-    "SLF001",
     "E402",
+    "ERA001",
+    "PLR2004",
+    "PT011",
+    "S101",
+    "S105",
+    "S106",
+    "S108",
+    "S110",
+    "S603",
+    "SIM105",
+    "PLC0415",
+    "SLF001",
 ]
 "src/py/mogemma/typing.py" = ["A005"]
 "src/mo/tests/test_*.py" = [
@@ -188,7 +196,7 @@ dev = [
 build = ["bump-my-version>=0.31.1", "mojo>=0.26.1a1"]
 lint = ["mypy>=1.13.0", "pyright>=1.1.386", "ruff>=0.14.14"]
 test = [
-    "obstore>=0.3.08",
+    "obstore>=0.4.08",
     "pillow>=12.1.1",
     "pytest>=9.0.2",
     "pytest-cov>=4.0.0",
@@ -200,7 +208,7 @@ test = [
 allow_dirty = true
 commit = false
 commit_args = "--no-verify"
-current_version = "0.3.0"
+current_version = "0.4.0"
 ignore_missing_files = false
 ignore_missing_version = false
 message = "chore(release): bump to v{new_version}"

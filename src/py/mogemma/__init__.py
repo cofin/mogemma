@@ -6,22 +6,33 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .config import EmbeddingConfig, GenerationConfig
     from .hub import HubManager
-    from .model import AsyncGemmaModel, EmbeddingModel, SyncGemmaModel
+    from .model import AsyncEmbeddingModel, AsyncGemmaModel, SyncEmbeddingModel, SyncGemmaModel
 
-__all__ = ["AsyncGemmaModel", "EmbeddingConfig", "EmbeddingModel", "GenerationConfig", "HubManager", "SyncGemmaModel"]
+__all__ = [
+    "AsyncEmbeddingModel",
+    "AsyncGemmaModel",
+    "EmbeddingConfig",
+    "GenerationConfig",
+    "HubManager",
+    "SyncEmbeddingModel",
+    "SyncGemmaModel",
+]
 
 _EXPORT_TO_MODULE = {
+    "AsyncEmbeddingModel": ".model",
     "AsyncGemmaModel": ".model",
     "EmbeddingConfig": ".config",
-    "EmbeddingModel": ".model",
     "GenerationConfig": ".config",
     "HubManager": ".hub",
+    "SyncEmbeddingModel": ".model",
     "SyncGemmaModel": ".model",
 }
 
 _EXTRA_HINT = {
     "SyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[llm]'",
     "AsyncGemmaModel": "Install optional runtime deps with: pip install 'mogemma[llm]'",
+    "SyncEmbeddingModel": "Install optional runtime deps with: pip install 'mogemma[llm]'",
+    "AsyncEmbeddingModel": "Install optional runtime deps with: pip install 'mogemma[llm]'",
 }
 
 

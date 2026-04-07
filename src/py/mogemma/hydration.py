@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import importlib
 import io
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import obstore as obs
@@ -16,33 +20,202 @@ if TYPE_CHECKING:
 
     import numpy.typing as npt
 
+# Patch size for Gemma 4 SigLIP vision encoder
+PATCH_SIZE = 16
+
+# Token budget table: num_tokens -> (target_h, target_w)
+# Each target must be divisible by PATCH_SIZE (16).
+TOKEN_BUDGETS: dict[int, list[tuple[int, int]]] = {
+    70: [(280, 280)],
+    140: [(280, 560), (560, 280)],
+    280: [(560, 560)],
+    560: [(560, 1120), (1120, 560)],
+    1120: [(1120, 1120)],
+}
+
+# Sorted budget keys for iteration
+_BUDGET_KEYS = sorted(TOKEN_BUDGETS.keys())
+
+# Video file extensions
+VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".avi", ".mov", ".gif"})
+
+# Audio file extensions
+AUDIO_EXTENSIONS = frozenset({".wav"})
+
+# Audio constants
+AUDIO_SEQ_LENGTH = 750  # max audio tokens
+
+
+@dataclass
+class ImageInput:
+    """Preprocessed image ready for the vision encoder."""
+
+    patches: npt.NDArray[np.float32]  # [num_tokens, patch_size*patch_size*3]
+    grid_h: int  # number of patch rows
+    grid_w: int  # number of patch columns
+    num_tokens: int  # grid_h * grid_w
+
+
+@dataclass
+class AudioInput:
+    """Preprocessed audio ready for the audio encoder."""
+
+    features: npt.NDArray[np.float32]  # [n_mels, num_frames]
+    num_tokens: int  # min(num_frames, AUDIO_SEQ_LENGTH)
+
+
+def select_token_budget(h: int, w: int, max_tokens: int = 560) -> tuple[int, int, int]:
+    """Select the best token budget for the given image dimensions.
+
+    Returns:
+        (target_h, target_w, num_tokens) — the resolution to resize to and
+        the resulting patch count.
+    """
+    # Clamp max_tokens to available budgets
+    capped = max(b for b in _BUDGET_KEYS if b <= max_tokens) if max_tokens >= _BUDGET_KEYS[0] else _BUDGET_KEYS[0]
+
+    aspect = h / w if w > 0 else 1.0
+    best_target: tuple[int, int] | None = None
+    best_diff = float("inf")
+
+    for budget in _BUDGET_KEYS:
+        if budget > capped:
+            break
+        for target_h, target_w in TOKEN_BUDGETS[budget]:
+            target_aspect = target_h / target_w
+            diff = abs(aspect - target_aspect)
+            if diff < best_diff:
+                best_diff = diff
+                best_target = (target_h, target_w)
+
+    if best_target is None:
+        best_target = TOKEN_BUDGETS[_BUDGET_KEYS[0]][0]
+
+    target_h, target_w = best_target
+    num_tokens = (target_h // PATCH_SIZE) * (target_w // PATCH_SIZE)
+    return target_h, target_w, num_tokens
+
 
 class ImageHydrator:
-    """Handles loading and decoding of images from various sources using obstore."""
+    """Handles loading, preprocessing, and patch extraction for Gemma 4 vision."""
+
+    _max_video_frames: int = 32
+    _max_video_duration: int = 60
+    _video_frame_budget: int = 70
 
     def __init__(self) -> None:
         """Initialize the local object store used for path-based hydration."""
         self._store = LocalStore()
 
-    def hydrate(self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]) -> list[npt.NDArray[np.uint8]]:
-        """Convert a sequence of inputs into a list of raw RGB uint8 arrays."""
-        results: list[npt.NDArray[np.uint8]] = []
+    def hydrate(self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]) -> list[ImageInput]:
+        """Convert a sequence of inputs into preprocessed ImageInput objects."""
+        results: list[ImageInput] = []
         for item in inputs:
-            if isinstance(item, (str, Path)):
-                data = self._load_from_path(item)
-                results.append(self._decode(data))
+            if isinstance(item, np.ndarray):
+                rgb = cast("npt.NDArray[np.uint8]", item if item.dtype == np.uint8 else item.astype(np.uint8))
+                results.append(self.preprocess_image(rgb))
+            elif isinstance(item, (str, Path)):
+                path_str = str(item)
+                if Path(path_str).suffix.lower() in VIDEO_EXTENSIONS:
+                    results.extend(self._extract_video_frames(path_str))
+                else:
+                    data = self._load_from_path(item)
+                    rgb = self._decode(data)
+                    results.append(self.preprocess_image(rgb))
             elif isinstance(item, bytes):
-                results.append(self._decode(item))
-            elif isinstance(item, np.ndarray):
-                results.append(item.astype(np.uint8))
+                rgb = self._decode(item)
+                results.append(self.preprocess_image(rgb))
             else:
                 msg = f"Unsupported image input type: {type(item)}"
                 raise TypeError(msg)
         return results
 
+    def preprocess_image(self, rgb_array: npt.NDArray[np.uint8], max_tokens: int = 560) -> ImageInput:
+        """Resize, normalize, and extract patches from an RGB image.
+
+        Steps:
+          1. Select target resolution via token budget
+          2. Resize to target (PIL bicubic)
+          3. Normalize: (pixel/255 - 0.5) / 0.5  →  [-1, 1]
+          4. Extract non-overlapping 16x16 patches
+        """
+        h, w = rgb_array.shape[:2]
+        target_h, target_w, num_tokens = select_token_budget(h, w, max_tokens)
+
+        # Resize to target
+        resized = self._resize(rgb_array, target_h, target_w) if h != target_h or w != target_w else rgb_array
+
+        # Crop to largest multiple of PATCH_SIZE (handles targets like 280 not divisible by 16)
+        grid_h = target_h // PATCH_SIZE
+        grid_w = target_w // PATCH_SIZE
+        crop_h = grid_h * PATCH_SIZE
+        crop_w = grid_w * PATCH_SIZE
+        resized = resized[:crop_h, :crop_w]
+
+        # Normalize: SigLIP normalization
+        normalized = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
+        patches = (
+            normalized
+            .reshape(grid_h, PATCH_SIZE, grid_w, PATCH_SIZE, 3)
+            .transpose(0, 2, 1, 3, 4)
+            .reshape(num_tokens, PATCH_SIZE * PATCH_SIZE * 3)
+        )
+
+        return ImageInput(patches=patches, grid_h=grid_h, grid_w=grid_w, num_tokens=num_tokens)
+
+    def _extract_video_frames(self, video_path: str) -> list[ImageInput]:
+        """Extract frames from a video file using ffmpeg subprocess.
+
+        Extracts at 1 FPS, up to max_video_frames frames, max_video_duration seconds.
+        Each frame is preprocessed with the lowest token budget.
+        """
+        if shutil.which("ffmpeg") is None:
+            msg = "Video processing requires ffmpeg. Install ffmpeg and ensure it is on your PATH."
+            raise RuntimeError(msg)
+
+        image_module = importlib.import_module("PIL.Image")
+        results: list[ImageInput] = []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd = [
+                "ffmpeg",
+                "-i",
+                video_path,
+                "-vf",
+                "fps=1",
+                "-t",
+                str(self._max_video_duration),
+                "-frames:v",
+                str(self._max_video_frames),
+                "-q:v",
+                "2",
+                f"{tmpdir}/frame_%04d.jpg",
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)  # noqa: S603
+
+            frame_paths = sorted(Path(tmpdir).glob("frame_*.jpg"))
+            for frame_path in frame_paths[: self._max_video_frames]:
+                img = image_module.open(frame_path).convert("RGB")
+                rgb = np.asarray(img)
+                results.append(self.preprocess_image(rgb, max_tokens=self._video_frame_budget))
+
+        return results
+
+    def _resize(self, img: npt.NDArray[np.uint8], target_h: int, target_w: int) -> npt.NDArray[np.uint8]:
+        """Resize image using PIL bicubic interpolation."""
+        try:
+            image_module = importlib.import_module("PIL.Image")
+            pil_img = image_module.fromarray(img)
+            resized = pil_img.resize((target_w, target_h), image_module.BICUBIC)
+            return np.asarray(resized)
+        except ModuleNotFoundError as exc:
+            if exc.name is not None and not exc.name.startswith("PIL"):
+                raise
+            msg = "Image resizing requires Pillow. Install with: pip install 'mogemma[vision]'."
+            raise ImportError(msg) from None
+
     def _load_from_path(self, path: str | Path) -> bytes:
         """Load raw bytes from a local or remote path using obstore."""
-        # Convert path to string relative to store root if needed
         path_str = str(path)
         result = obs.get(self._store, path_str)
         return bytes(result.bytes())
@@ -51,8 +224,7 @@ class ImageHydrator:
         """Decode image bytes into a numpy array.
 
         Automatic hydration of path and byte inputs requires Pillow via the
-        optional ``mogemma[vision]`` extra. Pre-decoded ndarray inputs bypass
-        this decoding path entirely.
+        optional ``mogemma[vision]`` extra.
         """
         try:
             image_module = importlib.import_module("PIL.Image")
@@ -67,3 +239,36 @@ class ImageHydrator:
                 "Pre-decoded numpy uint8 RGB arrays do not require the vision extra."
             )
             raise ImportError(msg) from None
+
+
+class AudioHydrator:
+    """Handles loading and feature extraction for Gemma 4 audio inputs."""
+
+    def hydrate(self, inputs: Sequence[str | Path | bytes | npt.NDArray[np.generic]]) -> list[AudioInput]:
+        """Convert audio inputs into preprocessed AudioInput objects."""
+        from .audio import extract_audio_features, mel_spectrogram  # noqa: PLC0415
+
+        results: list[AudioInput] = []
+        for item in inputs:
+            if isinstance(item, np.ndarray):
+                if item.dtype == np.float32 and item.ndim == 1:
+                    mel = mel_spectrogram(item.astype(np.float32))
+                    num_tokens = min(mel.shape[1], AUDIO_SEQ_LENGTH)
+                    if mel.shape[1] < AUDIO_SEQ_LENGTH:
+                        padded = np.zeros((mel.shape[0], AUDIO_SEQ_LENGTH), dtype=np.float32)
+                        padded[:, : mel.shape[1]] = mel
+                        mel = padded
+                    else:
+                        mel = mel[:, :AUDIO_SEQ_LENGTH]
+                    results.append(AudioInput(features=mel, num_tokens=num_tokens))
+                else:
+                    msg = f"Audio numpy arrays must be 1D float32, got shape={item.shape} dtype={item.dtype}"
+                    raise TypeError(msg)
+            elif isinstance(item, (str, Path, bytes)):
+                features = extract_audio_features(item, max_frames=AUDIO_SEQ_LENGTH)
+                num_tokens = min(features.shape[1], AUDIO_SEQ_LENGTH)
+                results.append(AudioInput(features=features, num_tokens=num_tokens))
+            else:
+                msg = f"Unsupported audio input type: {type(item)}"
+                raise TypeError(msg)
+        return results

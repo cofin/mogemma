@@ -7,7 +7,7 @@ import pytest
 MO_TESTS_DIR = Path(__file__).parent
 MOJO_TEST_TIMEOUT_SECONDS = int(os.getenv("MOGEMMA_MOJO_TEST_TIMEOUT_SECONDS", "90"))
 RUN_UNSTABLE_MOJO_TESTS = os.getenv("MOGEMMA_RUN_UNSTABLE_MOJO_TESTS", "0") == "1"
-UNSTABLE_MOJO_TESTS = {"test_layers.mojo", "test_nano_layers.mojo"}
+UNSTABLE_MOJO_TESTS = {"test_layers.mojo"}
 
 
 @pytest.mark.parametrize(
@@ -16,10 +16,14 @@ UNSTABLE_MOJO_TESTS = {"test_layers.mojo", "test_nano_layers.mojo"}
         "test_layers.mojo",
         "test_model.mojo",
         "test_ops.mojo",
-        "test_nano_layers.mojo",
-        "test_altup_contract.mojo",
         "test_arena.mojo",
         "test_arena_init.mojo",
+        "test_vision_model.mojo",
+        "test_vision_encoder.mojo",
+        "test_gpu_attention.mojo",
+        "test_gpu_ops.mojo",
+        "test_gpu_context.mojo",
+        "test_gpu_forward.mojo",
     ],
 )
 def test_mojo_unit_tests(test_file: str) -> None:

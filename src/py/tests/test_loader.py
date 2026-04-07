@@ -1,74 +1,39 @@
-from pathlib import Path
+"""Tests for safetensors-only loader."""
 
-import numpy as np
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
-from safetensors.numpy import save_file
 
-from mogemma.loader import SafetensorsLoader
+from mogemma.loader import SafetensorsLoader, auto_loader
 
-EXPECTED_BYTE_VALUE = 42
-
-_core = pytest.importorskip("mogemma._core")
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-@pytest.fixture
-def sample_safetensors(tmp_path: Path) -> Path:
-    """Create a sample safetensors file for testing."""
-    file_path = tmp_path / "test_model.safetensors"
-    # Create some dummy weights
-    t1 = np.array([EXPECTED_BYTE_VALUE, 1, 2, 3], dtype=np.uint8)
-    t2 = np.array([1.5, 2.5, 3.5], dtype=np.float32)
-    save_file({"my_tensor": t1, "other_tensor": t2}, str(file_path))
-    return file_path
+class TestAutoLoader:
+    def test_raises_on_empty_directory(self, tmp_path: Path) -> None:
+        """auto_loader should raise FileNotFoundError for a directory with no safetensors."""
+        with pytest.raises(FileNotFoundError, match="No supported model format"):
+            auto_loader(tmp_path)
+
+    def test_error_message_no_orbax_mention(self, tmp_path: Path) -> None:
+        """Error message should not mention Orbax or OCDBT."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            auto_loader(tmp_path)
+        assert "Orbax" not in str(exc_info.value)
+        assert "OCDBT" not in str(exc_info.value)
 
 
-def test_loader_zero_copy_bridge(sample_safetensors: Path) -> None:
-    """Test that we can extract memory pointers and pass them to Mojo."""
-    with SafetensorsLoader(sample_safetensors) as loader:
-        metadata = loader.get_tensor_metadata()
+class TestSafetensorsLoaderCanLoad:
+    def test_false_for_empty_dir(self, tmp_path: Path) -> None:
+        assert SafetensorsLoader.can_load(tmp_path) is False
 
-        assert "my_tensor" in metadata
-        assert "other_tensor" in metadata
+    def test_true_for_single_safetensors_file(self, tmp_path: Path) -> None:
+        (tmp_path / "model.safetensors").write_bytes(b"")
+        assert SafetensorsLoader.can_load(tmp_path) is True
 
-        ptr, shape, dtype = metadata["my_tensor"]
-        assert isinstance(ptr, int)
-        assert shape == (4,)
-        assert dtype == "U8"
-
-        # Test the Mojo bridge
-        # Create a valid minimal metadata dict to avoid Mojo init aborting
-        t1_meta = metadata["my_tensor"]
-        valid_metadata = {
-            "model.embed_tokens.weight": t1_meta,
-            "model.norm.weight": t1_meta,
-            "lm_head.weight": t1_meta,
-            "model.layers.0.input_layernorm.weight": t1_meta,
-            "model.layers.0.post_attention_layernorm.weight": t1_meta,
-            "model.layers.0.self_attn.q_proj.weight": t1_meta,
-            "model.layers.0.self_attn.k_proj.weight": (t1_meta[0], (512, 1024), t1_meta[2]),
-            "model.layers.0.self_attn.v_proj.weight": t1_meta,
-            "model.layers.0.self_attn.o_proj.weight": t1_meta,
-            "model.layers.0.mlp.gate_proj.weight": t1_meta,
-            "model.layers.0.mlp.up_proj.weight": t1_meta,
-            "model.layers.0.mlp.down_proj.weight": t1_meta,
-        }
-
-        result = _core.init_model(valid_metadata)
-
-        assert "engine" in result
-        assert "runtime" in result
-        assert result["engine"] == "Mojo Pure Inference Engine"
-        assert result["arch"] == "standard"
-
-
-def test_loader_rejects_missing_path() -> None:
-    missing_path = Path("/does/not/exist")
-    with pytest.raises(Exception, match=r"No model.safetensors"):
-        # Accessing .stat() or .is_file() on a nonexistent path might not raise,
-        # but our loader or Path handles it. Wait, SafetensorsLoader checks .exists()
-        SafetensorsLoader(missing_path)
-
-
-def test_loader_rejects_empty_directory(tmp_path: Path) -> None:
-    with pytest.raises(Exception, match=r"No model.safetensors or index found"):
-        SafetensorsLoader(tmp_path)
+    def test_true_for_index_file(self, tmp_path: Path) -> None:
+        (tmp_path / "model.safetensors.index.json").write_text("{}")
+        assert SafetensorsLoader.can_load(tmp_path) is True

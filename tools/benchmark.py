@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 import mogemma.model as model_module
-from mogemma import EmbeddingConfig, EmbeddingModel, GenerationConfig, SyncGemmaModel
+from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncGemmaModel
 
 
 class _FakeTokenizer:
@@ -129,7 +129,7 @@ def _run_generation(config: GenerationConfig, prompt: str, *, rounds: int, warmu
 
 def _run_embedding(config: EmbeddingConfig, texts: list[str], *, rounds: int) -> dict[str, object]:
     start = time.perf_counter()
-    model = EmbeddingModel(config)
+    model = SyncEmbeddingModel(config)
     for _ in range(rounds):
         _ = model.embed(texts)
     end = time.perf_counter()
@@ -206,6 +206,14 @@ def _run_benchmark() -> dict[str, object]:
         "environment": _environment_payload(args.backend),
         "metrics": metrics,
     }
+
+    # Add GPU-specific metrics when available
+    if args.device.startswith("gpu"):
+        payload["gpu_device_name"] = args.device
+        if isinstance(metrics, dict):
+            gpu_keys = {k: v for k, v in metrics.items() if k.startswith("gpu_")}
+            if gpu_keys:
+                payload.setdefault("gpu_metrics", {}).update(gpu_keys)
 
     if args.baseline_json:
         baseline_path = Path(args.baseline_json)

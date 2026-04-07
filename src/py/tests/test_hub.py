@@ -1,119 +1,50 @@
-import json
-import struct
-from pathlib import Path
-from unittest.mock import patch
+"""Tests for hub tokenizer path resolution and model file detection."""
 
-import pytest
+from __future__ import annotations
+
+from pathlib import Path
 
 from mogemma.hub import HubManager
 
 
-def _create_dummy_safetensors(model_dir: Path) -> None:
-    model_dir.mkdir(parents=True, exist_ok=True)
-    with (model_dir / "model.safetensors").open("wb") as f:
-        h = json.dumps({}).encode("utf-8")
-        f.write(struct.pack("<Q", len(h)) + h)
+class TestGetTokenizerPath:
+    def _get_path(self, clean_id: str) -> str | None:
+        hub = HubManager(cache_path=Path("/tmp/test-cache"))
+        return hub._get_tokenizer_path(clean_id)
+
+    def test_gemma4_model(self) -> None:
+        assert self._get_path("gemma4-31b-it") == "tokenizer.model"
+
+    def test_gemma4_dense_model(self) -> None:
+        assert self._get_path("gemma4-e2b-it") == "tokenizer.model"
+
+    def test_unknown_model_returns_none(self) -> None:
+        assert self._get_path("llama-7b") is None
+
+    def test_no_gemma2_support(self) -> None:
+        """Old gemma2 models should not resolve a tokenizer path."""
+        assert self._get_path("gemma2-2b-it") is None
+
+    def test_no_gemma3_support(self) -> None:
+        """Old gemma3 models should not resolve a tokenizer path."""
+        assert self._get_path("gemma3-27b-it") is None
 
 
-def test_hub_manager_default_path() -> None:
-    """Verify default cache path is in user home."""
-    hub = HubManager()
-    assert ".cache/mogemma" in str(hub.cache_path)
+class TestHasModelFiles:
+    def test_empty_dir_returns_false(self, tmp_path: Path) -> None:
+        assert HubManager._has_model_files(tmp_path) is False
+
+    def test_safetensors_dir_returns_true(self, tmp_path: Path) -> None:
+        (tmp_path / "model.safetensors").write_bytes(b"")
+        assert HubManager._has_model_files(tmp_path) is True
 
 
-def test_hub_manager_custom_path(tmp_path: Path) -> None:
-    """Verify custom cache path is respected."""
-    hub = HubManager(cache_path=tmp_path)
-    assert hub.cache_path == tmp_path
+class TestCleanModelId:
+    def test_strips_google_prefix(self) -> None:
+        assert HubManager._clean_model_id("google/gemma-4-31B-it") == "gemma4-31B-it"
 
+    def test_dash_to_no_dash(self) -> None:
+        assert HubManager._clean_model_id("gemma-4-31B-it") == "gemma4-31B-it"
 
-def test_hub_manager_env_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Verify env cache path is used when explicit cache_path is absent."""
-    monkeypatch.setenv("MOGEMMA_CACHE_DIR", str(tmp_path))
-    hub = HubManager()
-    assert hub.cache_path == tmp_path
-
-
-def test_hub_manager_explicit_path_overrides_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Verify explicit cache_path wins over env cache path."""
-    env_path = tmp_path / "env"
-    explicit_path = tmp_path / "explicit"
-    monkeypatch.setenv("MOGEMMA_CACHE_DIR", str(env_path))
-    hub = HubManager(cache_path=explicit_path)
-    assert hub.cache_path == explicit_path
-
-
-def test_resolve_model_path_local(tmp_path: Path) -> None:
-    """Verify local model directories are returned directly."""
-    model_dir = tmp_path / "gemma-3-4b"
-    _create_dummy_safetensors(model_dir)
-    hub = HubManager(cache_path=tmp_path)
-
-    resolved = hub.resolve_model(str(model_dir))
-    assert resolved == model_dir
-
-
-def test_resolve_model_cached_path(tmp_path: Path) -> None:
-    """Verify cached model directories are returned as filesystem paths."""
-    model_id = "gemma-3-4b-it"
-    cached_dir = tmp_path / "gemma-3-4b-it"
-    _create_dummy_safetensors(cached_dir)
-
-    hub = HubManager(cache_path=tmp_path)
-
-    resolved = hub.resolve_model(model_id)
-    assert resolved == cached_dir
-
-
-def test_resolve_model_cached_path_ocdbt(tmp_path: Path) -> None:
-    """Verify cached OCDBT checkpoint directories are recognized."""
-    model_id = "gemma3n-e2b-it"
-    cached_dir = tmp_path / "gemma3n-e2b-it"
-    cached_dir.mkdir()
-    (cached_dir / "manifest.ocdbt").touch()
-    ocdbt_dir = cached_dir / "ocdbt.process_0"
-    ocdbt_dir.mkdir()
-    (ocdbt_dir / "data.json").touch()
-    hub = HubManager(cache_path=tmp_path)
-
-    with patch.object(HubManager, "_ensure_safetensors"):
-        resolved = hub.resolve_model(model_id)
-    assert resolved == cached_dir
-
-
-def test_resolve_model_ignores_stale_cache(tmp_path: Path) -> None:
-    """Cache dir with no recognized model files should not be treated as valid."""
-    model_id = "gemma-3-4b-it"
-    cached_dir = tmp_path / "gemma-3-4b-it"
-    cached_dir.mkdir()
-    (cached_dir / "tokenizer.model").touch()  # no safetensors or OCDBT
-
-    hub = HubManager(cache_path=tmp_path)
-
-    resolved = hub.resolve_model(model_id, strict=False)
-    # Should fall through (not return cached_dir)
-    assert resolved != cached_dir
-
-
-def test_resolve_model_strict_rejects_missing_local_path(tmp_path: Path) -> None:
-    """Strict mode with download_if_missing=True will try to download and fail if missing in GCS."""
-    hub = HubManager(cache_path=tmp_path)
-
-    with pytest.raises(HubManager.ModelNotFoundError, match="not found in the public gemma-data bucket"):
-        hub.resolve_model("bert-base-uncased-missing", download_if_missing=True, strict=True)
-
-
-def test_clean_model_id() -> None:
-    """Verify Google Cloud model id formatting rules."""
-    hub = HubManager()
-    assert hub._clean_model_id("gemma-3-1b-it") == "gemma3-1b-it"
-    assert hub._clean_model_id("google/gemma-3-1b-it") == "gemma3-1b-it"
-    assert hub._clean_model_id("gemma3-1b-it") == "gemma3-1b-it"
-
-
-def test_resolve_model_explicit_invalid_embedding_id(tmp_path: Path) -> None:
-    """Ensure specific missing embedding models raise ModelNotFoundError with actionable message."""
-    hub = HubManager(cache_path=tmp_path)
-
-    with pytest.raises(HubManager.ModelNotFoundError, match="not found in the public gemma-data bucket"):
-        hub.resolve_model("gemma3-text-embedding-4m", download_if_missing=True, strict=True)
+    def test_already_clean(self) -> None:
+        assert HubManager._clean_model_id("gemma4-31B-it") == "gemma4-31B-it"

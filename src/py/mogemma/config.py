@@ -14,10 +14,10 @@ _INVALID_ARCH_OVERRIDES_MSG = "architecture_overrides must be a dict[str, int | 
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
-    """Configuration for Gemma 3 Embedding generation."""
+    """Configuration for Gemma 4 Embedding generation."""
 
-    model_path: Path | str = "gemma3-270m-it"
-    """Path to the local Gemma 3 model weights or Google model ID."""
+    model_path: Path | str = "google/gemma-4-31B-it"
+    """Path to the local Gemma 4 model weights or Google model ID."""
 
     cache_path: Path | str | None = None
     """Optional base directory for downloaded model cache."""
@@ -57,10 +57,10 @@ class EmbeddingConfig:
 
 @dataclass(frozen=True)
 class GenerationConfig:
-    """Configuration for Gemma 3 Text generation."""
+    """Configuration for Gemma 4 Text generation."""
 
-    model_path: Path | str = "gemma3-270m-it"
-    """Path to the local Gemma 3 model weights or Google model ID."""
+    model_path: Path | str = "google/gemma-4-31B-it"
+    """Path to the local Gemma 4 model weights or Google model ID."""
 
     cache_path: Path | str | None = None
     """Optional base directory for downloaded model cache."""
@@ -80,11 +80,14 @@ class GenerationConfig:
     temperature: float = 1.0
     """Sampling temperature."""
 
-    top_k: int = 50
+    top_k: int = 64
     """Top-k sampling parameter."""
 
-    top_p: float = 1.0
+    top_p: float = 0.95
     """Top-p (nucleus) sampling parameter."""
+
+    max_image_tokens: int = 560
+    """Maximum token budget per image for vision preprocessing."""
 
     def __post_init__(self) -> None:
         """Validate configuration."""

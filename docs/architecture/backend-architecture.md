@@ -2,7 +2,7 @@
 
 ## Current Runtime Shape
 
-- Python model classes (`SyncGemmaModel`, `EmbeddingModel`) resolve a backend and cache it at construction time.
+- Python model classes (`SyncGemmaModel`, `SyncEmbeddingModel`) resolve a backend and cache it at construction time.
 - `cpu` is implemented by `CPUCoreBackend`, which delegates into `mogemma._core` (`init_model`, `step`, `generate_embeddings`).
 - Backend IDs are normalized in one place (`resolve_backend_id`) and support:
   - `cpu`
