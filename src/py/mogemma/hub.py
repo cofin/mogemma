@@ -47,7 +47,7 @@ class HubManager:
     @staticmethod
     def _make_hf_store(repo_id: str, token: str | None = None) -> HTTPStore:
         """Create an obstore HTTPStore pointed at a HuggingFace repo."""
-        base_url = f"{_HF_BASE}/{repo_id}/resolve/main/"
+        base_url = f"{_HF_BASE}/{repo_id}/resolve/main"
         client_options: dict[str, Any] = {}
         if token:
             client_options["default_headers"] = {"Authorization": f"Bearer {token}"}
@@ -255,7 +255,7 @@ class HubManager:
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid HuggingFace model id (e.g., google/gemma-4-31B-it)."
+                "Use an existing local directory or a valid HuggingFace model id (e.g., google/gemma-4-26B-A4B-it)."
             )
             raise ValueError(msg)
 
@@ -450,7 +450,7 @@ class HubManager:
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid HuggingFace model id (e.g., google/gemma-4-31B-it)."
+                "Use an existing local directory or a valid HuggingFace model id (e.g., google/gemma-4-26B-A4B-it)."
             )
             raise ValueError(msg)
         return Path(model_id)

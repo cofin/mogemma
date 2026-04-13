@@ -16,23 +16,25 @@ class TestMakeHFStore:
 
     def test_creates_store_for_repo(self) -> None:
         hub = HubManager(cache_path=Path("/tmp/test-cache"))
-        store = hub._make_hf_store("google/gemma-4-31B-it")
+        store = hub._make_hf_store("google/gemma-4-26B-A4B-it")
         assert store is not None
 
     def test_store_url_contains_repo_id(self) -> None:
         hub = HubManager(cache_path=Path("/tmp/test-cache"))
-        store = hub._make_hf_store("google/gemma-4-31B-it")
-        # HTTPStore stores the base URL
+        store = hub._make_hf_store("google/gemma-4-26B-A4B-it")
+        # HTTPStore stores the base URL. We want it NOT to end with a slash
+        # to avoid double-slash normalization issues in HuggingFace.
         assert "huggingface.co" in store.url
+        assert not store.url.endswith("/")
 
     def test_store_with_token(self) -> None:
         hub = HubManager(cache_path=Path("/tmp/test-cache"))
-        store = hub._make_hf_store("google/gemma-4-31B-it", token="hf_test123")
+        store = hub._make_hf_store("google/gemma-4-26B-A4B-it", token="hf_test123")
         assert store is not None
 
     def test_store_without_token(self) -> None:
         hub = HubManager(cache_path=Path("/tmp/test-cache"))
-        store = hub._make_hf_store("google/gemma-4-31B-it", token=None)
+        store = hub._make_hf_store("google/gemma-4-26B-A4B-it", token=None)
         assert store is not None
 
 
@@ -123,13 +125,13 @@ class TestHFURLConstruction:
 
     def test_resolve_url(self) -> None:
         assert (
-            HubManager._hf_resolve_url("google/gemma-4-31B-it", "config.json")
-            == "https://huggingface.co/google/gemma-4-31B-it/resolve/main/config.json"
+            HubManager._hf_resolve_url("google/gemma-4-26B-A4B-it", "config.json")
+            == "https://huggingface.co/google/gemma-4-26B-A4B-it/resolve/main/config.json"
         )
 
     def test_resolve_url_shard(self) -> None:
-        url = HubManager._hf_resolve_url("google/gemma-4-31B-it", "model-00001-of-00020.safetensors")
-        assert url == "https://huggingface.co/google/gemma-4-31B-it/resolve/main/model-00001-of-00020.safetensors"
+        url = HubManager._hf_resolve_url("google/gemma-4-26B-A4B-it", "model-00001-of-00020.safetensors")
+        assert url == "https://huggingface.co/google/gemma-4-26B-A4B-it/resolve/main/model-00001-of-00020.safetensors"
 
 
 class TestDownloadSyncHF:

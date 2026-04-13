@@ -74,9 +74,9 @@ class TestGenerationConfigMaxImageTokens:
     """Test max_image_tokens field on GenerationConfig."""
 
     def test_default_max_image_tokens(self) -> None:
-        config = GenerationConfig(model_path="google/gemma-4-31B-it")
+        config = GenerationConfig(model_path="google/gemma-4-26B-A4B-it")
         assert config.max_image_tokens == 560
 
     def test_custom_max_image_tokens(self) -> None:
-        config = GenerationConfig(model_path="google/gemma-4-31B-it", max_image_tokens=1120)
+        config = GenerationConfig(model_path="google/gemma-4-26B-A4B-it", max_image_tokens=1120)
         assert config.max_image_tokens == 1120
