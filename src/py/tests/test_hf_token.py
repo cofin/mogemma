@@ -60,10 +60,11 @@ class TestDownloadSyncUsesToken:
         with (
             patch.dict(os.environ, {"HF_TOKEN": "hf_tracked"}),
             patch.object(HubManager, "_make_hf_store", tracking_make_store),
+            patch.object(hub, "_fetch_index_json", side_effect=HubManager.ModelNotFoundError("mocked")),
         ):
             try:
                 hub.download_sync("google/gemma-4-26B-A4B-it")
-            except Exception:  # noqa: BLE001
-                pass  # Will fail on network — we just want to verify token was passed
+            except HubManager.ModelNotFoundError:
+                pass  # Expected — we just want to verify token was passed
 
         assert calls == ["hf_tracked"]
