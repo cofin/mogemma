@@ -34,12 +34,12 @@ class TestHFTokenEnvVar:
 
     def test_store_created_without_token_for_public_models(self) -> None:
         """Public models should work without HF_TOKEN."""
-        store = HubManager._make_hf_store("google/gemma-4-31B-it", token=None)
+        store = HubManager._make_hf_store("google/gemma-4-26B-A4B-it", token=None)
         assert store is not None
 
     def test_store_created_with_token_for_gated_models(self) -> None:
         """Gated models need HF_TOKEN for Bearer auth."""
-        store = HubManager._make_hf_store("google/gemma-4-31B-it", token="hf_test_token")
+        store = HubManager._make_hf_store("google/gemma-4-26B-A4B-it", token="hf_test_token")
         assert store is not None
 
 
@@ -62,7 +62,7 @@ class TestDownloadSyncUsesToken:
             patch.object(HubManager, "_make_hf_store", tracking_make_store),
         ):
             try:
-                hub.download_sync("google/gemma-4-31B-it")
+                hub.download_sync("google/gemma-4-26B-A4B-it")
             except Exception:  # noqa: BLE001
                 pass  # Will fail on network — we just want to verify token was passed
 

@@ -41,10 +41,10 @@ class TestHasModelFiles:
 
 class TestCleanModelId:
     def test_strips_google_prefix(self) -> None:
-        assert HubManager._clean_model_id("google/gemma-4-31B-it") == "gemma4-31B-it"
+        assert HubManager._clean_model_id("google/gemma-4-26B-A4B-it") == "gemma4-26B-A4B-it"
 
     def test_dash_to_no_dash(self) -> None:
-        assert HubManager._clean_model_id("gemma-4-31B-it") == "gemma4-31B-it"
+        assert HubManager._clean_model_id("gemma-4-26B-A4B-it") == "gemma4-26B-A4B-it"
 
     def test_already_clean(self) -> None:
-        assert HubManager._clean_model_id("gemma4-31B-it") == "gemma4-31B-it"
+        assert HubManager._clean_model_id("gemma4-26B-A4B-it") == "gemma4-26B-A4B-it"
