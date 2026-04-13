@@ -64,8 +64,8 @@ test: ## Run all tests
 .PHONY: lint
 lint: ## Lint and format code (Python, Mojo)
 	@echo "${INFO} Linting Python (ruff)..."
-	@uv run ruff check src/py
-	@uv run ruff format --check src/py
+	@uv run ruff check --fix src/py
+	@uv run ruff format src/py
 	@echo "${INFO} Type checking Python (mypy)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
 	@uv run mypy
