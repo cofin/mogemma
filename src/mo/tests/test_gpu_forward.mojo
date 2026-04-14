@@ -53,7 +53,6 @@ def test_vision_encoder_cpu_with_streaming_params() raises:
     This tests that the new weight streaming parameters (S=Int, C=Int dummy)
     produce identical results to the encoder's core logic — no regression.
     """
-    var num_patches = 4
     var vision_hidden = 4
     var vision_heads = 1
     var vision_head_dim = 4
@@ -61,7 +60,7 @@ def test_vision_encoder_cpu_with_streaming_params() raises:
     var decoder_hidden = 4
     var grid_h = 6
     var grid_w = 6
-    num_patches = grid_h * grid_w  # 36
+    var num_patches = grid_h * grid_w  # 36
 
     # Create minimal weights
     var patch_dim = 4
@@ -88,6 +87,10 @@ def test_vision_encoder_cpu_with_streaming_params() raises:
     for r in range(vision_hidden):
         fc1_full[r * vision_hidden + r] = 1.0
     layer.fc1 = TensorInfo(Int(_make_ptr(fc1_full)), vision_intermediate, vision_hidden)
+    var fc1_up_full = List[Float32](length=vision_intermediate * vision_hidden, fill=0.0)
+    for r in range(vision_hidden):
+        fc1_up_full[r * vision_hidden + r] = 1.0
+    layer.fc1_up = TensorInfo(Int(_make_ptr(fc1_up_full)), vision_intermediate, vision_hidden)
     var fc2_full = List[Float32](length=vision_hidden * vision_intermediate, fill=0.0)
     for r in range(vision_hidden):
         fc2_full[r * vision_intermediate + r] = 1.0
@@ -151,6 +154,7 @@ def test_vision_encoder_cpu_with_streaming_params() raises:
     _ = ident[0]
     _ = fc1[0]
     _ = fc1_full[0]
+    _ = fc1_up_full[0]
     _ = fc2_full[0]
     _ = ln1[0]
     _ = ln2[0]
@@ -199,6 +203,10 @@ def test_audio_encoder_cpu_with_streaming_params() raises:
     for r in range(audio_hidden):
         fc1_full[r * audio_hidden + r] = 1.0
     layer.fc1 = TensorInfo(Int(_make_ptr(fc1_full)), audio_intermediate, audio_hidden)
+    var fc1_up_full = List[Float32](length=audio_intermediate * audio_hidden, fill=0.0)
+    for r in range(audio_hidden):
+        fc1_up_full[r * audio_hidden + r] = 1.0
+    layer.fc1_up = TensorInfo(Int(_make_ptr(fc1_up_full)), audio_intermediate, audio_hidden)
     var fc2_full = List[Float32](length=audio_hidden * audio_intermediate, fill=0.0)
     for r in range(audio_hidden):
         fc2_full[r * audio_intermediate + r] = 1.0
@@ -256,6 +264,7 @@ def test_audio_encoder_cpu_with_streaming_params() raises:
     _ = proj[0]
     _ = ident[0]
     _ = fc1_full[0]
+    _ = fc1_up_full[0]
     _ = fc2_full[0]
     _ = ln1[0]
     _ = ln2[0]
@@ -295,7 +304,7 @@ def test_gpu_copy_state() raises:
 
         # Fill source with known pattern via host buffer
         var host = ctx.allocate_host_buffer[DType.float32](size)
-        var hp = host.unsafe_ptr()
+        var hp = host.unsafe_ptr().value()
         for i in range(size):
             hp.store(i, Float32(i) * 1.5)
         ctx.upload(src_buf, host)
@@ -310,7 +319,7 @@ def test_gpu_copy_state() raises:
         ctx.download(verify, dst_buf)
         ctx.sync()
 
-        var vp = verify.unsafe_ptr()
+        var vp = verify.unsafe_ptr().value()
         for i in range(size):
             var expected = Float32(i) * 1.5
             assert_almost_equal(vp.load(i), expected, atol=1e-5)

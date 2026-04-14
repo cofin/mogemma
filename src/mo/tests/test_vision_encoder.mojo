@@ -226,6 +226,7 @@ def test_vision_encoder_1layer() raises:
 
     var fc1_size = vision_intermediate * vision_hidden
     var fc1_w = List[Float32](length=fc1_size, fill=0.01)
+    var fc1_up_w = List[Float32](length=fc1_size, fill=0.01)
     var fc2_size = vision_hidden * vision_intermediate
     var fc2_w = List[Float32](length=fc2_size, fill=0.01)
     var ln1_w = List[Float32](length=vision_hidden, fill=0.0)
@@ -237,6 +238,7 @@ def test_vision_encoder_1layer() raises:
     vl.v_proj = TensorInfo(Int(_make_ptr(v_w)), vision_hidden, vision_hidden)
     vl.o_proj = TensorInfo(Int(_make_ptr(o_w)), vision_hidden, vision_hidden)
     vl.fc1 = TensorInfo(Int(_make_ptr(fc1_w)), vision_intermediate, vision_hidden)
+    vl.fc1_up = TensorInfo(Int(_make_ptr(fc1_up_w)), vision_intermediate, vision_hidden)
     vl.fc2 = TensorInfo(Int(_make_ptr(fc2_w)), vision_hidden, vision_intermediate)
     vl.layer_norm1 = TensorInfo(Int(_make_ptr(ln1_w)), vision_hidden, 0)
     vl.layer_norm2 = TensorInfo(Int(_make_ptr(ln2_w)), vision_hidden, 0)
@@ -299,6 +301,7 @@ def test_vision_encoder_1layer() raises:
     _ = v_w[0]
     _ = o_w[0]
     _ = fc1_w[0]
+    _ = fc1_up_w[0]
     _ = fc2_w[0]
     _ = ln1_w[0]
     _ = ln2_w[0]

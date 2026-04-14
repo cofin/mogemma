@@ -147,7 +147,7 @@ struct WeightStage(Movable):
         if num_elements == 0:
             return self._offset
         var start = self._offset
-        var dst = self.host_buf.unsafe_ptr() + start
+        var dst = self.host_buf.unsafe_ptr().value() + start
         var src = tensor.ptr
         for i in range(num_elements):
             dst.store(i, src.load(i))
@@ -248,7 +248,7 @@ def _upload_persistent(mut ctx: GPUContext, tensor: TensorInfo) raises -> Device
     var dev_buf = ctx.allocate_buffer[DType.float32](num_elements)
     var host_buf = ctx.allocate_host_buffer[DType.float32](num_elements)
     # Copy from mmap source to pinned host buffer
-    var dst = host_buf.unsafe_ptr()
+    var dst = host_buf.unsafe_ptr().value()
     var src = tensor.ptr
     for i in range(num_elements):
         dst.store(i, src.load(i))

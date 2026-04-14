@@ -70,7 +70,7 @@ def test_upload_download_roundtrip() raises:
 
         # Create host buffer with known values
         var host_src = ctx.allocate_host_buffer[DType.float32](16)
-        var src_ptr = host_src.unsafe_ptr()
+        var src_ptr = host_src.unsafe_ptr().value()
         for i in range(16):
             src_ptr.store(i, Float32(Float64(i) * 3.14))
 
@@ -85,7 +85,7 @@ def test_upload_download_roundtrip() raises:
         ctx.sync()
 
         # Verify round-trip
-        var dst_ptr = host_dst.unsafe_ptr()
+        var dst_ptr = host_dst.unsafe_ptr().value()
         for i in range(16):
             var expected = Float32(Float64(i) * 3.14)
             var actual = dst_ptr.load(i)
@@ -147,7 +147,7 @@ def test_weight_stage_upload_tensor() raises:
         ctx.download(host_out, stage.device_buf)
         ctx.sync()
 
-        var out_ptr = host_out.unsafe_ptr()
+        var out_ptr = host_out.unsafe_ptr().value()
         for i in range(12):
             var expected = Float32(Float64(i) + 1.0)
             var actual = out_ptr.load(i)
