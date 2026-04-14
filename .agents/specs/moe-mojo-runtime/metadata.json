@@ -1,0 +1,11 @@
+{
+  "flow_id": "moe-mojo-runtime",
+  "type": "feature",
+  "status": "planning",
+  "parent_prd": "gcs-orbax-migration",
+  "beads_epic_id": null,
+  "created_at": "2026-04-14T21:00:00Z",
+  "updated_at": "2026-04-14T21:00:00Z",
+  "description": "Mojo-side runtime for Gemma 4 26B-A4B-it MoE: two-branch forward pass, packed-expert kernels, hydration from converted safetensors.",
+  "synced_at": "2026-04-14T21:00:00Z"
+}

@@ -30,5 +30,9 @@ Each flow has its own detailed spec and plan in its respective folder.
 *Link: [./specs/gcs-orbax-migration/prd.md](./specs/gcs-orbax-migration/prd.md)*
 
 ## [~] Flow: Orbax→Safetensors Conversion (Chapter 2)
-*In progress. Base transformer / PLE / Vision iterators + sharded writer + config.json synthesis shipped. Hub wiring (3.1/3.3) + MoE iterator (2.2) + integration tests (4.x) pending.*
+*In progress. Base / PLE / Vision / MoE Python iterators + sharded writer + config.json synthesis + hub integration + round-trip test all shipped. Remaining: Mojo-side MoE runtime (split into sub-flow) and manual 26B verification.*
 *Link: [./specs/orbax-safetensors-conversion/spec.md](./specs/orbax-safetensors-conversion/spec.md)*
+
+## [ ] Flow: MoE Mojo Runtime (Chapter 2b)
+*Planning. Mojo-side rewrite to consume the two-branch MoE safetensors contract: struct layout, hydration, GPU packer, router + packed-expert kernels, two-branch forward pass. Blocks live 26B-A4B-it inference.*
+*Link: [./specs/moe-mojo-runtime/spec.md](./specs/moe-mojo-runtime/spec.md)*
