@@ -338,7 +338,8 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
   - Skips any non-Mojo-contract PLE Orbax keys.
   - **Test-first:** `test_ple_split_per_layer()` — synthetic `[V, L, H_ple]` → L outputs.
 
-- [ ] **2.2 MoE iterator (26B-A4B-it) — two-branch architecture**
+- [~] **2.2 MoE iterator (26B-A4B-it) — two-branch architecture**
+      (Python half ✅ shipped; Mojo struct/forward-pass rewrite pending)
   - **Python iterator `_iter_moe_transformer(path, keys, num_layers)`** emits
     per layer:
     - Dense branch: `mlp.gate_proj.weight`, `mlp.up_proj.weight`,
@@ -442,7 +443,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
 
 ### Phase 4: Integration Test + Manual Verification
 
-- [ ] **4.1 Integration test: synthetic Orbax → SafetensorsLoader round trip**
+- [x] **4.1 Integration test: synthetic Orbax → SafetensorsLoader round trip** [0443ec4]
   - **File:** `src/py/tests/test_convert.py`
   - **Setup:** tensorstore-free fake. Build a `FakeOrbaxPath` fixture that
     monkeypatches `OrbaxLoader.enumerate_tensors` / `OrbaxLoader.open_tensor`
