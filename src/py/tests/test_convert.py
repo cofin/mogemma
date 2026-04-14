@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Callable
 from unittest.mock import patch
 
 import numpy as np
@@ -28,12 +29,8 @@ def _make_base_tensor_map(num_layers: int = _N_LAYERS) -> dict[str, np.ndarray]:
     }
     for n in range(num_layers):
         tensors[f"layer_{n}.attn.q_einsum.w"] = rng.standard_normal((_N_HEADS, _H, _HEAD_DIM)).astype(np.float32)
-        tensors[f"layer_{n}.attn.kv_einsum.w"] = rng.standard_normal(
-            (2, _N_KV_HEADS, _H, _HEAD_DIM)
-        ).astype(np.float32)
-        tensors[f"layer_{n}.attn.attn_vec_einsum.w"] = rng.standard_normal(
-            (_N_HEADS, _HEAD_DIM, _H)
-        ).astype(np.float32)
+        tensors[f"layer_{n}.attn.kv_einsum.w"] = rng.standard_normal((2, _N_KV_HEADS, _H, _HEAD_DIM)).astype(np.float32)
+        tensors[f"layer_{n}.attn.attn_vec_einsum.w"] = rng.standard_normal((_N_HEADS, _HEAD_DIM, _H)).astype(np.float32)
         tensors[f"layer_{n}.attn.query_norm.scale"] = rng.standard_normal((_HEAD_DIM,)).astype(np.float32)
         tensors[f"layer_{n}.attn.key_norm.scale"] = rng.standard_normal((_HEAD_DIM,)).astype(np.float32)
         tensors[f"layer_{n}.mlp.gating_einsum.w"] = rng.standard_normal((2, _INTER, _H)).astype(np.float32)
@@ -46,9 +43,7 @@ def _make_base_tensor_map(num_layers: int = _N_LAYERS) -> dict[str, np.ndarray]:
 
 
 def _run_iter_with_fakes(
-    tensors: dict[str, np.ndarray],
-    iterator_fn: object,
-    *args: object,
+    tensors: dict[str, np.ndarray], iterator_fn: Callable[..., "Iterator[tuple[str, np.ndarray]]"], *args: object
 ) -> list[tuple[str, np.ndarray]]:
     """Patch OrbaxLoader.open_tensor to pull from *tensors*, run *iterator_fn*, collect results."""
 
@@ -81,19 +76,12 @@ class TestVariantDetection:
         assert _variant_from_keys(keys) == "ple"
 
     def test_moe_variant_has_router_logits(self) -> None:
-        keys = [
-            "embedder.input_embedding",
-            "layer_0.attn.q_einsum.w",
-            "layer_0.mlp.router_logits.w",
-        ]
+        keys = ["embedder.input_embedding", "layer_0.attn.q_einsum.w", "layer_0.mlp.router_logits.w"]
         assert _variant_from_keys(keys) == "moe"
 
     def test_moe_takes_priority_over_ple(self) -> None:
         """A hypothetical checkpoint with both router_logits and PLE keys is classified as MoE."""
-        keys = [
-            "embedder.per_layer_embeddings",
-            "layer_0.mlp.router_logits.w",
-        ]
+        keys = ["embedder.per_layer_embeddings", "layer_0.mlp.router_logits.w"]
         assert _variant_from_keys(keys) == "moe"
 
 
@@ -109,12 +97,7 @@ class TestLayerCount:
         assert _layer_count(keys) == 8
 
     def test_ignores_non_layer_keys(self) -> None:
-        keys = [
-            "embedder.input_embedding",
-            "final_norm.scale",
-            "layer_0.attn.q_einsum.w",
-            "layer_1.attn.q_einsum.w",
-        ]
+        keys = ["embedder.input_embedding", "final_norm.scale", "layer_0.attn.q_einsum.w", "layer_1.attn.q_einsum.w"]
         assert _layer_count(keys) == 2
 
     def test_raises_on_empty_input(self) -> None:
@@ -153,17 +136,13 @@ class TestBaseTransformerIterator:
 
     def test_embed_tokens_and_lm_head_are_tied(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         np.testing.assert_array_equal(yielded["model.embed_tokens.weight"], yielded["lm_head.weight"])
         np.testing.assert_array_equal(yielded["model.embed_tokens.weight"], tensors["embedder.input_embedding"])
 
     def test_q_proj_transform(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         src = tensors["layer_0.attn.q_einsum.w"]  # (n_heads, H, head_dim)
         expected = src.transpose(0, 2, 1).reshape(-1, _H)  # (n_heads*head_dim, H)
         np.testing.assert_array_equal(yielded["model.layers.0.self_attn.q_proj.weight"], expected)
@@ -171,9 +150,7 @@ class TestBaseTransformerIterator:
 
     def test_kv_proj_split_and_transform(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         src = tensors["layer_0.attn.kv_einsum.w"]  # (2, n_kv, H, head_dim)
         expected_k = src[0].transpose(0, 2, 1).reshape(-1, _H)
         expected_v = src[1].transpose(0, 2, 1).reshape(-1, _H)
@@ -182,9 +159,7 @@ class TestBaseTransformerIterator:
 
     def test_o_proj_transform(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         src = tensors["layer_0.attn.attn_vec_einsum.w"]  # (n_heads, head_dim, H)
         expected = src.reshape(-1, _H).T  # (H, n_heads*head_dim)
         np.testing.assert_array_equal(yielded["model.layers.0.self_attn.o_proj.weight"], expected)
@@ -192,42 +167,33 @@ class TestBaseTransformerIterator:
 
     def test_mlp_gate_up_split(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         src = tensors["layer_0.mlp.gating_einsum.w"]  # (2, intermediate, H)
         np.testing.assert_array_equal(yielded["model.layers.0.mlp.gate_proj.weight"], src[0])
         np.testing.assert_array_equal(yielded["model.layers.0.mlp.up_proj.weight"], src[1])
 
     def test_mlp_down_proj_transposes(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         src = tensors["layer_0.mlp.linear.w"]  # (intermediate, H) in Orbax
         np.testing.assert_array_equal(yielded["model.layers.0.mlp.down_proj.weight"], src.T)
         assert yielded["model.layers.0.mlp.down_proj.weight"].shape == (_H, _INTER)
 
     def test_norms_pass_through_unchanged(self, tmp_path: Path) -> None:
         tensors = _make_base_tensor_map()
-        yielded = dict(
-            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
-        )
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS))
         np.testing.assert_array_equal(yielded["model.norm.weight"], tensors["final_norm.scale"])
         np.testing.assert_array_equal(
             yielded["model.layers.0.input_layernorm.weight"], tensors["layer_0.pre_attention_norm.scale"]
         )
         np.testing.assert_array_equal(
-            yielded["model.layers.0.post_attention_layernorm.weight"],
-            tensors["layer_0.post_attention_norm.scale"],
+            yielded["model.layers.0.post_attention_layernorm.weight"], tensors["layer_0.post_attention_norm.scale"]
         )
         np.testing.assert_array_equal(
-            yielded["model.layers.0.pre_feedforward_layernorm.weight"],
-            tensors["layer_0.pre_ffw_norm.scale"],
+            yielded["model.layers.0.pre_feedforward_layernorm.weight"], tensors["layer_0.pre_ffw_norm.scale"]
         )
         np.testing.assert_array_equal(
-            yielded["model.layers.0.post_feedforward_layernorm.weight"],
-            tensors["layer_0.post_ffw_norm.scale"],
+            yielded["model.layers.0.post_feedforward_layernorm.weight"], tensors["layer_0.post_ffw_norm.scale"]
         )
         np.testing.assert_array_equal(
             yielded["model.layers.0.self_attn.q_norm.weight"], tensors["layer_0.attn.query_norm.scale"]
@@ -252,9 +218,9 @@ class TestWriteSharded:
         # No index for single-shard output.
         assert not (tmp_path / "model.safetensors.index.json").exists()
 
-        from safetensors import safe_open
+        from safetensors import safe_open  # type: ignore[import-untyped]
 
-        with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:
+        with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:  # type: ignore[no-untyped-call]
             assert set(f.keys()) == {"model.embed_tokens.weight", "model.norm.weight"}
 
     def test_multi_shard_produces_index(self, tmp_path: Path) -> None:
@@ -285,20 +251,17 @@ class TestWriteSharded:
         assert index["metadata"]["total_size"] > 0
 
     def test_multi_shard_index_points_to_correct_files(self, tmp_path: Path) -> None:
-        tensors = [
-            ("first", np.ones((64, 64), dtype=np.float32)),
-            ("second", np.ones((64, 64), dtype=np.float32)),
-        ]
+        tensors = [("first", np.ones((64, 64), dtype=np.float32)), ("second", np.ones((64, 64), dtype=np.float32))]
         _write_sharded(tmp_path, iter(tensors), shard_size_bytes=20 * 1024)
 
         import json
 
-        from safetensors import safe_open
+        from safetensors import safe_open  # type: ignore[import-untyped]
 
         index = json.loads((tmp_path / "model.safetensors.index.json").read_text())
         for name in ("first", "second"):
             shard = index["weight_map"][name]
-            with safe_open(str(tmp_path / shard), framework="numpy") as f:
+            with safe_open(str(tmp_path / shard), framework="numpy") as f:  # type: ignore[no-untyped-call]
                 assert name in list(f.keys())
 
     def test_tensor_larger_than_threshold_gets_own_shard(self, tmp_path: Path) -> None:
