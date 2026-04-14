@@ -406,7 +406,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
 
 ### Phase 3: Hub Integration + Cleanup
 
-- [x] **3.1 Invoke conversion from `_finalize_download`**
+- [x] **3.1 Invoke conversion from `_finalize_download`** [b01a487]
   - **File:** `src/py/mogemma/hub.py`
   - **Insertion point:** between `staging_dir.rename(local_dir)` (line 327) and
     `return local_dir` (line 328). After rename, check:
@@ -434,7 +434,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
   - Action: verify no change needed; add a test that documents the precedence.
   - **Test-first:** `test_has_model_files_prefers_safetensors_over_orbax()`.
 
-- [x] **3.3 Wire `convert_orbax_to_safetensors` into both sync and async paths**
+- [x] **3.3 Wire `convert_orbax_to_safetensors` into both sync and async paths** [b01a487]
   - Both `download_sync` (hub.py:365) and `download_async` (hub.py:420) call
     `_finalize_download`, so a single change there covers both.
   - **Verification:** `grep -n _finalize_download src/py/mogemma/hub.py` — must
