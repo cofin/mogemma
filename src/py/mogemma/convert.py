@@ -69,10 +69,64 @@ def _layer_count(keys: list[str]) -> int:
     return max(indices) + 1
 
 
+# ── Attention iterator helpers ───────────────────────────────────────────────
+
+
+def _iter_attn_layer(model_path: Path, keys_set: set[str], layer_n: int) -> Iterator[tuple[str, np.ndarray]]:
+    """Yield the 6 attention tensors for a transformer layer.
+
+    Handles three Orbax KV layouts observed across variants:
+
+    * ``kv_einsum.w`` ``(2, n_kv, H, head_dim)`` — combined k+v (E2B/E4B + MoE
+      sliding layers). Split along axis 0.
+    * ``k_einsum.w`` + ``v_einsum.w`` — separate k/v tensors.
+    * ``k_einsum.w`` alone (no ``v_einsum.w``) — full-attention layers with
+      ``attention_k_eq_v`` / KV-sharing; emit k_proj and v_proj as the same
+      transformed array.
+
+    Common reshape for q/k/v: ``w.transpose(0, 2, 1).reshape(-1, H)`` so the
+    output is ``[n_heads·head_dim, H]`` matching the HF convention.
+    """
+    pfx_in = f"layer_{layer_n}"
+    pfx_out = f"model.layers.{layer_n}"
+
+    q = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.q_einsum.w")
+    yield f"{pfx_out}.self_attn.q_proj.weight", q.transpose(0, 2, 1).reshape(-1, q.shape[1])
+
+    kv_combined = f"{pfx_in}.attn.kv_einsum.w"
+    k_only = f"{pfx_in}.attn.k_einsum.w"
+    v_only = f"{pfx_in}.attn.v_einsum.w"
+
+    if kv_combined in keys_set:
+        kv = OrbaxLoader.open_tensor(model_path, kv_combined)
+        k, v = kv[0], kv[1]
+        yield f"{pfx_out}.self_attn.k_proj.weight", k.transpose(0, 2, 1).reshape(-1, k.shape[1])
+        yield f"{pfx_out}.self_attn.v_proj.weight", v.transpose(0, 2, 1).reshape(-1, v.shape[1])
+    elif k_only in keys_set:
+        k = OrbaxLoader.open_tensor(model_path, k_only)
+        k_proj = k.transpose(0, 2, 1).reshape(-1, k.shape[1])
+        yield f"{pfx_out}.self_attn.k_proj.weight", k_proj
+        if v_only in keys_set:
+            v = OrbaxLoader.open_tensor(model_path, v_only)
+            yield f"{pfx_out}.self_attn.v_proj.weight", v.transpose(0, 2, 1).reshape(-1, v.shape[1])
+        else:
+            # KV-sharing (attention_k_eq_v): v_proj reuses the k projection.
+            yield f"{pfx_out}.self_attn.v_proj.weight", k_proj
+    else:
+        msg = f"layer {layer_n}: no kv_einsum.w or k_einsum.w found in Orbax inventory"
+        raise KeyError(msg)
+
+    o = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.attn_vec_einsum.w")
+    yield f"{pfx_out}.self_attn.o_proj.weight", o.reshape(-1, o.shape[2]).T
+
+    yield (f"{pfx_out}.self_attn.q_norm.weight", OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.query_norm.scale"))
+    yield (f"{pfx_out}.self_attn.k_norm.weight", OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.key_norm.scale"))
+
+
 # ── Base-transformer iterator ────────────────────────────────────────────────
 
 
-def _iter_base_transformer(model_path: Path, _keys: list[str], num_layers: int) -> Iterator[tuple[str, np.ndarray]]:
+def _iter_base_transformer(model_path: Path, keys: list[str], num_layers: int) -> Iterator[tuple[str, np.ndarray]]:
     """Yield ``(safetensors_name, array)`` pairs for the base-transformer tensors.
 
     Produces: ``model.embed_tokens.weight``, ``lm_head.weight`` (tied),
@@ -98,6 +152,8 @@ def _iter_base_transformer(model_path: Path, _keys: list[str], num_layers: int) 
 
     yield "model.norm.weight", OrbaxLoader.open_tensor(model_path, "final_norm.scale")
 
+    keys_set = set(keys)
+
     for n in range(num_layers):
         pfx_in = f"layer_{n}"
         pfx_out = f"model.layers.{n}"
@@ -119,31 +175,10 @@ def _iter_base_transformer(model_path: Path, _keys: list[str], num_layers: int) 
             f"{pfx_out}.post_feedforward_layernorm.weight",
             OrbaxLoader.open_tensor(model_path, f"{pfx_in}.post_ffw_norm.scale"),
         )
-        yield (
-            f"{pfx_out}.self_attn.q_norm.weight",
-            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.query_norm.scale"),
-        )
-        yield (
-            f"{pfx_out}.self_attn.k_norm.weight",
-            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.key_norm.scale"),
-        )
 
-        # Attention projections
-        q = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.q_einsum.w")
-        yield f"{pfx_out}.self_attn.q_proj.weight", q.transpose(0, 2, 1).reshape(-1, q.shape[1])
+        # Attention (q/k/v/o + q_norm/k_norm) — delegates KV-layout detection.
+        yield from _iter_attn_layer(model_path, keys_set, n)
 
-        # kv_einsum.w is the combined-KV layout used by E2B/E4B: (2, n_kv, H, head_dim).
-        # Separate ``k_einsum.w`` / ``v_einsum.w`` layouts used by 31B/MoE are handled
-        # in a sibling code path not exercised by this E2B fixture (TODO when 31B lands).
-        kv = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.kv_einsum.w")
-        k, v = kv[0], kv[1]
-        yield f"{pfx_out}.self_attn.k_proj.weight", k.transpose(0, 2, 1).reshape(-1, k.shape[1])
-        yield f"{pfx_out}.self_attn.v_proj.weight", v.transpose(0, 2, 1).reshape(-1, v.shape[1])
-
-        o = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.attn.attn_vec_einsum.w")
-        yield f"{pfx_out}.self_attn.o_proj.weight", o.reshape(-1, o.shape[2]).T
-
-        # MLP
         gate_up = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.gating_einsum.w")
         yield f"{pfx_out}.mlp.gate_proj.weight", gate_up[0]
         yield f"{pfx_out}.mlp.up_proj.weight", gate_up[1]
@@ -352,24 +387,110 @@ def _iter_vision(model_path: Path, num_vision_layers: int) -> Iterator[tuple[str
     yield ("vision_tower.vision_model.post_layernorm.weight", np.ascontiguousarray(post_ffw_all[-1]))
 
 
-def _iter_moe_experts(
-    model_path: Path,  # noqa: ARG001
-    num_layers: int,  # noqa: ARG001
-    num_experts: int,  # noqa: ARG001
-) -> Iterator[tuple[str, np.ndarray]]:
-    """Convert Orbax MoE expert tensors to per-expert safetensors. Deferred.
+def _iter_moe_transformer(model_path: Path, keys: list[str], num_layers: int) -> Iterator[tuple[str, np.ndarray]]:
+    """Yield tensors for the Gemma 4 MoE (26B-A4B-it) two-branch architecture.
 
-    Blocked on Task 0.2 (26B-A4B-it inventory dump) — MoE expert packing
-    shapes are still guesses. E2B-it has no router tensors, so this code
-    path has no live checkpoint to validate against yet. Implement after
-    a 26B checkpoint is available locally.
+    Every MoE layer has both a dense MLP (``mlp2.*``) and a routed MoE block
+    (``mlp.*``); their outputs sum into the residual stream. This iterator
+    emits all per-layer tensors the Mojo MoE forward pass consumes:
+
+    * Attention (via :func:`_iter_attn_layer` — handles sliding vs full layouts)
+    * Input/post-attention norms (same names as base)
+    * Dense MLP branch: ``mlp.gate_proj`` / ``up_proj`` / ``down_proj``
+      (derived from ``mlp2.gating_einsum.w`` + ``mlp2.linear.w``)
+    * Router: ``moe_router.proj.weight`` ``[E, H]``, ``moe_router.scale``,
+      ``moe_router.per_expert_scale``
+    * Experts packed: ``moe_experts.gate_up_proj`` ``[E, 2·I_moe, H]``,
+      ``moe_experts.down_proj`` ``[E, H, I_moe]``
+    * MoE norms: ``pre_feedforward_layernorm`` (dense pre),
+      ``post_feedforward_layernorm_1`` (dense post),
+      ``pre_feedforward_layernorm_2`` (MoE pre),
+      ``post_feedforward_layernorm_2`` (MoE post), plus the opaque
+      ``post_feedforward_layernorm`` (role unclear in the HF reference —
+      emitted faithfully when present)
+    * ``moe_skip_scale.weight`` — scalar ``(1,)`` per layer, present only
+      in Orbax; emitted verbatim so the Mojo forward pass can decide
+      whether to apply ``residual * skip_scale`` after inspection.
     """
-    msg = (
-        "MoE expert conversion deferred: requires 26B-A4B-it inventory "
-        "(Task 0.2) to confirm expert packing shapes before implementation."
-    )
-    raise NotImplementedError(msg)
-    yield  # pragma: no cover — keeps the function a generator for typing
+    embed = OrbaxLoader.open_tensor(model_path, "embedder.input_embedding")
+    yield "model.embed_tokens.weight", embed
+    yield "lm_head.weight", embed
+
+    yield "model.norm.weight", OrbaxLoader.open_tensor(model_path, "final_norm.scale")
+
+    keys_set = set(keys)
+
+    for n in range(num_layers):
+        pfx_in = f"layer_{n}"
+        pfx_out = f"model.layers.{n}"
+
+        # Input/post-attention norms (shared with dense layers).
+        yield (
+            f"{pfx_out}.input_layernorm.weight",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.pre_attention_norm.scale"),
+        )
+        yield (
+            f"{pfx_out}.post_attention_layernorm.weight",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.post_attention_norm.scale"),
+        )
+
+        yield from _iter_attn_layer(model_path, keys_set, n)
+
+        # Dense MLP branch (from Orbax mlp2.*)
+        dense_gate_up = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp2.gating_einsum.w")
+        yield f"{pfx_out}.mlp.gate_proj.weight", dense_gate_up[0]
+        yield f"{pfx_out}.mlp.up_proj.weight", dense_gate_up[1]
+        dense_down = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp2.linear.w")
+        yield f"{pfx_out}.mlp.down_proj.weight", dense_down.T
+
+        # Router
+        router = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.router_logits.w")
+        # Orbax stores [H, E]; Mojo expects [E, H] so the router gemm is
+        # (weights @ hidden) producing [E] logits per token — same convention
+        # as every other projection in the file.
+        yield f"{pfx_out}.moe_router.proj.weight", router.T
+        yield (f"{pfx_out}.moe_router.scale", OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.router_scale"))
+        yield (
+            f"{pfx_out}.moe_router.per_expert_scale",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.per_expert_scale"),
+        )
+
+        # Experts (packed gate_up + down)
+        expert_gate_up = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.gating_einsum.w")
+        # Orbax [E, 2, I_moe, H] → [E, 2·I_moe, H] preserving gate-then-up
+        # interleave on axis 1 (matches HF gate_up_proj layout).
+        e, _two, i_moe, h = expert_gate_up.shape
+        yield (f"{pfx_out}.moe_experts.gate_up_proj", expert_gate_up.reshape(e, 2 * i_moe, h))
+        expert_down = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.linear.w")
+        # Orbax [E, I_moe, H] → [E, H, I_moe] (transpose last two axes).
+        yield f"{pfx_out}.moe_experts.down_proj", expert_down.transpose(0, 2, 1)
+
+        # MoE norms — emit every one present in the inventory.
+        yield (
+            f"{pfx_out}.pre_feedforward_layernorm.weight",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.pre_ffw_norm.scale"),
+        )
+        yield (
+            f"{pfx_out}.post_feedforward_layernorm_1.weight",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.post_ffw1_norm.scale"),
+        )
+        yield (
+            f"{pfx_out}.pre_feedforward_layernorm_2.weight",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.pre_ffw2_norm.scale"),
+        )
+        yield (
+            f"{pfx_out}.post_feedforward_layernorm_2.weight",
+            OrbaxLoader.open_tensor(model_path, f"{pfx_in}.post_ffw2_norm.scale"),
+        )
+        if f"{pfx_in}.post_ffw_norm.scale" in keys_set:
+            yield (
+                f"{pfx_out}.post_feedforward_layernorm.weight",
+                OrbaxLoader.open_tensor(model_path, f"{pfx_in}.post_ffw_norm.scale"),
+            )
+
+        # skip_scale scalar — preserved verbatim.
+        if f"{pfx_in}.skip_scale" in keys_set:
+            yield (f"{pfx_out}.moe_skip_scale.weight", OrbaxLoader.open_tensor(model_path, f"{pfx_in}.skip_scale"))
 
 
 # ── Sharded safetensors writer ───────────────────────────────────────────────
@@ -492,15 +613,13 @@ def convert_orbax_to_safetensors(model_path: Path, *, shard_size_bytes: int = _D
     variant = _variant_from_keys(keys)
     num_layers = _layer_count(keys)
 
-    iterators: list[Iterator[tuple[str, np.ndarray]]] = [_iter_base_transformer(model_path, keys, num_layers)]
-    if variant == "ple":
-        iterators.append(_iter_ple(model_path, num_layers))
-    elif variant == "moe":
-        msg = (
-            "MoE Orbax→safetensors conversion is pending (see "
-            ".agents/specs/orbax-safetensors-conversion/spec.md task 2.2)."
-        )
-        raise NotImplementedError(msg)
+    iterators: list[Iterator[tuple[str, np.ndarray]]]
+    if variant == "moe":
+        iterators = [_iter_moe_transformer(model_path, keys, num_layers)]
+    else:
+        iterators = [_iter_base_transformer(model_path, keys, num_layers)]
+        if variant == "ple":
+            iterators.append(_iter_ple(model_path, num_layers))
 
     if any("vision_encoder." in k for k in keys):
         vision_layer_count = _count_vision_layers(keys, model_path)

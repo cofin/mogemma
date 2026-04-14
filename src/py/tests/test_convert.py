@@ -11,7 +11,7 @@ import pytest
 
 from mogemma.convert import (
     _iter_base_transformer,
-    _iter_moe_experts,
+    _iter_moe_transformer,
     _iter_ple,
     _iter_vision,
     _layer_count,
@@ -368,14 +368,275 @@ class TestPLEIterator:
         assert skip_list.isdisjoint(set(opened))
 
 
-class TestDeferredMoEIterator:
-    """MoE iterator raises NotImplementedError until 26B-A4B-it inventory lands."""
+# 26B-A4B-it MoE shapes, shrunk for unit tests. Real dims per .agents/specs/
+# orbax-safetensors-conversion/26b-inventory.txt:
+#   q_einsum.w (16, 2816, 256), kv_einsum.w (2, 8, 2816, 256),
+#   mlp.gating_einsum.w (128, 2, 704, 2816) — packed experts
+#   mlp.linear.w (128, 704, 2816) — experts down
+#   mlp2.gating_einsum.w (2, 2112, 2816), mlp2.linear.w (2112, 2816) — dense
+#   mlp.router_logits.w (2816, 128), router_scale (2816,), per_expert_scale (128,)
+_M_H = 64
+_M_HEAD_DIM = 16
+_M_N_HEADS = 4
+_M_N_KV = 2
+_M_N_EXPERTS = 6
+_M_I_MOE = 20
+_M_I_DENSE = 32
+_M_LAYERS = 2
 
-    def test_moe_raises_until_inventory_confirmed(self, tmp_path: Path) -> None:
-        with pytest.raises(NotImplementedError) as excinfo:
-            list(_iter_moe_experts(tmp_path, num_layers=1, num_experts=128))
-        msg = str(excinfo.value).lower()
-        assert "moe" in msg or "expert" in msg
+
+def _make_moe_tensor_map(num_layers: int = _M_LAYERS) -> dict[str, np.ndarray]:
+    """Synthetic MoE Orbax inventory mirroring 26B-A4B-it axis roles."""
+    rng = np.random.default_rng(seed=3)
+    tensors: dict[str, np.ndarray] = {
+        "embedder.input_embedding": rng.standard_normal((128, _M_H)).astype(np.float32),
+        "final_norm.scale": rng.standard_normal((_M_H,)).astype(np.float32),
+    }
+    for n in range(num_layers):
+        # Attention (sliding layout — kv_einsum combined)
+        tensors[f"layer_{n}.attn.q_einsum.w"] = rng.standard_normal((_M_N_HEADS, _M_H, _M_HEAD_DIM)).astype(np.float32)
+        tensors[f"layer_{n}.attn.kv_einsum.w"] = rng.standard_normal((2, _M_N_KV, _M_H, _M_HEAD_DIM)).astype(np.float32)
+        tensors[f"layer_{n}.attn.attn_vec_einsum.w"] = rng.standard_normal((_M_N_HEADS, _M_HEAD_DIM, _M_H)).astype(
+            np.float32
+        )
+        tensors[f"layer_{n}.attn.query_norm.scale"] = rng.standard_normal((_M_HEAD_DIM,)).astype(np.float32)
+        tensors[f"layer_{n}.attn.key_norm.scale"] = rng.standard_normal((_M_HEAD_DIM,)).astype(np.float32)
+
+        # Dense MLP branch
+        tensors[f"layer_{n}.mlp2.gating_einsum.w"] = rng.standard_normal((2, _M_I_DENSE, _M_H)).astype(np.float32)
+        tensors[f"layer_{n}.mlp2.linear.w"] = rng.standard_normal((_M_I_DENSE, _M_H)).astype(np.float32)
+
+        # MoE branch
+        tensors[f"layer_{n}.mlp.router_logits.w"] = rng.standard_normal((_M_H, _M_N_EXPERTS)).astype(np.float32)
+        tensors[f"layer_{n}.mlp.router_scale"] = rng.standard_normal((_M_H,)).astype(np.float32)
+        tensors[f"layer_{n}.mlp.per_expert_scale"] = rng.standard_normal((_M_N_EXPERTS,)).astype(np.float32)
+        tensors[f"layer_{n}.mlp.gating_einsum.w"] = rng.standard_normal((_M_N_EXPERTS, 2, _M_I_MOE, _M_H)).astype(
+            np.float32
+        )
+        tensors[f"layer_{n}.mlp.linear.w"] = rng.standard_normal((_M_N_EXPERTS, _M_I_MOE, _M_H)).astype(np.float32)
+
+        # Norms — the full 7 observed in 26B-A4B-it
+        for norm in (
+            "pre_attention_norm",
+            "post_attention_norm",
+            "pre_ffw_norm",
+            "post_ffw1_norm",
+            "pre_ffw2_norm",
+            "post_ffw2_norm",
+            "post_ffw_norm",
+        ):
+            tensors[f"layer_{n}.{norm}.scale"] = rng.standard_normal((_M_H,)).astype(np.float32)
+
+        # skip_scale scalar
+        tensors[f"layer_{n}.skip_scale"] = rng.standard_normal((1,)).astype(np.float32)
+    return tensors
+
+
+class TestMoEIterator:
+    """`_iter_moe_transformer` emits the two-branch tensors consumed by the Mojo MoE forward pass."""
+
+    def test_yields_expected_name_set(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        keys = list(tensors)
+        yielded = _run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, keys, _M_LAYERS)
+        names = {name for name, _ in yielded}
+
+        expected = {"model.embed_tokens.weight", "lm_head.weight", "model.norm.weight"}
+        for n in range(_M_LAYERS):
+            pfx = f"model.layers.{n}"
+            expected |= {
+                f"{pfx}.input_layernorm.weight",
+                f"{pfx}.post_attention_layernorm.weight",
+                f"{pfx}.self_attn.q_proj.weight",
+                f"{pfx}.self_attn.k_proj.weight",
+                f"{pfx}.self_attn.v_proj.weight",
+                f"{pfx}.self_attn.o_proj.weight",
+                f"{pfx}.self_attn.q_norm.weight",
+                f"{pfx}.self_attn.k_norm.weight",
+                # Dense branch
+                f"{pfx}.mlp.gate_proj.weight",
+                f"{pfx}.mlp.up_proj.weight",
+                f"{pfx}.mlp.down_proj.weight",
+                # Router
+                f"{pfx}.moe_router.proj.weight",
+                f"{pfx}.moe_router.scale",
+                f"{pfx}.moe_router.per_expert_scale",
+                # Experts (packed)
+                f"{pfx}.moe_experts.gate_up_proj",
+                f"{pfx}.moe_experts.down_proj",
+                # MoE norms
+                f"{pfx}.pre_feedforward_layernorm.weight",
+                f"{pfx}.post_feedforward_layernorm_1.weight",
+                f"{pfx}.pre_feedforward_layernorm_2.weight",
+                f"{pfx}.post_feedforward_layernorm_2.weight",
+                f"{pfx}.post_feedforward_layernorm.weight",
+                f"{pfx}.moe_skip_scale.weight",
+            }
+        assert names == expected
+
+    def test_dense_branch_splits_mlp2_gating(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        src = tensors["layer_0.mlp2.gating_einsum.w"]  # (2, I_dense, H)
+        np.testing.assert_array_equal(yielded["model.layers.0.mlp.gate_proj.weight"], src[0])
+        np.testing.assert_array_equal(yielded["model.layers.0.mlp.up_proj.weight"], src[1])
+
+    def test_dense_down_transposes(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        src = tensors["layer_0.mlp2.linear.w"]  # (I_dense, H)
+        np.testing.assert_array_equal(yielded["model.layers.0.mlp.down_proj.weight"], src.T)
+        assert yielded["model.layers.0.mlp.down_proj.weight"].shape == (_M_H, _M_I_DENSE)
+
+    def test_router_transpose(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        src = tensors["layer_0.mlp.router_logits.w"]  # (H, E)
+        np.testing.assert_array_equal(yielded["model.layers.0.moe_router.proj.weight"], src.T)
+        assert yielded["model.layers.0.moe_router.proj.weight"].shape == (_M_N_EXPERTS, _M_H)
+
+    def test_router_scale_and_per_expert_scale_pass_through(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        np.testing.assert_array_equal(yielded["model.layers.0.moe_router.scale"], tensors["layer_0.mlp.router_scale"])
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.moe_router.per_expert_scale"], tensors["layer_0.mlp.per_expert_scale"]
+        )
+
+    def test_experts_packed_gate_up_reshape(self, tmp_path: Path) -> None:
+        """[E, 2, I_moe, H] → [E, 2·I_moe, H] preserving gate-then-up order on axis 1."""
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        src = tensors["layer_0.mlp.gating_einsum.w"]  # (E, 2, I_moe, H)
+        emitted = yielded["model.layers.0.moe_experts.gate_up_proj"]
+        assert emitted.shape == (_M_N_EXPERTS, 2 * _M_I_MOE, _M_H)
+        # Row 0..I_moe on axis 1 should be the gate half; I_moe..2·I_moe should be up.
+        np.testing.assert_array_equal(emitted[:, :_M_I_MOE, :], src[:, 0, :, :])
+        np.testing.assert_array_equal(emitted[:, _M_I_MOE:, :], src[:, 1, :, :])
+
+    def test_experts_down_transpose(self, tmp_path: Path) -> None:
+        """[E, I_moe, H] → [E, H, I_moe] (transpose last two axes)."""
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        src = tensors["layer_0.mlp.linear.w"]  # (E, I_moe, H)
+        emitted = yielded["model.layers.0.moe_experts.down_proj"]
+        assert emitted.shape == (_M_N_EXPERTS, _M_H, _M_I_MOE)
+        np.testing.assert_array_equal(emitted, src.transpose(0, 2, 1))
+
+    def test_moe_norms_all_six_emitted(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        norm_map = {
+            "pre_feedforward_layernorm.weight": "pre_ffw_norm.scale",
+            "post_feedforward_layernorm_1.weight": "post_ffw1_norm.scale",
+            "pre_feedforward_layernorm_2.weight": "pre_ffw2_norm.scale",
+            "post_feedforward_layernorm_2.weight": "post_ffw2_norm.scale",
+            "post_feedforward_layernorm.weight": "post_ffw_norm.scale",
+        }
+        for hf_suffix, orbax_suffix in norm_map.items():
+            np.testing.assert_array_equal(yielded[f"model.layers.0.{hf_suffix}"], tensors[f"layer_0.{orbax_suffix}"])
+
+    def test_skip_scale_preserved_verbatim(self, tmp_path: Path) -> None:
+        tensors = _make_moe_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        emitted = yielded["model.layers.0.moe_skip_scale.weight"]
+        np.testing.assert_array_equal(emitted, tensors["layer_0.skip_scale"])
+        assert emitted.shape == (1,)
+
+    def test_optional_post_ffw_norm_omitted_if_absent(self, tmp_path: Path) -> None:
+        """If Orbax lacks post_ffw_norm.scale, the safetensors key is simply not emitted."""
+        tensors = _make_moe_tensor_map()
+        del tensors["layer_0.post_ffw_norm.scale"]
+        del tensors["layer_1.post_ffw_norm.scale"]
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_moe_transformer, tmp_path, list(tensors), _M_LAYERS))
+        assert "model.layers.0.post_feedforward_layernorm.weight" not in yielded
+
+
+class TestAttnLayerKVLayouts:
+    """`_iter_attn_layer` handles sliding (kv_einsum) + full (k_einsum only) + split (k+v) layouts."""
+
+    def _build_layer(self, kv_layout: str) -> dict[str, np.ndarray]:
+        """Build a one-layer attention fixture in the requested layout."""
+        rng = np.random.default_rng(seed=4)
+        tensors: dict[str, np.ndarray] = {
+            "layer_0.attn.q_einsum.w": rng.standard_normal((4, 16, 8)).astype(np.float32),
+            "layer_0.attn.attn_vec_einsum.w": rng.standard_normal((4, 8, 16)).astype(np.float32),
+            "layer_0.attn.query_norm.scale": rng.standard_normal((8,)).astype(np.float32),
+            "layer_0.attn.key_norm.scale": rng.standard_normal((8,)).astype(np.float32),
+        }
+        if kv_layout == "combined":
+            tensors["layer_0.attn.kv_einsum.w"] = rng.standard_normal((2, 2, 16, 8)).astype(np.float32)
+        elif kv_layout == "split":
+            tensors["layer_0.attn.k_einsum.w"] = rng.standard_normal((2, 16, 8)).astype(np.float32)
+            tensors["layer_0.attn.v_einsum.w"] = rng.standard_normal((2, 16, 8)).astype(np.float32)
+        elif kv_layout == "k_only":
+            tensors["layer_0.attn.k_einsum.w"] = rng.standard_normal((2, 16, 8)).astype(np.float32)
+        return tensors
+
+    def test_combined_kv_einsum_splits(self, tmp_path: Path) -> None:
+        from mogemma.convert import _iter_attn_layer
+
+        tensors = self._build_layer("combined")
+        keys = set(tensors)
+
+        def fake_open(_path: object, name: str) -> np.ndarray:
+            return tensors[name]
+
+        with patch.object(OrbaxLoader, "open_tensor", staticmethod(fake_open)):
+            yielded = dict(_iter_attn_layer(tmp_path, keys, 0))
+        kv = tensors["layer_0.attn.kv_einsum.w"]
+        assert not np.array_equal(
+            yielded["model.layers.0.self_attn.k_proj.weight"], yielded["model.layers.0.self_attn.v_proj.weight"]
+        )
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.self_attn.k_proj.weight"], kv[0].transpose(0, 2, 1).reshape(-1, 16)
+        )
+
+    def test_split_k_and_v(self, tmp_path: Path) -> None:
+        from mogemma.convert import _iter_attn_layer
+
+        tensors = self._build_layer("split")
+        keys = set(tensors)
+
+        def fake_open(_path: object, name: str) -> np.ndarray:
+            return tensors[name]
+
+        with patch.object(OrbaxLoader, "open_tensor", staticmethod(fake_open)):
+            yielded = dict(_iter_attn_layer(tmp_path, keys, 0))
+        assert not np.array_equal(
+            yielded["model.layers.0.self_attn.k_proj.weight"], yielded["model.layers.0.self_attn.v_proj.weight"]
+        )
+
+    def test_k_only_shares_with_v(self, tmp_path: Path) -> None:
+        """Full-attention layers with KV-sharing: v_proj == k_proj."""
+        from mogemma.convert import _iter_attn_layer
+
+        tensors = self._build_layer("k_only")
+        keys = set(tensors)
+
+        def fake_open(_path: object, name: str) -> np.ndarray:
+            return tensors[name]
+
+        with patch.object(OrbaxLoader, "open_tensor", staticmethod(fake_open)):
+            yielded = dict(_iter_attn_layer(tmp_path, keys, 0))
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.self_attn.k_proj.weight"], yielded["model.layers.0.self_attn.v_proj.weight"]
+        )
+
+    def test_missing_both_raises(self, tmp_path: Path) -> None:
+        from mogemma.convert import _iter_attn_layer
+
+        tensors = self._build_layer("combined")
+        del tensors["layer_0.attn.kv_einsum.w"]
+
+        def fake_open(_path: object, name: str) -> np.ndarray:
+            return tensors[name]
+
+        with (
+            patch.object(OrbaxLoader, "open_tensor", staticmethod(fake_open)),
+            pytest.raises(KeyError, match="kv_einsum"),
+        ):
+            list(_iter_attn_layer(tmp_path, set(tensors), 0))
 
 
 # Vision shrunk shapes (E2B-it uses L=16, H_v=768, n_heads=12, head_dim=64, intermediate=3072).
@@ -667,7 +928,8 @@ class TestConvertOrbaxToSafetensorsRoundTrip:
         def fake_enumerate(_path: object) -> list[str]:
             return []
 
-        with patch.object(OrbaxLoader, "enumerate_tensors", staticmethod(fake_enumerate)), pytest.raises(
-            ValueError, match="No Orbax tensors"
+        with (
+            patch.object(OrbaxLoader, "enumerate_tensors", staticmethod(fake_enumerate)),
+            pytest.raises(ValueError, match="No Orbax tensors"),
         ):
             convert_orbax_to_safetensors(tmp_path)
