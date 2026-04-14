@@ -19,15 +19,15 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Literal
+
+import numpy as np
 
 from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
     from pathlib import Path
-
-    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +150,44 @@ def _iter_base_transformer(model_path: Path, _keys: list[str], num_layers: int) 
 
         down = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.linear.w")
         yield f"{pfx_out}.mlp.down_proj.weight", down.T
+
+
+# ── Per-Layer Embeddings (E2B/E4B) ──────────────────────────────────────────
+
+
+def _iter_ple(model_path: Path, num_layers: int) -> Iterator[tuple[str, np.ndarray]]:
+    """Yield the 3 PLE tensors per layer consumed by ``forward_ple_input`` (layers.mojo:884-908).
+
+    Mapping (verified against E2B-it inventory and ``layers.mojo`` forward path):
+
+    * ``embedder.per_layer_embeddings`` ``(V, L, H_ple)`` → ``per_layer_embedding.weight``
+      ``(V, H_ple)`` per layer via ``arr[:, N, :]`` (layer axis is the MIDDLE axis).
+    * ``layer_N.per_layer_projection.w`` ``(H_ple, H)`` → ``per_layer_projection.weight`` (identity).
+    * ``layer_N.post_per_layer_input_norm.scale`` ``(H,)`` → ``per_layer_norm.weight`` (identity).
+
+    Orbax PLE-adjacent tensors NOT consumed by the Mojo forward pass are
+    intentionally skipped (never opened): ``embedder.per_layer_model_projection.w``,
+    ``embedder.per_layer_projection_norm.scale``, ``layer_N.per_layer_input_gate.w``,
+    ``layer_N.skip_scale``.
+    """
+    global_embeddings = OrbaxLoader.open_tensor(model_path, "embedder.per_layer_embeddings")
+
+    for n in range(num_layers):
+        pfx_out = f"model.layers.{n}.per_layer_input"
+        # Slice the layer axis out of the global (V, L, H_ple) table;
+        # ascontiguousarray gives safetensors a self-contained C buffer.
+        yield (
+            f"{pfx_out}.per_layer_embedding.weight",
+            np.ascontiguousarray(global_embeddings[:, n, :]),
+        )
+        yield (
+            f"{pfx_out}.per_layer_projection.weight",
+            OrbaxLoader.open_tensor(model_path, f"layer_{n}.per_layer_projection.w"),
+        )
+        yield (
+            f"{pfx_out}.per_layer_norm.weight",
+            OrbaxLoader.open_tensor(model_path, f"layer_{n}.post_per_layer_input_norm.scale"),
+        )
 
 
 # ── Sharded safetensors writer ───────────────────────────────────────────────

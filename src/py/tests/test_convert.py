@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from mogemma.convert import _iter_base_transformer, _layer_count, _variant_from_keys, _write_sharded
+from mogemma.convert import _iter_base_transformer, _iter_ple, _layer_count, _variant_from_keys, _write_sharded
 from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
 
@@ -43,7 +43,7 @@ def _make_base_tensor_map(num_layers: int = _N_LAYERS) -> dict[str, np.ndarray]:
 
 
 def _run_iter_with_fakes(
-    tensors: dict[str, np.ndarray], iterator_fn: Callable[..., "Iterator[tuple[str, np.ndarray]]"], *args: object
+    tensors: dict[str, np.ndarray], iterator_fn: Callable[..., Iterator[tuple[str, np.ndarray]]], *args: object
 ) -> list[tuple[str, np.ndarray]]:
     """Patch OrbaxLoader.open_tensor to pull from *tensors*, run *iterator_fn*, collect results."""
 
@@ -272,3 +272,88 @@ class TestWriteSharded:
         ]
         written = _write_sharded(tmp_path, iter(tensors), shard_size_bytes=10 * 1024)
         assert len(written) == 2
+
+
+# E2B-it PLE axis roles (shrunk): embeddings are (V, L, ple_dim).
+_PLE_DIM = 8
+
+
+def _make_ple_tensor_map(num_layers: int = _N_LAYERS) -> dict[str, np.ndarray]:
+    rng = np.random.default_rng(seed=1)
+    tensors: dict[str, np.ndarray] = {
+        # Global embedder table: layer axis is the MIDDLE axis, per E2B-it inventory.
+        "embedder.per_layer_embeddings": rng.standard_normal((_V, num_layers, _PLE_DIM)).astype(np.float32),
+    }
+    for n in range(num_layers):
+        tensors[f"layer_{n}.per_layer_projection.w"] = rng.standard_normal((_PLE_DIM, _H)).astype(np.float32)
+        tensors[f"layer_{n}.post_per_layer_input_norm.scale"] = rng.standard_normal((_H,)).astype(np.float32)
+    return tensors
+
+
+class TestPLEIterator:
+    """`_iter_ple` maps the 3 Mojo-consumed PLE tensors per layer."""
+
+    def test_yields_expected_name_set(self, tmp_path: Path) -> None:
+        tensors = _make_ple_tensor_map()
+        yielded = _run_iter_with_fakes(tensors, _iter_ple, tmp_path, _N_LAYERS)
+        names = {name for name, _ in yielded}
+
+        expected = set()
+        for n in range(_N_LAYERS):
+            pfx = f"model.layers.{n}.per_layer_input"
+            expected |= {
+                f"{pfx}.per_layer_embedding.weight",
+                f"{pfx}.per_layer_projection.weight",
+                f"{pfx}.per_layer_norm.weight",
+            }
+        assert names == expected
+
+    def test_embedding_split_along_middle_axis(self, tmp_path: Path) -> None:
+        tensors = _make_ple_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_ple, tmp_path, _N_LAYERS))
+
+        src = tensors["embedder.per_layer_embeddings"]  # (V, L, ple_dim)
+        for n in range(_N_LAYERS):
+            emitted = yielded[f"model.layers.{n}.per_layer_input.per_layer_embedding.weight"]
+            assert emitted.shape == (_V, _PLE_DIM)
+            np.testing.assert_array_equal(emitted, src[:, n, :])
+
+    def test_projection_passes_through(self, tmp_path: Path) -> None:
+        tensors = _make_ple_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_ple, tmp_path, _N_LAYERS))
+        emitted = yielded["model.layers.0.per_layer_input.per_layer_projection.weight"]
+        np.testing.assert_array_equal(emitted, tensors["layer_0.per_layer_projection.w"])
+        assert emitted.shape == (_PLE_DIM, _H)
+
+    def test_norm_passes_through(self, tmp_path: Path) -> None:
+        tensors = _make_ple_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_ple, tmp_path, _N_LAYERS))
+        emitted = yielded["model.layers.0.per_layer_input.per_layer_norm.weight"]
+        np.testing.assert_array_equal(emitted, tensors["layer_0.post_per_layer_input_norm.scale"])
+        assert emitted.shape == (_H,)
+
+    def test_skipped_orbax_tensors_not_opened(self, tmp_path: Path) -> None:
+        """input_gate, skip_scale, model_projection, projection_norm are NOT consumed — verify."""
+        tensors = _make_ple_tensor_map()
+        # Add the 4 skip-list tensors; _iter_ple must NOT read them.
+        tensors["embedder.per_layer_model_projection.w"] = np.ones((_H, _N_LAYERS, _PLE_DIM), dtype=np.float32)
+        tensors["embedder.per_layer_projection_norm.scale"] = np.ones((_PLE_DIM,), dtype=np.float32)
+        tensors["layer_0.per_layer_input_gate.w"] = np.ones((_H, _PLE_DIM), dtype=np.float32)
+        tensors["layer_0.skip_scale"] = np.ones((1,), dtype=np.float32)
+
+        opened: list[str] = []
+
+        def tracking_open(_path: object, name: str) -> np.ndarray:
+            opened.append(name)
+            return tensors[name]
+
+        with patch.object(OrbaxLoader, "open_tensor", staticmethod(tracking_open)):
+            list(_iter_ple(tmp_path, _N_LAYERS))
+
+        skip_list = {
+            "embedder.per_layer_model_projection.w",
+            "embedder.per_layer_projection_norm.scale",
+            "layer_0.per_layer_input_gate.w",
+            "layer_0.skip_scale",
+        }
+        assert skip_list.isdisjoint(set(opened))
