@@ -3,13 +3,60 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
+import numpy as np
 import pytest
 
-from mogemma.convert import _layer_count, _variant_from_keys
+from mogemma.convert import _iter_base_transformer, _layer_count, _variant_from_keys
+from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
-    pass
+    from pathlib import Path
+
+
+# E2B-it shapes, shrunk for fast synthetic tests but preserving axis roles.
+_V, _H, _N_LAYERS, _N_HEADS, _N_KV_HEADS, _HEAD_DIM, _INTER = 128, 96, 2, 4, 1, 24, 256
+
+
+def _make_base_tensor_map(num_layers: int = _N_LAYERS) -> dict[str, np.ndarray]:
+    """Build a synthetic Orbax tensor dict with E2B-it axis roles."""
+    rng = np.random.default_rng(seed=0)
+    tensors: dict[str, np.ndarray] = {
+        "embedder.input_embedding": rng.standard_normal((_V, _H)).astype(np.float32),
+        "final_norm.scale": rng.standard_normal((_H,)).astype(np.float32),
+    }
+    for n in range(num_layers):
+        tensors[f"layer_{n}.attn.q_einsum.w"] = rng.standard_normal((_N_HEADS, _H, _HEAD_DIM)).astype(np.float32)
+        tensors[f"layer_{n}.attn.kv_einsum.w"] = rng.standard_normal(
+            (2, _N_KV_HEADS, _H, _HEAD_DIM)
+        ).astype(np.float32)
+        tensors[f"layer_{n}.attn.attn_vec_einsum.w"] = rng.standard_normal(
+            (_N_HEADS, _HEAD_DIM, _H)
+        ).astype(np.float32)
+        tensors[f"layer_{n}.attn.query_norm.scale"] = rng.standard_normal((_HEAD_DIM,)).astype(np.float32)
+        tensors[f"layer_{n}.attn.key_norm.scale"] = rng.standard_normal((_HEAD_DIM,)).astype(np.float32)
+        tensors[f"layer_{n}.mlp.gating_einsum.w"] = rng.standard_normal((2, _INTER, _H)).astype(np.float32)
+        tensors[f"layer_{n}.mlp.linear.w"] = rng.standard_normal((_INTER, _H)).astype(np.float32)
+        tensors[f"layer_{n}.pre_attention_norm.scale"] = rng.standard_normal((_H,)).astype(np.float32)
+        tensors[f"layer_{n}.post_attention_norm.scale"] = rng.standard_normal((_H,)).astype(np.float32)
+        tensors[f"layer_{n}.pre_ffw_norm.scale"] = rng.standard_normal((_H,)).astype(np.float32)
+        tensors[f"layer_{n}.post_ffw_norm.scale"] = rng.standard_normal((_H,)).astype(np.float32)
+    return tensors
+
+
+def _run_iter_with_fakes(
+    tensors: dict[str, np.ndarray],
+    iterator_fn: object,
+    *args: object,
+) -> list[tuple[str, np.ndarray]]:
+    """Patch OrbaxLoader.open_tensor to pull from *tensors*, run *iterator_fn*, collect results."""
+
+    def fake_open_tensor(_path: object, name: str) -> np.ndarray:
+        return tensors[name]
+
+    with patch.object(OrbaxLoader, "open_tensor", staticmethod(fake_open_tensor)):
+        return list(iterator_fn(*args))
 
 
 class TestVariantDetection:
@@ -73,3 +120,118 @@ class TestLayerCount:
     def test_raises_on_empty_input(self) -> None:
         with pytest.raises(ValueError, match="no layer_"):
             _layer_count(["embedder.input_embedding"])
+
+
+class TestBaseTransformerIterator:
+    """`_iter_base_transformer` yields the Mojo-contract tensor names + transformed arrays."""
+
+    def test_yields_expected_name_set(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        keys = list(tensors.keys())
+        yielded = _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, keys, _N_LAYERS)
+        names = {name for name, _ in yielded}
+
+        expected = {"model.embed_tokens.weight", "lm_head.weight", "model.norm.weight"}
+        for n in range(_N_LAYERS):
+            pfx = f"model.layers.{n}"
+            expected |= {
+                f"{pfx}.input_layernorm.weight",
+                f"{pfx}.post_attention_layernorm.weight",
+                f"{pfx}.pre_feedforward_layernorm.weight",
+                f"{pfx}.post_feedforward_layernorm.weight",
+                f"{pfx}.self_attn.q_proj.weight",
+                f"{pfx}.self_attn.k_proj.weight",
+                f"{pfx}.self_attn.v_proj.weight",
+                f"{pfx}.self_attn.o_proj.weight",
+                f"{pfx}.self_attn.q_norm.weight",
+                f"{pfx}.self_attn.k_norm.weight",
+                f"{pfx}.mlp.gate_proj.weight",
+                f"{pfx}.mlp.up_proj.weight",
+                f"{pfx}.mlp.down_proj.weight",
+            }
+        assert names == expected
+
+    def test_embed_tokens_and_lm_head_are_tied(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        np.testing.assert_array_equal(yielded["model.embed_tokens.weight"], yielded["lm_head.weight"])
+        np.testing.assert_array_equal(yielded["model.embed_tokens.weight"], tensors["embedder.input_embedding"])
+
+    def test_q_proj_transform(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        src = tensors["layer_0.attn.q_einsum.w"]  # (n_heads, H, head_dim)
+        expected = src.transpose(0, 2, 1).reshape(-1, _H)  # (n_heads*head_dim, H)
+        np.testing.assert_array_equal(yielded["model.layers.0.self_attn.q_proj.weight"], expected)
+        assert yielded["model.layers.0.self_attn.q_proj.weight"].shape == (_N_HEADS * _HEAD_DIM, _H)
+
+    def test_kv_proj_split_and_transform(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        src = tensors["layer_0.attn.kv_einsum.w"]  # (2, n_kv, H, head_dim)
+        expected_k = src[0].transpose(0, 2, 1).reshape(-1, _H)
+        expected_v = src[1].transpose(0, 2, 1).reshape(-1, _H)
+        np.testing.assert_array_equal(yielded["model.layers.0.self_attn.k_proj.weight"], expected_k)
+        np.testing.assert_array_equal(yielded["model.layers.0.self_attn.v_proj.weight"], expected_v)
+
+    def test_o_proj_transform(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        src = tensors["layer_0.attn.attn_vec_einsum.w"]  # (n_heads, head_dim, H)
+        expected = src.reshape(-1, _H).T  # (H, n_heads*head_dim)
+        np.testing.assert_array_equal(yielded["model.layers.0.self_attn.o_proj.weight"], expected)
+        assert yielded["model.layers.0.self_attn.o_proj.weight"].shape == (_H, _N_HEADS * _HEAD_DIM)
+
+    def test_mlp_gate_up_split(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        src = tensors["layer_0.mlp.gating_einsum.w"]  # (2, intermediate, H)
+        np.testing.assert_array_equal(yielded["model.layers.0.mlp.gate_proj.weight"], src[0])
+        np.testing.assert_array_equal(yielded["model.layers.0.mlp.up_proj.weight"], src[1])
+
+    def test_mlp_down_proj_transposes(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        src = tensors["layer_0.mlp.linear.w"]  # (intermediate, H) in Orbax
+        np.testing.assert_array_equal(yielded["model.layers.0.mlp.down_proj.weight"], src.T)
+        assert yielded["model.layers.0.mlp.down_proj.weight"].shape == (_H, _INTER)
+
+    def test_norms_pass_through_unchanged(self, tmp_path: Path) -> None:
+        tensors = _make_base_tensor_map()
+        yielded = dict(
+            _run_iter_with_fakes(tensors, _iter_base_transformer, tmp_path, list(tensors), _N_LAYERS)
+        )
+        np.testing.assert_array_equal(yielded["model.norm.weight"], tensors["final_norm.scale"])
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.input_layernorm.weight"], tensors["layer_0.pre_attention_norm.scale"]
+        )
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.post_attention_layernorm.weight"],
+            tensors["layer_0.post_attention_norm.scale"],
+        )
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.pre_feedforward_layernorm.weight"],
+            tensors["layer_0.pre_ffw_norm.scale"],
+        )
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.post_feedforward_layernorm.weight"],
+            tensors["layer_0.post_ffw_norm.scale"],
+        )
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.self_attn.q_norm.weight"], tensors["layer_0.attn.query_norm.scale"]
+        )
+        np.testing.assert_array_equal(
+            yielded["model.layers.0.self_attn.k_norm.weight"], tensors["layer_0.attn.key_norm.scale"]
+        )

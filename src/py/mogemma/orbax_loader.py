@@ -128,7 +128,7 @@ class OrbaxLoader:
         """
         stub = cls.__new__(cls)
         stub.model_path = Path(model_path)
-        return stub._enumerate_tensor_names()
+        return stub._enumerate_tensor_names()  # noqa: SLF001 — same-class stub
 
     @classmethod
     def open_tensor(cls, model_path: str | Path, name: str) -> np.ndarray:
@@ -139,7 +139,7 @@ class OrbaxLoader:
         """
         stub = cls.__new__(cls)
         stub.model_path = Path(model_path)
-        arr = stub._open_tensor(name)
+        arr = stub._open_tensor(name)  # noqa: SLF001 — same-class stub
         if arr.dtype.name == "bfloat16":
             arr = arr.astype(np.float32)
         if not arr.flags["C_CONTIGUOUS"]:
