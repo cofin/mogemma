@@ -115,6 +115,31 @@ class HubManager:
         """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
         return (path / "ocdbt.process_0").is_dir() and (path / "manifest.ocdbt").exists()
 
+    _ORBAX_ARTIFACT_NAMES: tuple[str, ...] = (
+        "ocdbt.process_0",
+        "manifest.ocdbt",
+        "_METADATA",
+        "_CHECKPOINT_METADATA",
+        "descriptor",
+        "d",
+        "commit_success.txt",
+    )
+
+    @classmethod
+    def _cleanup_orbax_artifacts(cls, path: Path) -> None:
+        """Remove Orbax/OCDBT residue under *path* after successful conversion.
+
+        Preserves ``config.json``, tokenizer files, and any safetensors output.
+        """
+        for name in cls._ORBAX_ARTIFACT_NAMES:
+            target = path / name
+            if not target.exists():
+                continue
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+
     @classmethod
     def _has_model_files(cls, path: Path) -> bool:
         """Return ``True`` when *path* contains safetensors or Orbax model files."""
@@ -325,6 +350,17 @@ class HubManager:
         if local_dir.exists():
             self._cleanup_dir(local_dir)
         staging_dir.rename(local_dir)
+
+        # If the downloaded checkpoint is Orbax-only, convert it to safetensors
+        # and drop the Orbax artifacts. On conversion failure the Orbax layout
+        # is preserved so the user can retry without re-downloading.
+        if self._has_orbax(local_dir) and not self._has_safetensors(local_dir):
+            from mogemma.convert import convert_orbax_to_safetensors  # noqa: PLC0415
+
+            convert_orbax_to_safetensors(local_dir)
+            if self._has_safetensors(local_dir):
+                self._cleanup_orbax_artifacts(local_dir)
+
         return local_dir
 
     # ── Download (sync) ────────────────────────────────────────────────

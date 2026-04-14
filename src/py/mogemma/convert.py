@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -27,7 +28,6 @@ from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
-    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -450,3 +450,99 @@ def _write_sharded(
     (output_dir / _INDEX_FILENAME).write_text(json.dumps(index, indent=2) + "\n")
 
     return final_paths
+
+
+# ── Public entry point ───────────────────────────────────────────────────────
+
+
+_DEFAULT_SHARD_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GiB per shard
+
+
+def convert_orbax_to_safetensors(
+    model_path: Path,
+    *,
+    shard_size_bytes: int = _DEFAULT_SHARD_SIZE_BYTES,
+) -> list[Path]:
+    """Convert an Orbax/OCDBT checkpoint at ``model_path`` to HF-style safetensors.
+
+    Reads the checkpoint with streaming :class:`OrbaxLoader` helpers, selects the
+    per-variant iterator based on which Orbax keys are present, writes
+    ``model.safetensors`` (or sharded equivalents) into ``model_path`` alongside
+    the existing Orbax artifacts, and emits ``config.json`` if one isn't already
+    present.
+
+    The caller is responsible for cleaning up the original Orbax artifacts after
+    this function returns successfully (see
+    :meth:`HubManager._cleanup_orbax_artifacts`).
+
+    Args:
+        model_path: Directory containing the Orbax checkpoint. Safetensors files
+            are written into the same directory.
+        shard_size_bytes: Maximum bytes per safetensors shard. A single tensor
+            exceeding this still occupies its own shard.
+
+    Returns:
+        List of safetensors files written, in shard order.
+
+    Raises:
+        ValueError: If the checkpoint has no recognizable variant keys.
+        NotImplementedError: If the variant is ``moe`` (MoE support is pending).
+    """
+    keys = OrbaxLoader.enumerate_tensors(model_path)
+    if not keys:
+        msg = f"No Orbax tensors found under {model_path}"
+        raise ValueError(msg)
+
+    variant = _variant_from_keys(keys)
+    num_layers = _layer_count(keys)
+
+    iterators: list[Iterator[tuple[str, np.ndarray]]] = [
+        _iter_base_transformer(model_path, keys, num_layers),
+    ]
+    if variant == "ple":
+        iterators.append(_iter_ple(model_path, num_layers))
+    elif variant == "moe":
+        msg = (
+            "MoE Orbax→safetensors conversion is pending (see "
+            ".agents/specs/orbax-safetensors-conversion/spec.md task 2.2)."
+        )
+        raise NotImplementedError(msg)
+
+    if any("vision_encoder." in k for k in keys):
+        vision_layer_count = _count_vision_layers(keys, model_path)
+        if vision_layer_count > 0:
+            iterators.append(_iter_vision(model_path, vision_layer_count))
+
+    def _chain_all() -> Iterator[tuple[str, np.ndarray]]:
+        for it in iterators:
+            yield from it
+
+    shards = _write_sharded(model_path, _chain_all(), shard_size_bytes)
+
+    config_path = model_path / "config.json"
+    if not config_path.exists():
+
+        def _shape_oracle(name: str) -> tuple[int, ...]:
+            return OrbaxLoader.open_tensor(model_path, name).shape
+
+        config = _generate_config_json(keys, _shape_oracle)
+        config_path.write_text(json.dumps(config, indent=2) + "\n")
+
+    logger.info("Converted %s → %d safetensors shard(s)", model_path, len(shards))
+    return shards
+
+
+_VISION_LAYER_RE = re.compile(r"vision_encoder\.transformer\.stacked_layers\.block\.")
+
+
+def _count_vision_layers(keys: list[str], model_path: Path) -> int:
+    """Infer the vision layer count from the stacked-layer tensors' leading axis.
+
+    Vision tensors are vmapped — their leading axis is the layer index. Open any
+    one and return that dimension.
+    """
+    for key in keys:
+        if _VISION_LAYER_RE.search(key):
+            shape = OrbaxLoader.open_tensor(model_path, key).shape
+            return int(shape[0])
+    return 0

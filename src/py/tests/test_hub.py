@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from mogemma.hub import HubManager
 
@@ -49,3 +52,120 @@ class TestCleanModelId:
 
     def test_already_clean(self) -> None:
         assert HubManager._clean_model_id("gemma4-26b-a4b-it") == "gemma4-26b-a4b-it"
+
+
+def _populate_orbax(dir_path: Path) -> None:
+    """Lay down a minimal Orbax/OCDBT-shaped directory."""
+    (dir_path / "ocdbt.process_0").mkdir(parents=True)
+    (dir_path / "ocdbt.process_0" / "manifest").write_bytes(b"stub")
+    (dir_path / "manifest.ocdbt").write_bytes(b"stub")
+    (dir_path / "_METADATA").write_bytes(b"stub")
+    (dir_path / "_CHECKPOINT_METADATA").write_bytes(b"stub")
+    (dir_path / "descriptor").mkdir()
+    (dir_path / "descriptor" / "x").write_bytes(b"stub")
+    (dir_path / "d").mkdir()
+    (dir_path / "d" / "y").write_bytes(b"stub")
+    (dir_path / "commit_success.txt").write_bytes(b"stub")
+    (dir_path / "config.json").write_bytes(b"{}")
+    (dir_path / "tokenizer.model").write_bytes(b"stub")
+
+
+class TestFinalizeDownloadOrbaxConversion:
+    """`_finalize_download` converts Orbax layouts to safetensors and cleans up."""
+
+    def test_converts_orbax_and_cleans_artifacts(self, tmp_path: Path) -> None:
+        cache_root = tmp_path / "cache"
+        cache_root.mkdir()
+        hub = HubManager(cache_path=cache_root)
+        staging = cache_root / ".staging"
+        staging.mkdir()
+        _populate_orbax(staging)
+        local_dir = cache_root / "final"
+
+        def fake_convert(path: Path) -> list[Path]:
+            # Simulate conversion by writing a safetensors artifact into the dir.
+            out = path / "model.safetensors"
+            out.write_bytes(b"fake")
+            return [out]
+
+        with patch("mogemma.convert.convert_orbax_to_safetensors", side_effect=fake_convert):
+            result = hub._finalize_download(  # noqa: SLF001
+                "gemma4-e4b", local_dir, staging, tokenizer_required=True
+            )
+
+        assert result == local_dir
+        assert (local_dir / "model.safetensors").exists()
+        assert (local_dir / "config.json").exists()
+        assert (local_dir / "tokenizer.model").exists()
+        # Orbax artifacts removed after successful conversion.
+        assert not (local_dir / "ocdbt.process_0").exists()
+        assert not (local_dir / "manifest.ocdbt").exists()
+        assert not (local_dir / "_METADATA").exists()
+        assert not (local_dir / "_CHECKPOINT_METADATA").exists()
+        assert not (local_dir / "descriptor").exists()
+        assert not (local_dir / "d").exists()
+        assert not (local_dir / "commit_success.txt").exists()
+
+    def test_preserves_orbax_on_conversion_failure(self, tmp_path: Path) -> None:
+        cache_root = tmp_path / "cache"
+        cache_root.mkdir()
+        hub = HubManager(cache_path=cache_root)
+        staging = cache_root / ".staging"
+        staging.mkdir()
+        _populate_orbax(staging)
+        local_dir = cache_root / "final"
+
+        def boom(_path: Path) -> list[Path]:
+            msg = "simulated conversion failure"
+            raise RuntimeError(msg)
+
+        with patch("mogemma.convert.convert_orbax_to_safetensors", side_effect=boom):
+            with pytest.raises(RuntimeError, match="simulated conversion failure"):
+                hub._finalize_download(  # noqa: SLF001
+                    "gemma4-e4b", local_dir, staging, tokenizer_required=True
+                )
+
+        # On failure the Orbax layout must be preserved for retry.
+        assert (local_dir / "ocdbt.process_0").is_dir()
+        assert (local_dir / "manifest.ocdbt").exists()
+        assert not (local_dir / "model.safetensors").exists()
+
+    def test_skips_conversion_when_safetensors_already_present(self, tmp_path: Path) -> None:
+        cache_root = tmp_path / "cache"
+        cache_root.mkdir()
+        hub = HubManager(cache_path=cache_root)
+        staging = cache_root / ".staging"
+        staging.mkdir()
+        (staging / "model.safetensors").write_bytes(b"pre-existing")
+        (staging / "config.json").write_bytes(b"{}")
+        (staging / "tokenizer.model").write_bytes(b"stub")
+        local_dir = cache_root / "final"
+
+        with patch("mogemma.convert.convert_orbax_to_safetensors") as mock_convert:
+            hub._finalize_download(  # noqa: SLF001
+                "gemma4-e4b", local_dir, staging, tokenizer_required=True
+            )
+            mock_convert.assert_not_called()
+
+        assert (local_dir / "model.safetensors").read_bytes() == b"pre-existing"
+
+
+class TestHasModelFilesPriority:
+    """Document the precedence: safetensors wins over Orbax when both present."""
+
+    def test_prefers_safetensors_over_orbax(self, tmp_path: Path) -> None:
+        (tmp_path / "ocdbt.process_0").mkdir()
+        (tmp_path / "manifest.ocdbt").write_bytes(b"")
+        (tmp_path / "model.safetensors").write_bytes(b"")
+
+        assert HubManager._has_safetensors(tmp_path) is True
+        assert HubManager._has_orbax(tmp_path) is True
+        assert HubManager._has_model_files(tmp_path) is True
+
+    def test_orbax_only(self, tmp_path: Path) -> None:
+        (tmp_path / "ocdbt.process_0").mkdir()
+        (tmp_path / "manifest.ocdbt").write_bytes(b"")
+
+        assert HubManager._has_safetensors(tmp_path) is False
+        assert HubManager._has_orbax(tmp_path) is True
+        assert HubManager._has_model_files(tmp_path) is True
