@@ -8,7 +8,15 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from mogemma.convert import _iter_base_transformer, _iter_ple, _layer_count, _variant_from_keys, _write_sharded
+from mogemma.convert import (
+    _iter_base_transformer,
+    _iter_moe_experts,
+    _iter_ple,
+    _iter_vision,
+    _layer_count,
+    _variant_from_keys,
+    _write_sharded,
+)
 from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
@@ -357,3 +365,19 @@ class TestPLEIterator:
             "layer_0.skip_scale",
         }
         assert skip_list.isdisjoint(set(opened))
+
+
+class TestDeferredVariantIterators:
+    """Vision and MoE iterators raise NotImplementedError with an explanatory message."""
+
+    def test_vision_raises_until_forward_mismatch_resolved(self, tmp_path: Path) -> None:
+        with pytest.raises(NotImplementedError) as excinfo:
+            list(_iter_vision(tmp_path))
+        msg = str(excinfo.value).lower()
+        assert "geglu" in msg or "vision" in msg
+
+    def test_moe_raises_until_inventory_confirmed(self, tmp_path: Path) -> None:
+        with pytest.raises(NotImplementedError) as excinfo:
+            list(_iter_moe_experts(tmp_path, num_layers=1, num_experts=128))
+        msg = str(excinfo.value).lower()
+        assert "moe" in msg or "expert" in msg

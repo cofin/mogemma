@@ -190,6 +190,54 @@ def _iter_ple(model_path: Path, num_layers: int) -> Iterator[tuple[str, np.ndarr
         )
 
 
+# ── Deferred: vision + MoE iterators ────────────────────────────────────────
+
+
+def _iter_vision(model_path: Path) -> Iterator[tuple[str, np.ndarray]]:  # noqa: ARG001
+    """Convert Orbax vision-tower tensors to safetensors. Deferred.
+
+    Blocked on a Mojo/Orbax architecture mismatch: the Orbax checkpoint
+    ships GEGLU-style vision MLP weights (``gating_einsum.w`` with a
+    leading ``2`` axis for gate+up), but the Mojo forward pass in
+    ``layers.mojo:360`` implements plain ``fc1 → GELU → fc2``. Picking
+    either branch as ``fc1`` yields numerically wrong vision embeddings;
+    the fix needs to happen in the Mojo forward path (or in Gemma 4's
+    vision architecture spec) before conversion can produce correct
+    safetensors.
+
+    Norms are fully resolved (``pre_attention_norm`` → ``layer_norm1``,
+    ``pre_ffw_norm`` → ``layer_norm2``), so only the MLP branch is
+    blocking. Implement this iterator once the forward is updated.
+    """
+    msg = (
+        "vision Orbax→safetensors conversion deferred: "
+        "Orbax ships GEGLU MLP weights but Mojo vision forward is plain MLP "
+        "(layers.mojo:360). Resolve the forward-pass mismatch before converting."
+    )
+    raise NotImplementedError(msg)
+    yield  # pragma: no cover — keeps the function a generator for typing
+
+
+def _iter_moe_experts(
+    model_path: Path,  # noqa: ARG001
+    num_layers: int,  # noqa: ARG001
+    num_experts: int,  # noqa: ARG001
+) -> Iterator[tuple[str, np.ndarray]]:
+    """Convert Orbax MoE expert tensors to per-expert safetensors. Deferred.
+
+    Blocked on Task 0.2 (26B-A4B-it inventory dump) — MoE expert packing
+    shapes are still guesses. E2B-it has no router tensors, so this code
+    path has no live checkpoint to validate against yet. Implement after
+    a 26B checkpoint is available locally.
+    """
+    msg = (
+        "MoE expert conversion deferred: requires 26B-A4B-it inventory "
+        "(Task 0.2) to confirm expert packing shapes before implementation."
+    )
+    raise NotImplementedError(msg)
+    yield  # pragma: no cover — keeps the function a generator for typing
+
+
 # ── Sharded safetensors writer ───────────────────────────────────────────────
 
 
