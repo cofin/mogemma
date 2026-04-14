@@ -16,6 +16,7 @@ Public API:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import TYPE_CHECKING, Literal
@@ -23,7 +24,7 @@ from typing import TYPE_CHECKING, Literal
 from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
     from pathlib import Path
 
     import numpy as np
@@ -151,3 +152,85 @@ def _iter_base_transformer(
 
         down = OrbaxLoader.open_tensor(model_path, f"{pfx_in}.mlp.linear.w")
         yield f"{pfx_out}.mlp.down_proj.weight", down.T
+
+
+# ── Sharded safetensors writer ───────────────────────────────────────────────
+
+
+_SINGLE_SHARD_FILENAME = "model.safetensors"
+_INDEX_FILENAME = "model.safetensors.index.json"
+_TEMP_SHARD_FMT = "_shard-{index}.part.safetensors"
+_FINAL_SHARD_FMT = "model-{index:05d}-of-{total:05d}.safetensors"
+
+
+def _write_sharded(
+    output_dir: Path,
+    tensor_iter: Iterable[tuple[str, np.ndarray]],
+    shard_size_bytes: int,
+) -> list[Path]:
+    """Write ``tensor_iter`` to safetensors, sharding when cumulative bytes exceed the threshold.
+
+    Writes a single ``model.safetensors`` if total bytes fit under
+    *shard_size_bytes*; otherwise writes ``model-00001-of-{N}.safetensors`` ..
+    ``model-{N}-of-{N}.safetensors`` plus a ``model.safetensors.index.json``
+    mapping tensor names → shard filenames.
+
+    Returns the list of safetensors files written, in shard order.
+    """
+    from safetensors.numpy import save_file  # noqa: PLC0415 — heavy optional dep
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Streaming pass: buffer tensors per-shard, flush to a temp filename when the
+    # buffer would otherwise exceed *shard_size_bytes*. A single tensor that is
+    # already larger than the threshold is allowed to occupy its own shard.
+    temp_shards: list[tuple[Path, dict[str, np.ndarray], int]] = []
+    current: dict[str, np.ndarray] = {}
+    current_bytes = 0
+
+    def _flush() -> None:
+        nonlocal current, current_bytes
+        if not current:
+            return
+        temp_path = output_dir / _TEMP_SHARD_FMT.format(index=len(temp_shards) + 1)
+        save_file(current, str(temp_path))
+        temp_shards.append((temp_path, dict(current), current_bytes))
+        current = {}
+        current_bytes = 0
+
+    for name, array in tensor_iter:
+        array_bytes = array.nbytes
+        if current and current_bytes + array_bytes > shard_size_bytes:
+            _flush()
+        current[name] = array
+        current_bytes += array_bytes
+    _flush()
+
+    if not temp_shards:
+        msg = "tensor_iter yielded no tensors; nothing to write"
+        raise ValueError(msg)
+
+    # Single-shard fast path: rename to `model.safetensors`, no index needed.
+    if len(temp_shards) == 1:
+        final_path = output_dir / _SINGLE_SHARD_FILENAME
+        temp_shards[0][0].rename(final_path)
+        return [final_path]
+
+    # Multi-shard: rename all, write index.
+    total = len(temp_shards)
+    weight_map: dict[str, str] = {}
+    total_size = 0
+    final_paths: list[Path] = []
+    for i, (temp_path, tensors, shard_bytes) in enumerate(temp_shards, start=1):
+        final_name = _FINAL_SHARD_FMT.format(index=i, total=total)
+        final_path = output_dir / final_name
+        temp_path.rename(final_path)
+        for name in tensors:
+            weight_map[name] = final_name
+        total_size += shard_bytes
+        final_paths.append(final_path)
+
+    index = {"metadata": {"total_size": total_size}, "weight_map": weight_map}
+    (output_dir / _INDEX_FILENAME).write_text(json.dumps(index, indent=2) + "\n")
+
+    return final_paths

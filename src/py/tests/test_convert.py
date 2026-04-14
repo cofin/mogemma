@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from mogemma.convert import _iter_base_transformer, _layer_count, _variant_from_keys
+from mogemma.convert import _iter_base_transformer, _layer_count, _variant_from_keys, _write_sharded
 from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
@@ -235,3 +235,77 @@ class TestBaseTransformerIterator:
         np.testing.assert_array_equal(
             yielded["model.layers.0.self_attn.k_norm.weight"], tensors["layer_0.attn.key_norm.scale"]
         )
+
+
+class TestWriteSharded:
+    """`_write_sharded` writes safetensors shards + index.json."""
+
+    def test_single_shard_under_threshold(self, tmp_path: Path) -> None:
+        tensors = [
+            ("model.embed_tokens.weight", np.ones((4, 4), dtype=np.float32)),
+            ("model.norm.weight", np.ones((4,), dtype=np.float32)),
+        ]
+        written = _write_sharded(tmp_path, iter(tensors), shard_size_bytes=1024 * 1024)
+
+        assert written == [tmp_path / "model.safetensors"]
+        assert (tmp_path / "model.safetensors").exists()
+        # No index for single-shard output.
+        assert not (tmp_path / "model.safetensors.index.json").exists()
+
+        from safetensors import safe_open
+
+        with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:
+            assert set(f.keys()) == {"model.embed_tokens.weight", "model.norm.weight"}
+
+    def test_multi_shard_produces_index(self, tmp_path: Path) -> None:
+        # Each tensor is 16KB; threshold at 20KB forces 3 shards (one tensor per shard).
+        tensors = [
+            ("a", np.ones((64, 64), dtype=np.float32)),
+            ("b", np.ones((64, 64), dtype=np.float32)),
+            ("c", np.ones((64, 64), dtype=np.float32)),
+        ]
+        written = _write_sharded(tmp_path, iter(tensors), shard_size_bytes=20 * 1024)
+
+        assert len(written) == 3
+        shard_names = [p.name for p in written]
+        assert shard_names == [
+            "model-00001-of-00003.safetensors",
+            "model-00002-of-00003.safetensors",
+            "model-00003-of-00003.safetensors",
+        ]
+        index_path = tmp_path / "model.safetensors.index.json"
+        assert index_path.exists()
+
+        import json
+
+        index = json.loads(index_path.read_text())
+        assert set(index["weight_map"].keys()) == {"a", "b", "c"}
+        # Each tensor lives in a distinct shard.
+        assert len(set(index["weight_map"].values())) == 3
+        assert index["metadata"]["total_size"] > 0
+
+    def test_multi_shard_index_points_to_correct_files(self, tmp_path: Path) -> None:
+        tensors = [
+            ("first", np.ones((64, 64), dtype=np.float32)),
+            ("second", np.ones((64, 64), dtype=np.float32)),
+        ]
+        _write_sharded(tmp_path, iter(tensors), shard_size_bytes=20 * 1024)
+
+        import json
+
+        from safetensors import safe_open
+
+        index = json.loads((tmp_path / "model.safetensors.index.json").read_text())
+        for name in ("first", "second"):
+            shard = index["weight_map"][name]
+            with safe_open(str(tmp_path / shard), framework="numpy") as f:
+                assert name in list(f.keys())
+
+    def test_tensor_larger_than_threshold_gets_own_shard(self, tmp_path: Path) -> None:
+        """A single tensor bigger than shard_size_bytes still writes, in its own shard."""
+        tensors = [
+            ("small", np.ones((4, 4), dtype=np.float32)),
+            ("big", np.ones((128, 128), dtype=np.float32)),  # 64KB
+        ]
+        written = _write_sharded(tmp_path, iter(tensors), shard_size_bytes=10 * 1024)
+        assert len(written) == 2
