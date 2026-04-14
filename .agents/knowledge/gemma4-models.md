@@ -8,10 +8,10 @@ the conceptual map.
 
 | Variant | Params | Active | Context | Modalities | Distinctive features |
 |---|---|---|---|---|---|
-| **E2B** | ~2B | 2B | 128K | text + image + audio | Dense, PLE (per-layer embeddings) |
-| **E4B** | ~4B | 4B | 128K | text + image + audio | Dense, PLE |
-| **31B** | 31B | 31B | 256K | text + image | Dense, no PLE |
-| **26B-A4B** | 26B | ~4B | 256K | text + image | MoE (128 experts, top-8) + dense branch |
+| **E2B** (`DENSE_E2B`) | ~2B | 2B | 128K | text + image + audio | Dense, PLE, double-wide MLP (4x) |
+| **E4B** (`DENSE_E4B`) | ~4B | 4B | 128K | text + image + audio | Dense, PLE, standard MLP (8x) |
+| **31B** (`DENSE_31B`) | 31B | 31B | 256K | text + image | Dense, no PLE |
+| **26B-A4B** (`MOE_26B_A4B`) | 26B | ~4B | 256K | text + image | MoE (128 experts, top-8) + dense branch |
 
 ## Core architecture (all variants)
 

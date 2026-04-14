@@ -69,15 +69,14 @@ readable source of truth for pins; this doc explains the why.
 
 ## Models (primary target)
 
-**Gemma 4** (active development target):
+**Gemma 4** (active development target — enum `Gemma4Variant` in `model.py`):
 
-| Variant | Params | Modalities | Notes |
-|---|---|---|---|
-| E2B | ~2B | text + image + audio | Dense, PLE (per-layer embeddings) |
-| E4B | ~4B | text + image + audio | Dense, PLE |
-| 12B | 12B | text + image | Dense |
-| 26B-A4B-it | 26B (4B active) | text + image | MoE two-branch (128 experts, top-8) + dense shared MLP |
-| 31B | 31B | text + image | Dense |
+| Variant | Enum | Params | Modalities | Notes |
+|---|---|---|---|---|
+| E2B | `DENSE_E2B` | ~2B | text + image + audio | Dense, PLE, double-wide MLP (4x) |
+| E4B | `DENSE_E4B` | ~4B | text + image + audio | Dense, PLE, standard MLP (8x) |
+| 26B-A4B-it | `MOE_26B_A4B` | 26B (4B active) | text + image | MoE two-branch (128 experts, top-8) + dense shared MLP |
+| 31B | `DENSE_31B` | 31B | text + image | Dense |
 
 All variants use hybrid attention (sliding-window + periodic full-attention
 layers). See `.agents/knowledge/gemma4-models.md` for full architectural
