@@ -292,29 +292,80 @@ def _generate_config_json(
 # ── Deferred: vision + MoE iterators ────────────────────────────────────────
 
 
-def _iter_vision(model_path: Path) -> Iterator[tuple[str, np.ndarray]]:  # noqa: ARG001
-    """Convert Orbax vision-tower tensors to safetensors. Deferred.
+def _iter_vision(model_path: Path, num_vision_layers: int) -> Iterator[tuple[str, np.ndarray]]:
+    """Yield the vision-tower tensors consumed by ``forward_vision_encoder`` / ``forward_vision_layer``.
 
-    Blocked on a Mojo/Orbax architecture mismatch: the Orbax checkpoint
-    ships GEGLU-style vision MLP weights (``gating_einsum.w`` with a
-    leading ``2`` axis for gate+up), but the Mojo forward pass in
-    ``layers.mojo:360`` implements plain ``fc1 → GELU → fc2``. Picking
-    either branch as ``fc1`` yields numerically wrong vision embeddings;
-    the fix needs to happen in the Mojo forward path (or in Gemma 4's
-    vision architecture spec) before conversion can produce correct
-    safetensors.
+    Orbax ``vision_encoder.transformer.stacked_layers.block.*`` tensors are
+    vmapped — the leading axis is the vision-layer index. We split along
+    that axis and emit per-layer safetensors.
 
-    Norms are fully resolved (``pre_attention_norm`` → ``layer_norm1``,
-    ``pre_ffw_norm`` → ``layer_norm2``), so only the MLP branch is
-    blocking. Implement this iterator once the forward is updated.
+    Gemma 4 vision is GEGLU (as of the 2026-04 Mojo update in ``layers.mojo``):
+    ``gating_einsum.w`` has a ``2`` axis for gate+up, which map to
+    ``mlp.fc1.weight`` and ``mlp.fc1_up.weight`` respectively.
+
+    Produced tensors (per vision layer I):
+
+    - ``vision_tower.vision_model.embeddings.patch_embedding.weight`` (global)
+    - ``vision_tower.vision_model.embeddings.position_embedding.weight`` (global)
+    - ``vision_tower.vision_model.post_layernorm.weight`` (derived from last layer's ``post_ffw_norm``)
+    - ``multi_modal_projector.linear.weight`` (from ``embedder.mm_input_projection.w``)
+    - ``...encoder.layers.I.self_attn.{q,k,v,out}_proj.weight``
+    - ``...encoder.layers.I.mlp.{fc1, fc1_up, fc2}.weight``  (GEGLU gate, up, down)
+    - ``...encoder.layers.I.layer_norm{1,2}.weight``
     """
-    msg = (
-        "vision Orbax→safetensors conversion deferred: "
-        "Orbax ships GEGLU MLP weights but Mojo vision forward is plain MLP "
-        "(layers.mojo:360). Resolve the forward-pass mismatch before converting."
+    # Global tensors (not stacked)
+    patch = OrbaxLoader.open_tensor(model_path, "vision_encoder.entry.input_projection.w")
+    yield "vision_tower.vision_model.embeddings.patch_embedding.weight", patch
+
+    pos = OrbaxLoader.open_tensor(model_path, "vision_encoder.entry.pos_emb")
+    yield "vision_tower.vision_model.embeddings.position_embedding.weight", pos
+
+    mm = OrbaxLoader.open_tensor(model_path, "embedder.mm_input_projection.w")
+    yield "multi_modal_projector.linear.weight", mm
+
+    # Per-layer stacked tensors: leading axis = layer index.
+    pfx = "vision_encoder.transformer.stacked_layers.block"
+    q_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.q_einsum.w")          # (L, n_heads, H, head_dim)
+    kv_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.kv_einsum.w")        # (L, 2, n_kv, H, head_dim)
+    o_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.attn_vec_einsum.w")   # (L, n_heads, head_dim, H)
+    gate_up_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.mlp.gating_einsum.w")  # (L, 2, intermediate, H)
+    linear_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.mlp.linear.w")        # (L, intermediate, H)
+    ln1_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.pre_attention_norm.scale")  # (L, H)
+    ln2_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.pre_ffw_norm.scale")     # (L, H)
+    post_ffw_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.post_ffw_norm.scale")  # (L, H)
+
+    for i in range(num_vision_layers):
+        pfx_out = f"vision_tower.vision_model.encoder.layers.{i}"
+
+        q = q_all[i]                                                    # (n_heads, H, head_dim)
+        yield f"{pfx_out}.self_attn.q_proj.weight", np.ascontiguousarray(q.transpose(0, 2, 1).reshape(-1, q.shape[1]))
+
+        kv = kv_all[i]                                                  # (2, n_kv, H, head_dim)
+        k, v = kv[0], kv[1]
+        yield f"{pfx_out}.self_attn.k_proj.weight", np.ascontiguousarray(k.transpose(0, 2, 1).reshape(-1, k.shape[1]))
+        yield f"{pfx_out}.self_attn.v_proj.weight", np.ascontiguousarray(v.transpose(0, 2, 1).reshape(-1, v.shape[1]))
+
+        o = o_all[i]                                                    # (n_heads, head_dim, H)
+        yield f"{pfx_out}.self_attn.out_proj.weight", np.ascontiguousarray(o.reshape(-1, o.shape[2]).T)
+
+        gate_up = gate_up_all[i]                                        # (2, intermediate, H)
+        yield f"{pfx_out}.mlp.fc1.weight", np.ascontiguousarray(gate_up[0])
+        yield f"{pfx_out}.mlp.fc1_up.weight", np.ascontiguousarray(gate_up[1])
+
+        linear = linear_all[i]                                          # (intermediate, H)
+        yield f"{pfx_out}.mlp.fc2.weight", np.ascontiguousarray(linear.T)
+
+        yield f"{pfx_out}.layer_norm1.weight", np.ascontiguousarray(ln1_all[i])
+        yield f"{pfx_out}.layer_norm2.weight", np.ascontiguousarray(ln2_all[i])
+
+    # post_layernorm is a Mojo-expected global tensor. The Orbax checkpoint
+    # doesn't ship a dedicated top-level post-norm; use the LAST layer's
+    # post_ffw_norm as a surrogate (best available signal — matches the
+    # position in the forward pass where Mojo applies post_layernorm).
+    yield (
+        "vision_tower.vision_model.post_layernorm.weight",
+        np.ascontiguousarray(post_ffw_all[-1]),
     )
-    raise NotImplementedError(msg)
-    yield  # pragma: no cover — keeps the function a generator for typing
 
 
 def _iter_moe_experts(

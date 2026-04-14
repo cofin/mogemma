@@ -357,15 +357,24 @@ def forward_vision_layer[
             norm2_ptr + t * hidden_size, residual_ptr + t * hidden_size, weights.layer_norm2.ptr, hidden_size, 1e-6
         )
 
-    # Vision MLP: fc1 → GELU → fc2 (NOT GEGLU)
+    # Vision MLP: GEGLU — gate = fc1(x), up = fc1_up(x), hidden = gelu(gate) * up, out = fc2(hidden)
+    # Gemma 4 vision ships GEGLU-shaped weights (gating_einsum with a 2-axis
+    # for gate+up) — see .agents/specs/orbax-safetensors-conversion/e2b-inventory.txt.
+    var inter_total = num_tokens * intermediate_size
     var fc1_out_ptr = scratch_ptr + total * 4
     _gemm_dispatch(backend, fc1_out_ptr, norm2_ptr, weights.fc1, num_tokens, hidden_size, intermediate_size)
 
-    var gelu_out_ptr = scratch_ptr + total * 4 + num_tokens * intermediate_size
-    for t in range(num_tokens):
-        backend.gelu(gelu_out_ptr + t * intermediate_size, fc1_out_ptr + t * intermediate_size, intermediate_size)
+    var fc1_up_out_ptr = scratch_ptr + total * 4 + inter_total
+    _gemm_dispatch(backend, fc1_up_out_ptr, norm2_ptr, weights.fc1_up, num_tokens, hidden_size, intermediate_size)
 
-    var mlp_out_ptr = scratch_ptr + total * 5 + num_tokens * intermediate_size
+    var gelu_out_ptr = scratch_ptr + total * 4 + inter_total * 2
+    for t in range(num_tokens):
+        var gate_off = t * intermediate_size
+        backend.gelu(gelu_out_ptr + gate_off, fc1_out_ptr + gate_off, intermediate_size)
+        for d in range(intermediate_size):
+            gelu_out_ptr.store(gate_off + d, gelu_out_ptr.load(gate_off + d) * fc1_up_out_ptr.load(gate_off + d))
+
+    var mlp_out_ptr = scratch_ptr + total * 4 + inter_total * 3
     _gemm_dispatch(backend, mlp_out_ptr, gelu_out_ptr, weights.fc2, num_tokens, intermediate_size, hidden_size)
 
     # MLP residual

@@ -297,6 +297,7 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var v_proj: TensorInfo
     var o_proj: TensorInfo
     var fc1: TensorInfo
+    var fc1_up: TensorInfo
     var fc2: TensorInfo
     var layer_norm1: TensorInfo
     var layer_norm2: TensorInfo
@@ -307,6 +308,7 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.v_proj = TensorInfo(0, 0, 0)
         self.o_proj = TensorInfo(0, 0, 0)
         self.fc1 = TensorInfo(0, 0, 0)
+        self.fc1_up = TensorInfo(0, 0, 0)
         self.fc2 = TensorInfo(0, 0, 0)
         self.layer_norm1 = TensorInfo(0, 0, 0)
         self.layer_norm2 = TensorInfo(0, 0, 0)

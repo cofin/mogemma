@@ -367,14 +367,8 @@ class TestPLEIterator:
         assert skip_list.isdisjoint(set(opened))
 
 
-class TestDeferredVariantIterators:
-    """Vision and MoE iterators raise NotImplementedError with an explanatory message."""
-
-    def test_vision_raises_until_forward_mismatch_resolved(self, tmp_path: Path) -> None:
-        with pytest.raises(NotImplementedError) as excinfo:
-            list(_iter_vision(tmp_path))
-        msg = str(excinfo.value).lower()
-        assert "geglu" in msg or "vision" in msg
+class TestDeferredMoEIterator:
+    """MoE iterator raises NotImplementedError until 26B-A4B-it inventory lands."""
 
     def test_moe_raises_until_inventory_confirmed(self, tmp_path: Path) -> None:
         with pytest.raises(NotImplementedError) as excinfo:
@@ -383,13 +377,101 @@ class TestDeferredVariantIterators:
         assert "moe" in msg or "expert" in msg
 
 
+# Vision shrunk shapes (E2B-it uses L=16, H_v=768, n_heads=12, head_dim=64, intermediate=3072).
+_VL, _VH, _V_HEADS, _V_KV_HEADS, _V_HEAD_DIM, _V_INTER = 3, 48, 4, 4, 12, 192
+
+
+def _make_vision_tensor_map(num_layers: int = _VL) -> dict[str, np.ndarray]:
+    rng = np.random.default_rng(seed=2)
+    pfx = "vision_encoder.transformer.stacked_layers.block"
+    return {
+        "vision_encoder.entry.input_projection.w": rng.standard_normal((_VH, _VH)).astype(np.float32),
+        "vision_encoder.entry.pos_emb": rng.standard_normal((10240, 2, _VH)).astype(np.float32),
+        "embedder.mm_input_projection.w": rng.standard_normal((_VH, 96)).astype(np.float32),
+        f"{pfx}.attn.q_einsum.w": rng.standard_normal((num_layers, _V_HEADS, _VH, _V_HEAD_DIM)).astype(np.float32),
+        f"{pfx}.attn.kv_einsum.w": rng.standard_normal(
+            (num_layers, 2, _V_KV_HEADS, _VH, _V_HEAD_DIM)
+        ).astype(np.float32),
+        f"{pfx}.attn.attn_vec_einsum.w": rng.standard_normal(
+            (num_layers, _V_HEADS, _V_HEAD_DIM, _VH)
+        ).astype(np.float32),
+        f"{pfx}.mlp.gating_einsum.w": rng.standard_normal((num_layers, 2, _V_INTER, _VH)).astype(np.float32),
+        f"{pfx}.mlp.linear.w": rng.standard_normal((num_layers, _V_INTER, _VH)).astype(np.float32),
+        f"{pfx}.pre_attention_norm.scale": rng.standard_normal((num_layers, _VH)).astype(np.float32),
+        f"{pfx}.pre_ffw_norm.scale": rng.standard_normal((num_layers, _VH)).astype(np.float32),
+        f"{pfx}.post_ffw_norm.scale": rng.standard_normal((num_layers, _VH)).astype(np.float32),
+    }
+
+
+class TestVisionIterator:
+    """`_iter_vision` emits the vision tensors consumed by forward_vision_layer (GEGLU)."""
+
+    def test_yields_expected_name_set(self, tmp_path: Path) -> None:
+        tensors = _make_vision_tensor_map()
+        yielded = _run_iter_with_fakes(tensors, _iter_vision, tmp_path, _VL)
+        names = {name for name, _ in yielded}
+
+        expected = {
+            "vision_tower.vision_model.embeddings.patch_embedding.weight",
+            "vision_tower.vision_model.embeddings.position_embedding.weight",
+            "vision_tower.vision_model.post_layernorm.weight",
+            "multi_modal_projector.linear.weight",
+        }
+        for i in range(_VL):
+            pfx = f"vision_tower.vision_model.encoder.layers.{i}"
+            expected |= {
+                f"{pfx}.self_attn.q_proj.weight",
+                f"{pfx}.self_attn.k_proj.weight",
+                f"{pfx}.self_attn.v_proj.weight",
+                f"{pfx}.self_attn.out_proj.weight",
+                f"{pfx}.mlp.fc1.weight",
+                f"{pfx}.mlp.fc1_up.weight",
+                f"{pfx}.mlp.fc2.weight",
+                f"{pfx}.layer_norm1.weight",
+                f"{pfx}.layer_norm2.weight",
+            }
+        assert names == expected
+
+    def test_geglu_gate_and_up_are_distinct_halves(self, tmp_path: Path) -> None:
+        """fc1 ← gating[0] (gate), fc1_up ← gating[1] (up). They must differ."""
+        tensors = _make_vision_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_vision, tmp_path, _VL))
+        pfx = "vision_encoder.transformer.stacked_layers.block"
+        src = tensors[f"{pfx}.mlp.gating_einsum.w"]  # (L, 2, I, H)
+        np.testing.assert_array_equal(
+            yielded["vision_tower.vision_model.encoder.layers.0.mlp.fc1.weight"], src[0, 0]
+        )
+        np.testing.assert_array_equal(
+            yielded["vision_tower.vision_model.encoder.layers.0.mlp.fc1_up.weight"], src[0, 1]
+        )
+        assert not np.array_equal(src[0, 0], src[0, 1])
+
+    def test_fc2_transposes_orbax_linear(self, tmp_path: Path) -> None:
+        tensors = _make_vision_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_vision, tmp_path, _VL))
+        pfx = "vision_encoder.transformer.stacked_layers.block"
+        src = tensors[f"{pfx}.mlp.linear.w"]
+        emitted = yielded["vision_tower.vision_model.encoder.layers.0.mlp.fc2.weight"]
+        np.testing.assert_array_equal(emitted, src[0].T)
+        assert emitted.shape == (_VH, _V_INTER)
+
+    def test_post_layernorm_uses_last_layer_post_ffw(self, tmp_path: Path) -> None:
+        tensors = _make_vision_tensor_map()
+        yielded = dict(_run_iter_with_fakes(tensors, _iter_vision, tmp_path, _VL))
+        pfx = "vision_encoder.transformer.stacked_layers.block"
+        expected = tensors[f"{pfx}.post_ffw_norm.scale"][-1]
+        np.testing.assert_array_equal(yielded["vision_tower.vision_model.post_layernorm.weight"], expected)
+
+
 from mogemma.convert import _generate_config_json  # noqa: E402
 
 
 class TestGenerateConfigJson:
     """`_generate_config_json` synthesizes a HF-compatible config.json from Orbax tensor shapes."""
 
-    def _fake_shape_oracle(self, shapes: dict[str, tuple[int, ...]]):
+    def _fake_shape_oracle(
+        self, shapes: dict[str, tuple[int, ...]]
+    ) -> Callable[[str], tuple[int, ...]]:
         """Build a `(name)->shape` callable that simulates OrbaxLoader shape access without I/O."""
 
         def _oracle(name: str) -> tuple[int, ...]:
@@ -407,7 +489,7 @@ class TestGenerateConfigJson:
         keys = list(shapes) + [f"layer_{i}.attn.q_einsum.w" for i in range(1, 35)]
         config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
 
-        assert config["model_type"].startswith("gemma4")
+        assert str(config["model_type"]).startswith("gemma4")
         assert config["num_hidden_layers"] == 35
         assert config["hidden_size"] == 1536
         assert config["vocab_size"] == 262144
