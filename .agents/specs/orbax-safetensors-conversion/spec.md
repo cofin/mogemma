@@ -209,7 +209,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
 
 ### Phase 0: Empirical Verification (MUST run before code is written)
 
-- [ ] **0.1 Download one E2B-it checkpoint and dump tensor inventory**
+- [x] **0.1 Download one E2B-it checkpoint and dump tensor inventory** [b81d30a]
   - **Objective:** Freeze the exact Orbax tensor names and shapes for at least
     one PLE-bearing variant so transform code in Phase 1/2 is grounded.
   - **Targets:**
@@ -236,13 +236,13 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
     3. Confirm `kv_einsum.w` shape is `[2, nkv, H, d]`.
   - **If discoveries contradict this spec, update the mapping table before Phase 1.**
 
-- [ ] **0.2 Optionally dump 26B-A4B-it MoE inventory** (if disk + bandwidth allow)
+- [x] **0.2 Optionally dump 26B-A4B-it MoE inventory** (if disk + bandwidth allow) [b81d30a]
   - Same procedure, confirms MoE expert packing `[E, 2, I, H]` and `[E, H, I]`.
   - If not feasible now, defer MoE transform code to a follow-up sub-flow; do NOT guess shapes.
 
 ### Phase 1: Streaming Converter Scaffolding + Base Transformer
 
-- [ ] **1.1 Add streaming-friendly tensor access to `orbax_loader.py`**
+- [x] **1.1 Add streaming-friendly tensor access to `orbax_loader.py`** [921b91a]
   - **Objective:** Avoid loading full 150GB/81GB checkpoints into RAM. Current
     `OrbaxLoader.__init__` eager-loads every tensor (orbax_loader.py:65, 106-119).
   - **File:** `src/py/mogemma/orbax_loader.py`
@@ -273,7 +273,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
     `test_open_tensor_upcasts_bf16_to_f32()`.
   - **Verify:** `uv run pytest src/py/tests/test_orbax_loader.py -x`.
 
-- [ ] **1.2 Create `src/py/mogemma/convert.py` module skeleton**
+- [x] **1.2 Create `src/py/mogemma/convert.py` module skeleton** [994f095]
   - **Objective:** House the conversion logic. Streaming, name-mapping, and
     shard-writing live here.
   - **Public API:**
@@ -306,7 +306,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
   - **Test-first:** `src/py/tests/test_convert.py::test_variant_detection` with
     synthetic key lists for all 3 variants; `test_layer_count_handles_gaps`.
 
-- [ ] **1.3 Implement base-transformer iterator**
+- [x] **1.3 Implement base-transformer iterator** [dfab086]
   - Produces the 13 per-layer tensors + 3 globals listed in the contract.
   - Handle the `kv_einsum.w` (combined) vs `k_einsum.w` + separate `v_einsum.w`
     (31B/MoE) branching based on which key exists in the checkpoint.
@@ -319,7 +319,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
   - **Test:** `test_base_transformer_tied_lm_head()` — `lm_head.weight` is the
     same buffer as `embed_tokens.weight`.
 
-- [ ] **1.4 Implement sharded safetensors writer**
+- [x] **1.4 Implement sharded safetensors writer** [a01b371]
   - **Policy:** buffer tensors in memory up to `shard_size_bytes`; when exceeded,
     flush to `model-0000{i}-of-0000{M}.safetensors`. Single-shard path writes
     `model.safetensors`. Multi-shard path also writes `model.safetensors.index.json`
@@ -333,7 +333,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
 
 ### Phase 2: Variant-Specific Iterators
 
-- [ ] **2.1 PLE iterator (blocked on 0.1 inventory)**
+- [x] **2.1 PLE iterator (blocked on 0.1 inventory)** [a637d11]
   - Transforms: per the (verified-in-0.1) mapping table.
   - Skips any non-Mojo-contract PLE Orbax keys.
   - **Test-first:** `test_ple_split_per_layer()` — synthetic `[V, L, H_ple]` → L outputs.
@@ -397,7 +397,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
       if nonzero, include `residual * skip_scale` in the sum.
     - Run synthetic conversion + Mojo load round-trip.
 
-- [ ] **2.3 Vision iterator**
+- [x] **2.3 Vision iterator** [a58f9b1]
   - Patch embedding reshape + position embedding copy.
   - Stacked vision layers (`ve.stacked_layers.block.*` leading axis = vision layer) → per-layer split.
   - MLP `gating_einsum` → `fc1`; `linear` → `fc2` (with transpose).
@@ -429,7 +429,7 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
   - **Test-first:** `test_finalize_download_preserves_orbax_on_conversion_failure()`
     — `convert_orbax_to_safetensors` raises → staging still contains Orbax.
 
-- [ ] **3.2 Update `_has_model_files` priority (no-op if already correct)**
+- [x] **3.2 Update `_has_model_files` priority (no-op if already correct)** [a59de41]
   - Current impl (hub.py:118-121) already checks safetensors first, then Orbax.
   - Action: verify no change needed; add a test that documents the precedence.
   - **Test-first:** `test_has_model_files_prefers_safetensors_over_orbax()`.
