@@ -72,9 +72,7 @@ def _layer_count(keys: list[str]) -> int:
 # ── Base-transformer iterator ────────────────────────────────────────────────
 
 
-def _iter_base_transformer(
-    model_path: Path, _keys: list[str], num_layers: int
-) -> Iterator[tuple[str, np.ndarray]]:
+def _iter_base_transformer(model_path: Path, _keys: list[str], num_layers: int) -> Iterator[tuple[str, np.ndarray]]:
     """Yield ``(safetensors_name, array)`` pairs for the base-transformer tensors.
 
     Produces: ``model.embed_tokens.weight``, ``lm_head.weight`` (tied),
@@ -164,9 +162,7 @@ _FINAL_SHARD_FMT = "model-{index:05d}-of-{total:05d}.safetensors"
 
 
 def _write_sharded(
-    output_dir: Path,
-    tensor_iter: Iterable[tuple[str, np.ndarray]],
-    shard_size_bytes: int,
+    output_dir: Path, tensor_iter: Iterable[tuple[str, np.ndarray]], shard_size_bytes: int
 ) -> list[Path]:
     """Write ``tensor_iter`` to safetensors, sharding when cumulative bytes exceed the threshold.
 
