@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import numpy as np
@@ -835,8 +835,14 @@ class TestConvertOrbaxToSafetensorsRoundTrip:
             }
         return names
 
-    def _install_fake_orbax(self, tensors: dict[str, np.ndarray]) -> tuple[object, object]:
-        """Return (enumerate_patch, open_patch) that back the fake Orbax inventory."""
+    def _install_fake_orbax(
+        self, tensors: dict[str, np.ndarray]
+    ) -> tuple[Any, Any]:
+        """Return (enumerate_patch, open_patch) that back the fake Orbax inventory.
+
+        Typed as ``Any`` because ``unittest.mock._patch`` is not exported; the
+        returned objects are genuine context managers at runtime.
+        """
 
         def fake_enumerate(_path: object) -> list[str]:
             return list(tensors)
