@@ -16,8 +16,13 @@ _INVALID_ARCH_OVERRIDES_MSG = "architecture_overrides must be a dict[str, int | 
 class EmbeddingConfig:
     """Configuration for Gemma 4 Embedding generation."""
 
-    model_path: Path | str = "google/gemma-4-26B-A4B-it"
-    """Path to the local Gemma 4 model weights or Google model ID."""
+    model_path: Path | str = "google/gemma-4-E4B"
+    """Path to the local Gemma 4 model weights or Google model ID.
+
+    Defaults to the pretrained (non-instruction-tuned) E4B variant — pretrained
+    models produce higher-quality embeddings because IT fine-tuning optimizes
+    for instruction-following rather than representation learning.
+    """
 
     cache_path: Path | str | None = None
     """Optional base directory for downloaded model cache."""
@@ -59,8 +64,13 @@ class EmbeddingConfig:
 class GenerationConfig:
     """Configuration for Gemma 4 Text generation."""
 
-    model_path: Path | str = "google/gemma-4-26B-A4B-it"
-    """Path to the local Gemma 4 model weights or Google model ID."""
+    model_path: Path | str = "google/gemma-4-E4B-it"
+    """Path to the local Gemma 4 model weights or Google model ID.
+
+    Defaults to the instruction-tuned E4B variant — the latest small multimodal
+    model (text + image + audio) suitable for chat-style generation out of the
+    box. Use the 26B-A4B MoE or 31B dense for heavier reasoning workloads.
+    """
 
     cache_path: Path | str | None = None
     """Optional base directory for downloaded model cache."""

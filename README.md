@@ -1,12 +1,12 @@
 # 🔥 MoGemma
 
-Python/Mojo interface for Google Gemma 3.
+Python/Mojo interface for Google Gemma 4.
 
 ## Features
 
-- **Embeddings** — Dense vector embeddings via a pure Mojo backend.
+- **Embeddings** — Dense vector embeddings via a pure Mojo backend, using the pretrained E4B variant by default.
 - **Text generation** — Synchronous and async streaming with configurable sampling.
-- **Multimodal Vision** — Native support for Gemma 3 Vision models with zero-copy image processing.
+- **Multimodal** — Native support for Gemma 4 vision (all variants) and audio (E2B/E4B) with zero-copy processing.
 - **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
 - **OpenTelemetry** — Optional tracing instrumentation.
 
@@ -49,15 +49,15 @@ print(model.generate("Write a haiku about a robot discovering coffee:"))
 
 ### Multimodal Vision
 
-MoGemma supports Gemma 3 multimodal vision models.
+All Gemma 4 variants support vision inputs; the default (`google/gemma-4-E4B-it`) additionally accepts audio.
 
 - Install `mogemma[vision]` to pass image file paths or raw image bytes directly.
 
 ```python
 from mogemma import SyncGemmaModel
 
-# Initialize a vision-capable model
-model = SyncGemmaModel("gemma3-4b-it")
+# Default model is google/gemma-4-E4B-it — multimodal out of the box
+model = SyncGemmaModel()
 
 response = model.generate("Describe this image in detail:", images=["input.jpg"])
 print(response)
@@ -91,10 +91,20 @@ print(embeddings.shape)  # (2, 768)
 
 ### Selecting a Model Variant
 
-All model classes default to `gemma3-270m-it`. Pass a model ID to use a different variant:
+Four Gemma 4 variants are supported (auto-detected from `config.json`):
+
+| Model ID | Description |
+|---|---|
+| `google/gemma-4-E2B-it` | Compact multimodal (text + image + audio), ~2B params |
+| `google/gemma-4-E4B-it` | **Default** for `SyncGemmaModel` / `AsyncGemmaModel` — latest small multimodal |
+| `google/gemma-4-E4B` | **Default** for `SyncEmbeddingModel` — pretrained (better embedding quality) |
+| `google/gemma-4-26B-A4B-it` | MoE (128 experts, top-8), 4B active — heavier reasoning |
+| `google/gemma-4-31B-it` | Dense flagship, text + image |
+
+Pass a model ID to override the default:
 
 ```python
-model = SyncGemmaModel("gemma3-1b-it")
+model = SyncGemmaModel("google/gemma-4-26B-A4B-it")
 ```
 
 For full control over sampling parameters, pass a `GenerationConfig`:
@@ -102,7 +112,7 @@ For full control over sampling parameters, pass a `GenerationConfig`:
 ```python
 from mogemma import GenerationConfig, SyncGemmaModel
 
-config = GenerationConfig(model_path="gemma3-1b-it", temperature=0.7)
+config = GenerationConfig(model_path="google/gemma-4-26B-A4B-it", temperature=0.7)
 model = SyncGemmaModel(config)
 ```
 
@@ -130,14 +140,14 @@ from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncG
 
 generation = SyncGemmaModel(
     GenerationConfig(
-        model_path="gemma3-1b-it",
+        model_path="google/gemma-4-E4B-it",
         device="cpu",
     )
 )
 
 embeddings = SyncEmbeddingModel(
     EmbeddingConfig(
-        model_path="gemma3-1b-it",
+        model_path="google/gemma-4-E4B",
         device="cpu",
     )
 )

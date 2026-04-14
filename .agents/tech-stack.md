@@ -82,8 +82,9 @@ All variants use hybrid attention (sliding-window + periodic full-attention
 layers). See `.agents/knowledge/gemma4-models.md` for full architectural
 detail.
 
-**Gemma 3** (legacy): Retained compatibility for downstream users; not the
-active development target.
+**Gemma 3** is NOT supported. No Gemma 3 code exists in `src/py/mogemma/`
+or `src/mo/mogemma/`; prior references in READMEs or archive specs are
+stale from before the Gemma 4 pivot.
 
 ## GPU
 

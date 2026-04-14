@@ -10,7 +10,7 @@ from mogemma.config import EmbeddingConfig, GenerationConfig
 class TestGenerationConfigDefaults:
     def test_default_model_path(self) -> None:
         config = GenerationConfig()
-        assert str(config.model_path) == "google/gemma-4-26B-A4B-it"
+        assert str(config.model_path) == "google/gemma-4-E4B-it"
 
     def test_default_top_k(self) -> None:
         config = GenerationConfig()
@@ -32,7 +32,7 @@ class TestGenerationConfigDefaults:
 class TestEmbeddingConfigDefaults:
     def test_default_model_path(self) -> None:
         config = EmbeddingConfig()
-        assert str(config.model_path) == "google/gemma-4-26B-A4B-it"
+        assert str(config.model_path) == "google/gemma-4-E4B"
 
 
 class TestGenerationConfigValidation:

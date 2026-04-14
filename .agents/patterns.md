@@ -55,7 +55,7 @@
 - **FFI Memory Safety:** Keep references to converted numpy arrays in Python to prevent GC before Mojo consumption.
 - **HuggingFace Shard Discovery:** HF doesn't support bucket listing; parse `model.safetensors.index.json` instead.
 - **HuggingFace URL Normalization:** When using `obstore.store.HTTPStore`, ensure the base URL does *not* have a trailing slash (e.g., `.../resolve/main`) to avoid double-slash 404 errors (`.../resolve/main//file`) from Hugging Face.
-- **Gemma 4 Default Selection:** Default to the `26B-A4B-it` MoE variant for a balance of high reasoning quality and low resource footprint (4B active parameters).
+- **Gemma 4 Default Selection:** `GenerationConfig` / `EmbeddingConfig` default to `google/gemma-4-E4B-it` — the latest small multimodal variant (text + image + audio, PLE). Users select the 26B-A4B MoE or 31B dense explicitly when they want more capacity.
 - **Gemma 4 Vision Cropping:** Target budgets must be cropped to largest multiple of `patch_size` (16) after resizing (e.g., 280 -> 272).
 - **Beads FK Constraints:** Large Beads DBs may hit foreign key corruption; favor markdown-only tracking for rapid feature development if instability occurs.
 

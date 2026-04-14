@@ -50,9 +50,8 @@ without leaving the Python ecosystem.
 Primary target is **Gemma 4** (four variants, auto-detected from `config.json`):
 
 - `gemma-4-e2b-it` — compact multimodal (text + image + audio), PLE + double-wide MLP.
-- `gemma-4-e4b-it` — larger multimodal (text + image + audio), PLE.
-- `gemma-4-26b-a4b-it` — MoE (128 experts, top-8) with shared dense MLP;
-  recommended default for reasoning workloads.
+- `gemma-4-e4b-it` — larger multimodal (text + image + audio), PLE. **Library default.**
+- `gemma-4-26b-a4b-it` — MoE (128 experts, top-8) with shared dense MLP; recommended for heavier reasoning workloads.
 - `gemma-4-31b-it` — dense flagship, text + image.
 
 Gemma 3 support is **legacy** — retained for downstream compatibility but
