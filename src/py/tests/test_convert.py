@@ -290,7 +290,7 @@ def _make_ple_tensor_map(num_layers: int = _N_LAYERS) -> dict[str, np.ndarray]:
     rng = np.random.default_rng(seed=1)
     tensors: dict[str, np.ndarray] = {
         # Global embedder table: layer axis is the MIDDLE axis, per E2B-it inventory.
-        "embedder.per_layer_embeddings": rng.standard_normal((_V, num_layers, _PLE_DIM)).astype(np.float32),
+        "embedder.per_layer_embeddings": rng.standard_normal((_V, num_layers, _PLE_DIM)).astype(np.float32)
     }
     for n in range(num_layers):
         tensors[f"layer_{n}.per_layer_projection.w"] = rng.standard_normal((_PLE_DIM, _H)).astype(np.float32)
@@ -389,12 +389,12 @@ def _make_vision_tensor_map(num_layers: int = _VL) -> dict[str, np.ndarray]:
         "vision_encoder.entry.pos_emb": rng.standard_normal((10240, 2, _VH)).astype(np.float32),
         "embedder.mm_input_projection.w": rng.standard_normal((_VH, 96)).astype(np.float32),
         f"{pfx}.attn.q_einsum.w": rng.standard_normal((num_layers, _V_HEADS, _VH, _V_HEAD_DIM)).astype(np.float32),
-        f"{pfx}.attn.kv_einsum.w": rng.standard_normal(
-            (num_layers, 2, _V_KV_HEADS, _VH, _V_HEAD_DIM)
-        ).astype(np.float32),
-        f"{pfx}.attn.attn_vec_einsum.w": rng.standard_normal(
-            (num_layers, _V_HEADS, _V_HEAD_DIM, _VH)
-        ).astype(np.float32),
+        f"{pfx}.attn.kv_einsum.w": rng.standard_normal((num_layers, 2, _V_KV_HEADS, _VH, _V_HEAD_DIM)).astype(
+            np.float32
+        ),
+        f"{pfx}.attn.attn_vec_einsum.w": rng.standard_normal((num_layers, _V_HEADS, _V_HEAD_DIM, _VH)).astype(
+            np.float32
+        ),
         f"{pfx}.mlp.gating_einsum.w": rng.standard_normal((num_layers, 2, _V_INTER, _VH)).astype(np.float32),
         f"{pfx}.mlp.linear.w": rng.standard_normal((num_layers, _V_INTER, _VH)).astype(np.float32),
         f"{pfx}.pre_attention_norm.scale": rng.standard_normal((num_layers, _VH)).astype(np.float32),
@@ -438,9 +438,7 @@ class TestVisionIterator:
         yielded = dict(_run_iter_with_fakes(tensors, _iter_vision, tmp_path, _VL))
         pfx = "vision_encoder.transformer.stacked_layers.block"
         src = tensors[f"{pfx}.mlp.gating_einsum.w"]  # (L, 2, I, H)
-        np.testing.assert_array_equal(
-            yielded["vision_tower.vision_model.encoder.layers.0.mlp.fc1.weight"], src[0, 0]
-        )
+        np.testing.assert_array_equal(yielded["vision_tower.vision_model.encoder.layers.0.mlp.fc1.weight"], src[0, 0])
         np.testing.assert_array_equal(
             yielded["vision_tower.vision_model.encoder.layers.0.mlp.fc1_up.weight"], src[0, 1]
         )
@@ -463,15 +461,13 @@ class TestVisionIterator:
         np.testing.assert_array_equal(yielded["vision_tower.vision_model.post_layernorm.weight"], expected)
 
 
-from mogemma.convert import _generate_config_json  # noqa: E402
+from mogemma.convert import _generate_config_json
 
 
 class TestGenerateConfigJson:
     """`_generate_config_json` synthesizes a HF-compatible config.json from Orbax tensor shapes."""
 
-    def _fake_shape_oracle(
-        self, shapes: dict[str, tuple[int, ...]]
-    ) -> Callable[[str], tuple[int, ...]]:
+    def _fake_shape_oracle(self, shapes: dict[str, tuple[int, ...]]) -> Callable[[str], tuple[int, ...]]:
         """Build a `(name)->shape` callable that simulates OrbaxLoader shape access without I/O."""
 
         def _oracle(name: str) -> tuple[int, ...]:

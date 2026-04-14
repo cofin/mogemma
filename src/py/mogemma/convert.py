@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -27,6 +26,7 @@ import numpy as np
 from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -176,10 +176,7 @@ def _iter_ple(model_path: Path, num_layers: int) -> Iterator[tuple[str, np.ndarr
         pfx_out = f"model.layers.{n}.per_layer_input"
         # Slice the layer axis out of the global (V, L, H_ple) table;
         # ascontiguousarray gives safetensors a self-contained C buffer.
-        yield (
-            f"{pfx_out}.per_layer_embedding.weight",
-            np.ascontiguousarray(global_embeddings[:, n, :]),
-        )
+        yield (f"{pfx_out}.per_layer_embedding.weight", np.ascontiguousarray(global_embeddings[:, n, :]))
         yield (
             f"{pfx_out}.per_layer_projection.weight",
             OrbaxLoader.open_tensor(model_path, f"layer_{n}.per_layer_projection.w"),
@@ -197,11 +194,7 @@ def _iter_ple(model_path: Path, num_layers: int) -> Iterator[tuple[str, np.ndarr
 # These are model-family facts (sliding windows, partial RoPE factor, top-k) that
 # can't be derived from tensor shapes alone.
 _VARIANT_CONSTANTS = {
-    "base": {
-        "model_type": "gemma4_text",
-        "sliding_window_size": 1024,
-        "partial_rotary_factor": 0.5,
-    },
+    "base": {"model_type": "gemma4_text", "sliding_window_size": 1024, "partial_rotary_factor": 0.5},
     "ple": {
         "model_type": "gemma4_text",  # narrowed to _e2b/_e4b below via use_double_wide_mlp
         "sliding_window_size": 512,
@@ -216,10 +209,7 @@ _VARIANT_CONSTANTS = {
 }
 
 
-def _generate_config_json(
-    keys: list[str],
-    shape_oracle: "Callable[[str], tuple[int, ...]]",
-) -> dict[str, object]:
+def _generate_config_json(keys: list[str], shape_oracle: Callable[[str], tuple[int, ...]]) -> dict[str, object]:
     """Synthesize a HF-compatible ``config.json`` dict from the Orbax tensor inventory.
 
     Values that *can* be derived from tensor shapes (vocab_size, hidden_size,
@@ -248,9 +238,7 @@ def _generate_config_json(
     num_key_value_heads = kv_shape[1]
 
     gating_shape = shape_oracle("layer_0.mlp.gating_einsum.w")
-    # Layout differs between dense (gate/up split) and MoE (experts leading):
-    #   dense: (2, intermediate, H)
-    #   moe:   (num_experts, 2, moe_intermediate, H)
+    # Dense layout is (2, intermediate, H); MoE layout is (num_experts, 2, moe_intermediate, H).
     if variant == "moe":
         num_local_experts = gating_shape[0]
         moe_intermediate_size = gating_shape[2]
@@ -275,11 +263,10 @@ def _generate_config_json(
         ple_shape = shape_oracle("embedder.per_layer_embeddings")
         config["vocab_size_per_layer_input"] = ple_shape[0]
         config["hidden_size_per_layer_input"] = ple_shape[2]
-        # use_double_wide_mlp distinguishes E2B (True) from E4B (False); the
-        # safest signal is intermediate/hidden ratio: E2B uses 4× (6144/1536)
-        # versus E4B's usual 8×. A definitive classifier will land once we have
-        # E4B inventory. For now, emit nothing — downstream _detect_gemma4_variant
-        # treats absent use_double_wide_mlp as E4B.
+        # use_double_wide_mlp distinguishes E2B (True) from E4B (False) via the
+        # intermediate/hidden ratio (E2B 4x at 6144/1536 vs E4B 8x). A definitive
+        # classifier lands once we have E4B inventory; until then emit nothing and
+        # let downstream _detect_gemma4_variant treat absent as E4B.
 
     if variant == "moe":
         config["num_local_experts"] = num_local_experts
@@ -325,34 +312,34 @@ def _iter_vision(model_path: Path, num_vision_layers: int) -> Iterator[tuple[str
 
     # Per-layer stacked tensors: leading axis = layer index.
     pfx = "vision_encoder.transformer.stacked_layers.block"
-    q_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.q_einsum.w")          # (L, n_heads, H, head_dim)
-    kv_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.kv_einsum.w")        # (L, 2, n_kv, H, head_dim)
-    o_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.attn_vec_einsum.w")   # (L, n_heads, head_dim, H)
+    q_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.q_einsum.w")  # (L, n_heads, H, head_dim)
+    kv_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.kv_einsum.w")  # (L, 2, n_kv, H, head_dim)
+    o_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.attn.attn_vec_einsum.w")  # (L, n_heads, head_dim, H)
     gate_up_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.mlp.gating_einsum.w")  # (L, 2, intermediate, H)
-    linear_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.mlp.linear.w")        # (L, intermediate, H)
+    linear_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.mlp.linear.w")  # (L, intermediate, H)
     ln1_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.pre_attention_norm.scale")  # (L, H)
-    ln2_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.pre_ffw_norm.scale")     # (L, H)
+    ln2_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.pre_ffw_norm.scale")  # (L, H)
     post_ffw_all = OrbaxLoader.open_tensor(model_path, f"{pfx}.post_ffw_norm.scale")  # (L, H)
 
     for i in range(num_vision_layers):
         pfx_out = f"vision_tower.vision_model.encoder.layers.{i}"
 
-        q = q_all[i]                                                    # (n_heads, H, head_dim)
+        q = q_all[i]  # (n_heads, H, head_dim)
         yield f"{pfx_out}.self_attn.q_proj.weight", np.ascontiguousarray(q.transpose(0, 2, 1).reshape(-1, q.shape[1]))
 
-        kv = kv_all[i]                                                  # (2, n_kv, H, head_dim)
+        kv = kv_all[i]  # (2, n_kv, H, head_dim)
         k, v = kv[0], kv[1]
         yield f"{pfx_out}.self_attn.k_proj.weight", np.ascontiguousarray(k.transpose(0, 2, 1).reshape(-1, k.shape[1]))
         yield f"{pfx_out}.self_attn.v_proj.weight", np.ascontiguousarray(v.transpose(0, 2, 1).reshape(-1, v.shape[1]))
 
-        o = o_all[i]                                                    # (n_heads, head_dim, H)
+        o = o_all[i]  # (n_heads, head_dim, H)
         yield f"{pfx_out}.self_attn.out_proj.weight", np.ascontiguousarray(o.reshape(-1, o.shape[2]).T)
 
-        gate_up = gate_up_all[i]                                        # (2, intermediate, H)
+        gate_up = gate_up_all[i]  # (2, intermediate, H)
         yield f"{pfx_out}.mlp.fc1.weight", np.ascontiguousarray(gate_up[0])
         yield f"{pfx_out}.mlp.fc1_up.weight", np.ascontiguousarray(gate_up[1])
 
-        linear = linear_all[i]                                          # (intermediate, H)
+        linear = linear_all[i]  # (intermediate, H)
         yield f"{pfx_out}.mlp.fc2.weight", np.ascontiguousarray(linear.T)
 
         yield f"{pfx_out}.layer_norm1.weight", np.ascontiguousarray(ln1_all[i])
@@ -362,10 +349,7 @@ def _iter_vision(model_path: Path, num_vision_layers: int) -> Iterator[tuple[str
     # doesn't ship a dedicated top-level post-norm; use the LAST layer's
     # post_ffw_norm as a surrogate (best available signal — matches the
     # position in the forward pass where Mojo applies post_layernorm).
-    yield (
-        "vision_tower.vision_model.post_layernorm.weight",
-        np.ascontiguousarray(post_ffw_all[-1]),
-    )
+    yield ("vision_tower.vision_model.post_layernorm.weight", np.ascontiguousarray(post_ffw_all[-1]))
 
 
 def _iter_moe_experts(
