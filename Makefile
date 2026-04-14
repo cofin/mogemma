@@ -24,19 +24,13 @@ help: ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST) 
 
 .PHONY: install
-install: clean ## Install everything (Python, Mojo, Beads)
+install: clean ## Install everything (Python, Mojo)
 	@echo "${INFO} Installing..."
 	@if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
 	@uv python pin 3.12 >/dev/null 2>&1
 	@uv venv
 	@$(MAKE) py-install
-	@$(MAKE) beads-install
 	@echo "${OK} Ready!"
-
-.PHONY: beads-install
-beads-install: ## Install beads
-	@if ! command -v br >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh | bash; fi
-	@if [ ! -f .beads/config.yaml ]; then br init --prefix mogemma || true; fi
 
 .PHONY: py-install
 py-install: ## Install Python deps

@@ -211,5 +211,16 @@ def auto_loader(model_path: str | Path) -> ModelLoader:
     if SafetensorsLoader.can_load(path):
         return SafetensorsLoader(path)
 
-    msg = f"No supported model format found in {path}. Expected safetensors files (model.safetensors)."
+    # Lazy import: OrbaxLoader pulls in tensorstore, which is only needed
+    # when reading raw Gemma 4 checkpoints from the gemma-data GCS bucket.
+    from mogemma.orbax_loader import OrbaxLoader  # noqa: PLC0415
+
+    if OrbaxLoader.can_load(path):
+        return OrbaxLoader(path)
+
+    msg = (
+        f"No supported model format found in {path}. "
+        "Expected safetensors files (model.safetensors) or an Orbax/OCDBT checkpoint "
+        "(ocdbt.process_0/ + manifest.ocdbt)."
+    )
     raise FileNotFoundError(msg)
