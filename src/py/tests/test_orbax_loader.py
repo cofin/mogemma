@@ -118,6 +118,77 @@ class TestGetTensorMetadata:
             assert loader.get_tensor_metadata() == {}
 
 
+class TestStreamingHelpers:
+    """Static helpers that read the checkpoint without eagerly loading every tensor."""
+
+    @pytest.fixture
+    def orbax_dir(self, tmp_path: Path) -> Path:
+        (tmp_path / "ocdbt.process_0").mkdir()
+        (tmp_path / "manifest.ocdbt").write_bytes(b"")
+        return tmp_path
+
+    def test_enumerate_tensors_does_not_materialize(self, orbax_dir: Path) -> None:
+        """enumerate_tensors must not call _open_tensor for any key."""
+        fake_kvstore = MagicMock()
+        fake_kvstore.list.return_value.result.return_value = [
+            b"embedder.input_embedding/.zarray",
+            b"embedder.input_embedding/0.0",
+            b"layer_0.attn.q_einsum.w/.zarray",
+        ]
+        fake_ts = MagicMock()
+        fake_ts.KvStore.open.return_value.result.return_value = fake_kvstore
+
+        open_tensor_calls: list[str] = []
+
+        def spy_open_tensor(self: OrbaxLoader, name: str) -> np.ndarray:
+            open_tensor_calls.append(name)
+            return np.zeros((1,), dtype=np.float32)
+
+        with (
+            patch.dict("sys.modules", {"tensorstore": fake_ts}),
+            patch.object(OrbaxLoader, "_open_tensor", spy_open_tensor),
+        ):
+            names = OrbaxLoader.enumerate_tensors(orbax_dir)
+
+        assert names == ["embedder.input_embedding", "layer_0.attn.q_einsum.w"]
+        assert open_tensor_calls == []
+
+    def test_open_tensor_upcasts_bf16_to_f32(self, orbax_dir: Path) -> None:
+        """open_tensor upcasts bfloat16 to float32 (matches FFI contract)."""
+        # Build a fake bfloat16 array via a custom numpy dtype shim:
+        # ml_dtypes provides bfloat16 if installed; fall back to constructing
+        # an object whose `.dtype.name` is "bfloat16".
+        fake_bf16 = MagicMock(spec=np.ndarray)
+        fake_bf16.dtype = MagicMock()
+        fake_bf16.dtype.name = "bfloat16"
+        upcast_result = np.ones((3, 4), dtype=np.float32)
+        fake_bf16.astype.return_value = upcast_result
+
+        with patch.object(OrbaxLoader, "_open_tensor", return_value=fake_bf16):
+            result = OrbaxLoader.open_tensor(orbax_dir, "some_tensor")
+
+        fake_bf16.astype.assert_called_once_with(np.float32)
+        assert result is upcast_result
+        assert result.dtype == np.float32
+
+    def test_open_tensor_preserves_f32(self, orbax_dir: Path) -> None:
+        """F32 tensors pass through unchanged (no unnecessary copy)."""
+        f32_arr = np.ones((2, 3), dtype=np.float32)
+        with patch.object(OrbaxLoader, "_open_tensor", return_value=f32_arr):
+            result = OrbaxLoader.open_tensor(orbax_dir, "some_tensor")
+        assert result is f32_arr
+
+    def test_open_tensor_forces_contiguous(self, orbax_dir: Path) -> None:
+        """Non-contiguous arrays are re-copied so ctypes.data is valid."""
+        base = np.arange(20, dtype=np.float32).reshape(4, 5)
+        sliced = base[:, ::2]  # non-contiguous view
+        assert not sliced.flags["C_CONTIGUOUS"]
+        with patch.object(OrbaxLoader, "_open_tensor", return_value=sliced):
+            result = OrbaxLoader.open_tensor(orbax_dir, "some_tensor")
+        assert result.flags["C_CONTIGUOUS"]
+        np.testing.assert_array_equal(result, sliced)
+
+
 class TestAutoLoaderRoutesToOrbax:
     """auto_loader should return OrbaxLoader for Orbax directories."""
 

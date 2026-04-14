@@ -118,6 +118,34 @@ class OrbaxLoader:
                 arr = np.ascontiguousarray(arr)
             self._tensors[name] = arr
 
+    @classmethod
+    def enumerate_tensors(cls, model_path: str | Path) -> list[str]:
+        """Return the tensor names in *model_path* without materializing any data.
+
+        Intended for streaming consumers (e.g. Orbax→safetensors conversion) that
+        want to iterate tensors without paying the full-checkpoint RAM cost of
+        :meth:`__init__`.
+        """
+        stub = cls.__new__(cls)
+        stub.model_path = Path(model_path)
+        return stub._enumerate_tensor_names()
+
+    @classmethod
+    def open_tensor(cls, model_path: str | Path, name: str) -> np.ndarray:
+        """Read a single tensor lazily and return a contiguous float-array copy.
+
+        BF16 is upcast to F32 to match :meth:`__init__`'s FFI contract. The
+        returned array is owned by the caller (not cached on the loader).
+        """
+        stub = cls.__new__(cls)
+        stub.model_path = Path(model_path)
+        arr = stub._open_tensor(name)
+        if arr.dtype.name == "bfloat16":
+            arr = arr.astype(np.float32)
+        if not arr.flags["C_CONTIGUOUS"]:
+            arr = np.ascontiguousarray(arr)
+        return arr
+
     def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
         """Return ``{name: (data_ptr, shape, dtype_str)}`` for Mojo FFI."""
         result: dict[str, tuple[int, tuple[int, ...], str]] = {}
