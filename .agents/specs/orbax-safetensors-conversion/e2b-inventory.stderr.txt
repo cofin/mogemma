@@ -1,0 +1,4 @@
+# model_id=google/gemma-4-e2b-it
+# local_dir=/home/cody/.cache/mogemma/google--gemma-4-e2b-it
+# top_level=['_CHECKPOINT_METADATA', '_METADATA', 'commit_success.txt', 'd', 'descriptor', 'manifest.ocdbt', 'ocdbt.process_0', 'tokenizer.model']
+# tensor_count=1318

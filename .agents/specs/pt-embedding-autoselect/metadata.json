@@ -1,0 +1,10 @@
+{
+  "flow_id": "pt-embedding-autoselect",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "gcs-orbax-migration",
+  "beads_epic_id": null,
+  "created_at": "2026-04-13T20:55:00Z",
+  "updated_at": "2026-04-13T20:55:00Z",
+  "description": "Default EmbeddingConfig to pre-trained (-pt) model variant for better embedding quality"
+}

@@ -1,0 +1,1318 @@
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_0.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_0.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_0.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_0.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_1.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_1.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_1.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_10.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_10.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_10.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_11.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_11.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_11.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_2.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_2.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_2.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_3.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_3.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_3.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_4.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_4.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_4.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_5.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_5.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_5.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_6.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_6.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_6.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_7.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_7.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_7.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_8.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_8.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_8.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_end.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.fflayer_end.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer1.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer1.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer1.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer1.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer1.kernel	(1024, 4096)	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer2.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer2.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer2.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer2.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.ffn_layer2.kernel	(4096, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.fflayer_start.post_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.fflayer_start.pre_layer_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.final_ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.lconv.conv_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.lconv.depthwise_conv1d.kernel	(5, 1, 1024)	bfloat16
+audio_encoder.conformer/stacked_layers_9.lconv.linear_end.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_end.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_end.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_end.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_end.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_start.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_start.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_start.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_start.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.lconv.linear_start.kernel	(1024, 2048)	float32
+audio_encoder.conformer/stacked_layers_9.lconv.ln.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.trans_atten.post.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.post.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.post.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.post.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.post.kernel	(8, 128, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.post_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.trans_atten.pre_norm.scale	(1024,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.key.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.key.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.key.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.key.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.key.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.per_dim_scale	(128,)	bfloat16
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.query.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.query.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.query.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.query.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.query.kernel	(1024, 1024)	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.relative_position_embedding.pos_proj.kernel	(1024, 8, 128)	bfloat16
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.value.clip_input_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.value.clip_input_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.value.clip_output_max	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.value.clip_output_min	()	float32
+audio_encoder.conformer/stacked_layers_9.trans_atten.self_atten.value.kernel	(1024, 1024)	float32
+audio_encoder.feature.input_proj.kernel	(32, 32, 1024)	bfloat16
+audio_encoder.feature.norm_0.scale	(128,)	bfloat16
+audio_encoder.feature.norm_1.scale	(32,)	bfloat16
+audio_encoder.feature.subsampling_0.kernel	(3, 3, 1, 128)	bfloat16
+audio_encoder.feature.subsampling_1.kernel	(3, 3, 128, 32)	bfloat16
+audio_encoder.output_projection.bias	(1536,)	bfloat16
+audio_encoder.output_projection.kernel	(1024, 1536)	bfloat16
+embedder.audio_input_embedding_extra	(128, 1536)	float32
+embedder.audio_input_projection.w	(1536, 1536)	float32
+embedder.input_embedding	(262144, 1536)	float32
+embedder.mm_input_embedding_extra	(128, 768)	float32
+embedder.mm_input_projection.w	(768, 1536)	float32
+embedder.per_layer_embeddings	(262144, 35, 256)	float32
+embedder.per_layer_model_projection.w	(1536, 35, 256)	float32
+embedder.per_layer_projection_norm.scale	(256,)	float32
+final_norm.scale	(1536,)	float32
+layer_0.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_0.attn.key_norm.scale	(256,)	float32
+layer_0.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_0.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_0.attn.query_norm.scale	(256,)	float32
+layer_0.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_0.mlp.linear.w	(6144, 1536)	float32
+layer_0.per_layer_input_gate.w	(1536, 256)	float32
+layer_0.per_layer_projection.w	(256, 1536)	float32
+layer_0.post_attention_norm.scale	(1536,)	float32
+layer_0.post_ffw_norm.scale	(1536,)	float32
+layer_0.post_per_layer_input_norm.scale	(1536,)	float32
+layer_0.pre_attention_norm.scale	(1536,)	float32
+layer_0.pre_ffw_norm.scale	(1536,)	float32
+layer_0.skip_scale	(1,)	float32
+layer_1.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_1.attn.key_norm.scale	(256,)	float32
+layer_1.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_1.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_1.attn.query_norm.scale	(256,)	float32
+layer_1.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_1.mlp.linear.w	(6144, 1536)	float32
+layer_1.per_layer_input_gate.w	(1536, 256)	float32
+layer_1.per_layer_projection.w	(256, 1536)	float32
+layer_1.post_attention_norm.scale	(1536,)	float32
+layer_1.post_ffw_norm.scale	(1536,)	float32
+layer_1.post_per_layer_input_norm.scale	(1536,)	float32
+layer_1.pre_attention_norm.scale	(1536,)	float32
+layer_1.pre_ffw_norm.scale	(1536,)	float32
+layer_1.skip_scale	(1,)	float32
+layer_10.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_10.attn.key_norm.scale	(256,)	float32
+layer_10.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_10.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_10.attn.query_norm.scale	(256,)	float32
+layer_10.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_10.mlp.linear.w	(6144, 1536)	float32
+layer_10.per_layer_input_gate.w	(1536, 256)	float32
+layer_10.per_layer_projection.w	(256, 1536)	float32
+layer_10.post_attention_norm.scale	(1536,)	float32
+layer_10.post_ffw_norm.scale	(1536,)	float32
+layer_10.post_per_layer_input_norm.scale	(1536,)	float32
+layer_10.pre_attention_norm.scale	(1536,)	float32
+layer_10.pre_ffw_norm.scale	(1536,)	float32
+layer_10.skip_scale	(1,)	float32
+layer_11.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_11.attn.key_norm.scale	(256,)	float32
+layer_11.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_11.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_11.attn.query_norm.scale	(256,)	float32
+layer_11.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_11.mlp.linear.w	(6144, 1536)	float32
+layer_11.per_layer_input_gate.w	(1536, 256)	float32
+layer_11.per_layer_projection.w	(256, 1536)	float32
+layer_11.post_attention_norm.scale	(1536,)	float32
+layer_11.post_ffw_norm.scale	(1536,)	float32
+layer_11.post_per_layer_input_norm.scale	(1536,)	float32
+layer_11.pre_attention_norm.scale	(1536,)	float32
+layer_11.pre_ffw_norm.scale	(1536,)	float32
+layer_11.skip_scale	(1,)	float32
+layer_12.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_12.attn.key_norm.scale	(256,)	float32
+layer_12.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_12.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_12.attn.query_norm.scale	(256,)	float32
+layer_12.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_12.mlp.linear.w	(6144, 1536)	float32
+layer_12.per_layer_input_gate.w	(1536, 256)	float32
+layer_12.per_layer_projection.w	(256, 1536)	float32
+layer_12.post_attention_norm.scale	(1536,)	float32
+layer_12.post_ffw_norm.scale	(1536,)	float32
+layer_12.post_per_layer_input_norm.scale	(1536,)	float32
+layer_12.pre_attention_norm.scale	(1536,)	float32
+layer_12.pre_ffw_norm.scale	(1536,)	float32
+layer_12.skip_scale	(1,)	float32
+layer_13.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_13.attn.key_norm.scale	(256,)	float32
+layer_13.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_13.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_13.attn.query_norm.scale	(256,)	float32
+layer_13.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_13.mlp.linear.w	(6144, 1536)	float32
+layer_13.per_layer_input_gate.w	(1536, 256)	float32
+layer_13.per_layer_projection.w	(256, 1536)	float32
+layer_13.post_attention_norm.scale	(1536,)	float32
+layer_13.post_ffw_norm.scale	(1536,)	float32
+layer_13.post_per_layer_input_norm.scale	(1536,)	float32
+layer_13.pre_attention_norm.scale	(1536,)	float32
+layer_13.pre_ffw_norm.scale	(1536,)	float32
+layer_13.skip_scale	(1,)	float32
+layer_14.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_14.attn.key_norm.scale	(512,)	float32
+layer_14.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_14.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_14.attn.query_norm.scale	(512,)	float32
+layer_14.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_14.mlp.linear.w	(6144, 1536)	float32
+layer_14.per_layer_input_gate.w	(1536, 256)	float32
+layer_14.per_layer_projection.w	(256, 1536)	float32
+layer_14.post_attention_norm.scale	(1536,)	float32
+layer_14.post_ffw_norm.scale	(1536,)	float32
+layer_14.post_per_layer_input_norm.scale	(1536,)	float32
+layer_14.pre_attention_norm.scale	(1536,)	float32
+layer_14.pre_ffw_norm.scale	(1536,)	float32
+layer_14.skip_scale	(1,)	float32
+layer_15.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_15.attn.key_norm.scale	(256,)	float32
+layer_15.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_15.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_15.attn.query_norm.scale	(256,)	float32
+layer_15.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_15.mlp.linear.w	(12288, 1536)	float32
+layer_15.per_layer_input_gate.w	(1536, 256)	float32
+layer_15.per_layer_projection.w	(256, 1536)	float32
+layer_15.post_attention_norm.scale	(1536,)	float32
+layer_15.post_ffw_norm.scale	(1536,)	float32
+layer_15.post_per_layer_input_norm.scale	(1536,)	float32
+layer_15.pre_attention_norm.scale	(1536,)	float32
+layer_15.pre_ffw_norm.scale	(1536,)	float32
+layer_15.skip_scale	(1,)	float32
+layer_16.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_16.attn.key_norm.scale	(256,)	float32
+layer_16.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_16.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_16.attn.query_norm.scale	(256,)	float32
+layer_16.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_16.mlp.linear.w	(12288, 1536)	float32
+layer_16.per_layer_input_gate.w	(1536, 256)	float32
+layer_16.per_layer_projection.w	(256, 1536)	float32
+layer_16.post_attention_norm.scale	(1536,)	float32
+layer_16.post_ffw_norm.scale	(1536,)	float32
+layer_16.post_per_layer_input_norm.scale	(1536,)	float32
+layer_16.pre_attention_norm.scale	(1536,)	float32
+layer_16.pre_ffw_norm.scale	(1536,)	float32
+layer_16.skip_scale	(1,)	float32
+layer_17.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_17.attn.key_norm.scale	(256,)	float32
+layer_17.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_17.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_17.attn.query_norm.scale	(256,)	float32
+layer_17.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_17.mlp.linear.w	(12288, 1536)	float32
+layer_17.per_layer_input_gate.w	(1536, 256)	float32
+layer_17.per_layer_projection.w	(256, 1536)	float32
+layer_17.post_attention_norm.scale	(1536,)	float32
+layer_17.post_ffw_norm.scale	(1536,)	float32
+layer_17.post_per_layer_input_norm.scale	(1536,)	float32
+layer_17.pre_attention_norm.scale	(1536,)	float32
+layer_17.pre_ffw_norm.scale	(1536,)	float32
+layer_17.skip_scale	(1,)	float32
+layer_18.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_18.attn.key_norm.scale	(256,)	float32
+layer_18.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_18.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_18.attn.query_norm.scale	(256,)	float32
+layer_18.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_18.mlp.linear.w	(12288, 1536)	float32
+layer_18.per_layer_input_gate.w	(1536, 256)	float32
+layer_18.per_layer_projection.w	(256, 1536)	float32
+layer_18.post_attention_norm.scale	(1536,)	float32
+layer_18.post_ffw_norm.scale	(1536,)	float32
+layer_18.post_per_layer_input_norm.scale	(1536,)	float32
+layer_18.pre_attention_norm.scale	(1536,)	float32
+layer_18.pre_ffw_norm.scale	(1536,)	float32
+layer_18.skip_scale	(1,)	float32
+layer_19.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_19.attn.key_norm.scale	(512,)	float32
+layer_19.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_19.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_19.attn.query_norm.scale	(512,)	float32
+layer_19.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_19.mlp.linear.w	(12288, 1536)	float32
+layer_19.per_layer_input_gate.w	(1536, 256)	float32
+layer_19.per_layer_projection.w	(256, 1536)	float32
+layer_19.post_attention_norm.scale	(1536,)	float32
+layer_19.post_ffw_norm.scale	(1536,)	float32
+layer_19.post_per_layer_input_norm.scale	(1536,)	float32
+layer_19.pre_attention_norm.scale	(1536,)	float32
+layer_19.pre_ffw_norm.scale	(1536,)	float32
+layer_19.skip_scale	(1,)	float32
+layer_2.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_2.attn.key_norm.scale	(256,)	float32
+layer_2.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_2.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_2.attn.query_norm.scale	(256,)	float32
+layer_2.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_2.mlp.linear.w	(6144, 1536)	float32
+layer_2.per_layer_input_gate.w	(1536, 256)	float32
+layer_2.per_layer_projection.w	(256, 1536)	float32
+layer_2.post_attention_norm.scale	(1536,)	float32
+layer_2.post_ffw_norm.scale	(1536,)	float32
+layer_2.post_per_layer_input_norm.scale	(1536,)	float32
+layer_2.pre_attention_norm.scale	(1536,)	float32
+layer_2.pre_ffw_norm.scale	(1536,)	float32
+layer_2.skip_scale	(1,)	float32
+layer_20.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_20.attn.key_norm.scale	(256,)	float32
+layer_20.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_20.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_20.attn.query_norm.scale	(256,)	float32
+layer_20.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_20.mlp.linear.w	(12288, 1536)	float32
+layer_20.per_layer_input_gate.w	(1536, 256)	float32
+layer_20.per_layer_projection.w	(256, 1536)	float32
+layer_20.post_attention_norm.scale	(1536,)	float32
+layer_20.post_ffw_norm.scale	(1536,)	float32
+layer_20.post_per_layer_input_norm.scale	(1536,)	float32
+layer_20.pre_attention_norm.scale	(1536,)	float32
+layer_20.pre_ffw_norm.scale	(1536,)	float32
+layer_20.skip_scale	(1,)	float32
+layer_21.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_21.attn.key_norm.scale	(256,)	float32
+layer_21.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_21.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_21.attn.query_norm.scale	(256,)	float32
+layer_21.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_21.mlp.linear.w	(12288, 1536)	float32
+layer_21.per_layer_input_gate.w	(1536, 256)	float32
+layer_21.per_layer_projection.w	(256, 1536)	float32
+layer_21.post_attention_norm.scale	(1536,)	float32
+layer_21.post_ffw_norm.scale	(1536,)	float32
+layer_21.post_per_layer_input_norm.scale	(1536,)	float32
+layer_21.pre_attention_norm.scale	(1536,)	float32
+layer_21.pre_ffw_norm.scale	(1536,)	float32
+layer_21.skip_scale	(1,)	float32
+layer_22.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_22.attn.key_norm.scale	(256,)	float32
+layer_22.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_22.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_22.attn.query_norm.scale	(256,)	float32
+layer_22.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_22.mlp.linear.w	(12288, 1536)	float32
+layer_22.per_layer_input_gate.w	(1536, 256)	float32
+layer_22.per_layer_projection.w	(256, 1536)	float32
+layer_22.post_attention_norm.scale	(1536,)	float32
+layer_22.post_ffw_norm.scale	(1536,)	float32
+layer_22.post_per_layer_input_norm.scale	(1536,)	float32
+layer_22.pre_attention_norm.scale	(1536,)	float32
+layer_22.pre_ffw_norm.scale	(1536,)	float32
+layer_22.skip_scale	(1,)	float32
+layer_23.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_23.attn.key_norm.scale	(256,)	float32
+layer_23.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_23.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_23.attn.query_norm.scale	(256,)	float32
+layer_23.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_23.mlp.linear.w	(12288, 1536)	float32
+layer_23.per_layer_input_gate.w	(1536, 256)	float32
+layer_23.per_layer_projection.w	(256, 1536)	float32
+layer_23.post_attention_norm.scale	(1536,)	float32
+layer_23.post_ffw_norm.scale	(1536,)	float32
+layer_23.post_per_layer_input_norm.scale	(1536,)	float32
+layer_23.pre_attention_norm.scale	(1536,)	float32
+layer_23.pre_ffw_norm.scale	(1536,)	float32
+layer_23.skip_scale	(1,)	float32
+layer_24.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_24.attn.key_norm.scale	(512,)	float32
+layer_24.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_24.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_24.attn.query_norm.scale	(512,)	float32
+layer_24.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_24.mlp.linear.w	(12288, 1536)	float32
+layer_24.per_layer_input_gate.w	(1536, 256)	float32
+layer_24.per_layer_projection.w	(256, 1536)	float32
+layer_24.post_attention_norm.scale	(1536,)	float32
+layer_24.post_ffw_norm.scale	(1536,)	float32
+layer_24.post_per_layer_input_norm.scale	(1536,)	float32
+layer_24.pre_attention_norm.scale	(1536,)	float32
+layer_24.pre_ffw_norm.scale	(1536,)	float32
+layer_24.skip_scale	(1,)	float32
+layer_25.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_25.attn.key_norm.scale	(256,)	float32
+layer_25.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_25.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_25.attn.query_norm.scale	(256,)	float32
+layer_25.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_25.mlp.linear.w	(12288, 1536)	float32
+layer_25.per_layer_input_gate.w	(1536, 256)	float32
+layer_25.per_layer_projection.w	(256, 1536)	float32
+layer_25.post_attention_norm.scale	(1536,)	float32
+layer_25.post_ffw_norm.scale	(1536,)	float32
+layer_25.post_per_layer_input_norm.scale	(1536,)	float32
+layer_25.pre_attention_norm.scale	(1536,)	float32
+layer_25.pre_ffw_norm.scale	(1536,)	float32
+layer_25.skip_scale	(1,)	float32
+layer_26.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_26.attn.key_norm.scale	(256,)	float32
+layer_26.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_26.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_26.attn.query_norm.scale	(256,)	float32
+layer_26.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_26.mlp.linear.w	(12288, 1536)	float32
+layer_26.per_layer_input_gate.w	(1536, 256)	float32
+layer_26.per_layer_projection.w	(256, 1536)	float32
+layer_26.post_attention_norm.scale	(1536,)	float32
+layer_26.post_ffw_norm.scale	(1536,)	float32
+layer_26.post_per_layer_input_norm.scale	(1536,)	float32
+layer_26.pre_attention_norm.scale	(1536,)	float32
+layer_26.pre_ffw_norm.scale	(1536,)	float32
+layer_26.skip_scale	(1,)	float32
+layer_27.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_27.attn.key_norm.scale	(256,)	float32
+layer_27.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_27.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_27.attn.query_norm.scale	(256,)	float32
+layer_27.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_27.mlp.linear.w	(12288, 1536)	float32
+layer_27.per_layer_input_gate.w	(1536, 256)	float32
+layer_27.per_layer_projection.w	(256, 1536)	float32
+layer_27.post_attention_norm.scale	(1536,)	float32
+layer_27.post_ffw_norm.scale	(1536,)	float32
+layer_27.post_per_layer_input_norm.scale	(1536,)	float32
+layer_27.pre_attention_norm.scale	(1536,)	float32
+layer_27.pre_ffw_norm.scale	(1536,)	float32
+layer_27.skip_scale	(1,)	float32
+layer_28.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_28.attn.key_norm.scale	(256,)	float32
+layer_28.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_28.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_28.attn.query_norm.scale	(256,)	float32
+layer_28.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_28.mlp.linear.w	(12288, 1536)	float32
+layer_28.per_layer_input_gate.w	(1536, 256)	float32
+layer_28.per_layer_projection.w	(256, 1536)	float32
+layer_28.post_attention_norm.scale	(1536,)	float32
+layer_28.post_ffw_norm.scale	(1536,)	float32
+layer_28.post_per_layer_input_norm.scale	(1536,)	float32
+layer_28.pre_attention_norm.scale	(1536,)	float32
+layer_28.pre_ffw_norm.scale	(1536,)	float32
+layer_28.skip_scale	(1,)	float32
+layer_29.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_29.attn.key_norm.scale	(512,)	float32
+layer_29.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_29.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_29.attn.query_norm.scale	(512,)	float32
+layer_29.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_29.mlp.linear.w	(12288, 1536)	float32
+layer_29.per_layer_input_gate.w	(1536, 256)	float32
+layer_29.per_layer_projection.w	(256, 1536)	float32
+layer_29.post_attention_norm.scale	(1536,)	float32
+layer_29.post_ffw_norm.scale	(1536,)	float32
+layer_29.post_per_layer_input_norm.scale	(1536,)	float32
+layer_29.pre_attention_norm.scale	(1536,)	float32
+layer_29.pre_ffw_norm.scale	(1536,)	float32
+layer_29.skip_scale	(1,)	float32
+layer_3.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_3.attn.key_norm.scale	(256,)	float32
+layer_3.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_3.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_3.attn.query_norm.scale	(256,)	float32
+layer_3.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_3.mlp.linear.w	(6144, 1536)	float32
+layer_3.per_layer_input_gate.w	(1536, 256)	float32
+layer_3.per_layer_projection.w	(256, 1536)	float32
+layer_3.post_attention_norm.scale	(1536,)	float32
+layer_3.post_ffw_norm.scale	(1536,)	float32
+layer_3.post_per_layer_input_norm.scale	(1536,)	float32
+layer_3.pre_attention_norm.scale	(1536,)	float32
+layer_3.pre_ffw_norm.scale	(1536,)	float32
+layer_3.skip_scale	(1,)	float32
+layer_30.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_30.attn.key_norm.scale	(256,)	float32
+layer_30.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_30.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_30.attn.query_norm.scale	(256,)	float32
+layer_30.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_30.mlp.linear.w	(12288, 1536)	float32
+layer_30.per_layer_input_gate.w	(1536, 256)	float32
+layer_30.per_layer_projection.w	(256, 1536)	float32
+layer_30.post_attention_norm.scale	(1536,)	float32
+layer_30.post_ffw_norm.scale	(1536,)	float32
+layer_30.post_per_layer_input_norm.scale	(1536,)	float32
+layer_30.pre_attention_norm.scale	(1536,)	float32
+layer_30.pre_ffw_norm.scale	(1536,)	float32
+layer_30.skip_scale	(1,)	float32
+layer_31.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_31.attn.key_norm.scale	(256,)	float32
+layer_31.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_31.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_31.attn.query_norm.scale	(256,)	float32
+layer_31.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_31.mlp.linear.w	(12288, 1536)	float32
+layer_31.per_layer_input_gate.w	(1536, 256)	float32
+layer_31.per_layer_projection.w	(256, 1536)	float32
+layer_31.post_attention_norm.scale	(1536,)	float32
+layer_31.post_ffw_norm.scale	(1536,)	float32
+layer_31.post_per_layer_input_norm.scale	(1536,)	float32
+layer_31.pre_attention_norm.scale	(1536,)	float32
+layer_31.pre_ffw_norm.scale	(1536,)	float32
+layer_31.skip_scale	(1,)	float32
+layer_32.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_32.attn.key_norm.scale	(256,)	float32
+layer_32.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_32.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_32.attn.query_norm.scale	(256,)	float32
+layer_32.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_32.mlp.linear.w	(12288, 1536)	float32
+layer_32.per_layer_input_gate.w	(1536, 256)	float32
+layer_32.per_layer_projection.w	(256, 1536)	float32
+layer_32.post_attention_norm.scale	(1536,)	float32
+layer_32.post_ffw_norm.scale	(1536,)	float32
+layer_32.post_per_layer_input_norm.scale	(1536,)	float32
+layer_32.pre_attention_norm.scale	(1536,)	float32
+layer_32.pre_ffw_norm.scale	(1536,)	float32
+layer_32.skip_scale	(1,)	float32
+layer_33.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_33.attn.key_norm.scale	(256,)	float32
+layer_33.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_33.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_33.attn.query_norm.scale	(256,)	float32
+layer_33.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_33.mlp.linear.w	(12288, 1536)	float32
+layer_33.per_layer_input_gate.w	(1536, 256)	float32
+layer_33.per_layer_projection.w	(256, 1536)	float32
+layer_33.post_attention_norm.scale	(1536,)	float32
+layer_33.post_ffw_norm.scale	(1536,)	float32
+layer_33.post_per_layer_input_norm.scale	(1536,)	float32
+layer_33.pre_attention_norm.scale	(1536,)	float32
+layer_33.pre_ffw_norm.scale	(1536,)	float32
+layer_33.skip_scale	(1,)	float32
+layer_34.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_34.attn.key_norm.scale	(512,)	float32
+layer_34.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_34.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_34.attn.query_norm.scale	(512,)	float32
+layer_34.mlp.gating_einsum.w	(2, 12288, 1536)	float32
+layer_34.mlp.linear.w	(12288, 1536)	float32
+layer_34.per_layer_input_gate.w	(1536, 256)	float32
+layer_34.per_layer_projection.w	(256, 1536)	float32
+layer_34.post_attention_norm.scale	(1536,)	float32
+layer_34.post_ffw_norm.scale	(1536,)	float32
+layer_34.post_per_layer_input_norm.scale	(1536,)	float32
+layer_34.pre_attention_norm.scale	(1536,)	float32
+layer_34.pre_ffw_norm.scale	(1536,)	float32
+layer_34.skip_scale	(1,)	float32
+layer_4.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_4.attn.key_norm.scale	(512,)	float32
+layer_4.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_4.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_4.attn.query_norm.scale	(512,)	float32
+layer_4.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_4.mlp.linear.w	(6144, 1536)	float32
+layer_4.per_layer_input_gate.w	(1536, 256)	float32
+layer_4.per_layer_projection.w	(256, 1536)	float32
+layer_4.post_attention_norm.scale	(1536,)	float32
+layer_4.post_ffw_norm.scale	(1536,)	float32
+layer_4.post_per_layer_input_norm.scale	(1536,)	float32
+layer_4.pre_attention_norm.scale	(1536,)	float32
+layer_4.pre_ffw_norm.scale	(1536,)	float32
+layer_4.skip_scale	(1,)	float32
+layer_5.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_5.attn.key_norm.scale	(256,)	float32
+layer_5.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_5.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_5.attn.query_norm.scale	(256,)	float32
+layer_5.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_5.mlp.linear.w	(6144, 1536)	float32
+layer_5.per_layer_input_gate.w	(1536, 256)	float32
+layer_5.per_layer_projection.w	(256, 1536)	float32
+layer_5.post_attention_norm.scale	(1536,)	float32
+layer_5.post_ffw_norm.scale	(1536,)	float32
+layer_5.post_per_layer_input_norm.scale	(1536,)	float32
+layer_5.pre_attention_norm.scale	(1536,)	float32
+layer_5.pre_ffw_norm.scale	(1536,)	float32
+layer_5.skip_scale	(1,)	float32
+layer_6.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_6.attn.key_norm.scale	(256,)	float32
+layer_6.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_6.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_6.attn.query_norm.scale	(256,)	float32
+layer_6.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_6.mlp.linear.w	(6144, 1536)	float32
+layer_6.per_layer_input_gate.w	(1536, 256)	float32
+layer_6.per_layer_projection.w	(256, 1536)	float32
+layer_6.post_attention_norm.scale	(1536,)	float32
+layer_6.post_ffw_norm.scale	(1536,)	float32
+layer_6.post_per_layer_input_norm.scale	(1536,)	float32
+layer_6.pre_attention_norm.scale	(1536,)	float32
+layer_6.pre_ffw_norm.scale	(1536,)	float32
+layer_6.skip_scale	(1,)	float32
+layer_7.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_7.attn.key_norm.scale	(256,)	float32
+layer_7.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_7.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_7.attn.query_norm.scale	(256,)	float32
+layer_7.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_7.mlp.linear.w	(6144, 1536)	float32
+layer_7.per_layer_input_gate.w	(1536, 256)	float32
+layer_7.per_layer_projection.w	(256, 1536)	float32
+layer_7.post_attention_norm.scale	(1536,)	float32
+layer_7.post_ffw_norm.scale	(1536,)	float32
+layer_7.post_per_layer_input_norm.scale	(1536,)	float32
+layer_7.pre_attention_norm.scale	(1536,)	float32
+layer_7.pre_ffw_norm.scale	(1536,)	float32
+layer_7.skip_scale	(1,)	float32
+layer_8.attn.attn_vec_einsum.w	(8, 256, 1536)	float32
+layer_8.attn.key_norm.scale	(256,)	float32
+layer_8.attn.kv_einsum.w	(2, 1, 1536, 256)	float32
+layer_8.attn.q_einsum.w	(8, 1536, 256)	float32
+layer_8.attn.query_norm.scale	(256,)	float32
+layer_8.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_8.mlp.linear.w	(6144, 1536)	float32
+layer_8.per_layer_input_gate.w	(1536, 256)	float32
+layer_8.per_layer_projection.w	(256, 1536)	float32
+layer_8.post_attention_norm.scale	(1536,)	float32
+layer_8.post_ffw_norm.scale	(1536,)	float32
+layer_8.post_per_layer_input_norm.scale	(1536,)	float32
+layer_8.pre_attention_norm.scale	(1536,)	float32
+layer_8.pre_ffw_norm.scale	(1536,)	float32
+layer_8.skip_scale	(1,)	float32
+layer_9.attn.attn_vec_einsum.w	(8, 512, 1536)	float32
+layer_9.attn.key_norm.scale	(512,)	float32
+layer_9.attn.kv_einsum.w	(2, 1, 1536, 512)	float32
+layer_9.attn.q_einsum.w	(8, 1536, 512)	float32
+layer_9.attn.query_norm.scale	(512,)	float32
+layer_9.mlp.gating_einsum.w	(2, 6144, 1536)	float32
+layer_9.mlp.linear.w	(6144, 1536)	float32
+layer_9.per_layer_input_gate.w	(1536, 256)	float32
+layer_9.per_layer_projection.w	(256, 1536)	float32
+layer_9.post_attention_norm.scale	(1536,)	float32
+layer_9.post_ffw_norm.scale	(1536,)	float32
+layer_9.post_per_layer_input_norm.scale	(1536,)	float32
+layer_9.pre_attention_norm.scale	(1536,)	float32
+layer_9.pre_ffw_norm.scale	(1536,)	float32
+layer_9.skip_scale	(1,)	float32
+vision_encoder.entry.input_projection.w	(768, 768)	float32
+vision_encoder.entry.pos_emb	(10240, 2, 768)	float32
+vision_encoder.transformer.stacked_layers.block.attn.attn_vec_einsum.clip_input_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.attn_vec_einsum.clip_input_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.attn_vec_einsum.clip_output_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.attn_vec_einsum.clip_output_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.attn_vec_einsum.w	(16, 12, 64, 768)	float32
+vision_encoder.transformer.stacked_layers.block.attn.key_norm.scale	(16, 64)	float32
+vision_encoder.transformer.stacked_layers.block.attn.kv_einsum.clip_input_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.kv_einsum.clip_input_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.kv_einsum.clip_output_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.kv_einsum.clip_output_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.kv_einsum.w	(16, 2, 12, 768, 64)	float32
+vision_encoder.transformer.stacked_layers.block.attn.q_einsum.clip_input_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.q_einsum.clip_input_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.q_einsum.clip_output_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.q_einsum.clip_output_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.attn.q_einsum.w	(16, 12, 768, 64)	float32
+vision_encoder.transformer.stacked_layers.block.attn.query_norm.scale	(16, 64)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.gating_einsum.clip_input_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.gating_einsum.clip_input_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.gating_einsum.clip_output_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.gating_einsum.clip_output_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.gating_einsum.w	(16, 2, 3072, 768)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.linear.clip_input_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.linear.clip_input_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.linear.clip_output_max	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.linear.clip_output_min	(16,)	float32
+vision_encoder.transformer.stacked_layers.block.mlp.linear.w	(16, 3072, 768)	float32
+vision_encoder.transformer.stacked_layers.block.post_attention_norm.scale	(16, 768)	float32
+vision_encoder.transformer.stacked_layers.block.post_ffw_norm.scale	(16, 768)	float32
+vision_encoder.transformer.stacked_layers.block.pre_attention_norm.scale	(16, 768)	float32
+vision_encoder.transformer.stacked_layers.block.pre_ffw_norm.scale	(16, 768)	float32

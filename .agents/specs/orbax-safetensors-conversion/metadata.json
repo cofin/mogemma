@@ -1,0 +1,10 @@
+{
+  "flow_id": "orbax-safetensors-conversion",
+  "type": "feature",
+  "status": "planned",
+  "parent_prd": "gcs-orbax-migration",
+  "beads_epic_id": null,
+  "created_at": "2026-04-13T20:45:00Z",
+  "updated_at": "2026-04-13T20:45:00Z",
+  "description": "Convert Orbax/OCDBT checkpoints to safetensors for all Gemma 4 variants with cleanup"
+}
