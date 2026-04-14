@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -547,3 +548,126 @@ class TestGenerateConfigJson:
         keys = list(shapes)
         config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
         HubManager.validate_config_json(config)  # must not raise
+
+
+class TestConvertOrbaxToSafetensorsRoundTrip:
+    """End-to-end: synthetic Orbax → convert → SafetensorsLoader reads it back."""
+
+    def _base_contract_names(self, num_layers: int) -> set[str]:
+        names = {"model.embed_tokens.weight", "lm_head.weight", "model.norm.weight"}
+        for n in range(num_layers):
+            pfx = f"model.layers.{n}"
+            names |= {
+                f"{pfx}.input_layernorm.weight",
+                f"{pfx}.post_attention_layernorm.weight",
+                f"{pfx}.pre_feedforward_layernorm.weight",
+                f"{pfx}.post_feedforward_layernorm.weight",
+                f"{pfx}.self_attn.q_proj.weight",
+                f"{pfx}.self_attn.k_proj.weight",
+                f"{pfx}.self_attn.v_proj.weight",
+                f"{pfx}.self_attn.o_proj.weight",
+                f"{pfx}.self_attn.q_norm.weight",
+                f"{pfx}.self_attn.k_norm.weight",
+                f"{pfx}.mlp.gate_proj.weight",
+                f"{pfx}.mlp.up_proj.weight",
+                f"{pfx}.mlp.down_proj.weight",
+            }
+        return names
+
+    def _install_fake_orbax(self, tensors: dict[str, np.ndarray]) -> tuple[object, object]:
+        """Return (enumerate_patch, open_patch) that back the fake Orbax inventory."""
+
+        def fake_enumerate(_path: object) -> list[str]:
+            return list(tensors)
+
+        def fake_open(_path: object, name: str) -> np.ndarray:
+            return tensors[name]
+
+        return (
+            patch.object(OrbaxLoader, "enumerate_tensors", staticmethod(fake_enumerate)),
+            patch.object(OrbaxLoader, "open_tensor", staticmethod(fake_open)),
+        )
+
+    def test_writes_single_shard_and_config_json(self, tmp_path: Path) -> None:
+        from mogemma.convert import convert_orbax_to_safetensors
+
+        tensors = _make_base_tensor_map()
+        enum_patch, open_patch = self._install_fake_orbax(tensors)
+        with enum_patch, open_patch:
+            written = convert_orbax_to_safetensors(tmp_path)
+
+        assert written == [tmp_path / "model.safetensors"]
+        assert (tmp_path / "model.safetensors").exists()
+        assert (tmp_path / "config.json").exists()
+
+        config = json.loads((tmp_path / "config.json").read_text())
+        assert str(config["model_type"]).startswith("gemma4")
+        assert config["num_hidden_layers"] == _N_LAYERS
+        assert config["hidden_size"] == _H
+
+    def test_safetensors_loader_can_load_output(self, tmp_path: Path) -> None:
+        from mogemma.convert import convert_orbax_to_safetensors
+        from mogemma.loader import SafetensorsLoader, auto_loader
+
+        tensors = _make_base_tensor_map()
+        enum_patch, open_patch = self._install_fake_orbax(tensors)
+        with enum_patch, open_patch:
+            convert_orbax_to_safetensors(tmp_path)
+
+        assert SafetensorsLoader.can_load(tmp_path) is True
+
+        loader = auto_loader(tmp_path)
+        try:
+            assert isinstance(loader, SafetensorsLoader)
+            metadata = loader.get_tensor_metadata()
+            emitted = set(metadata.keys())
+            expected = self._base_contract_names(_N_LAYERS)
+            missing = expected - emitted
+            assert not missing, f"Contract tensors missing from safetensors output: {missing}"
+        finally:
+            loader.close()
+
+    def test_tensor_values_survive_round_trip(self, tmp_path: Path) -> None:
+        """Round-trip preserves transformed values for a representative tensor."""
+        from safetensors import safe_open  # type: ignore[import-untyped]
+
+        from mogemma.convert import convert_orbax_to_safetensors
+
+        tensors = _make_base_tensor_map()
+        enum_patch, open_patch = self._install_fake_orbax(tensors)
+        with enum_patch, open_patch:
+            convert_orbax_to_safetensors(tmp_path)
+
+        with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:  # type: ignore[no-untyped-call]
+            gate = f.get_tensor("model.layers.0.mlp.gate_proj.weight")
+            up = f.get_tensor("model.layers.0.mlp.up_proj.weight")
+
+        src = tensors["layer_0.mlp.gating_einsum.w"]
+        np.testing.assert_array_equal(gate, src[0])
+        np.testing.assert_array_equal(up, src[1])
+
+    def test_preserves_existing_config_json(self, tmp_path: Path) -> None:
+        """If an Orbax checkpoint shipped a config.json, conversion must not overwrite it."""
+        from mogemma.convert import convert_orbax_to_safetensors
+
+        preset = {"model_type": "gemma4_text", "custom_marker": 42}
+        (tmp_path / "config.json").write_text(json.dumps(preset))
+
+        tensors = _make_base_tensor_map()
+        enum_patch, open_patch = self._install_fake_orbax(tensors)
+        with enum_patch, open_patch:
+            convert_orbax_to_safetensors(tmp_path)
+
+        after = json.loads((tmp_path / "config.json").read_text())
+        assert after == preset
+
+    def test_raises_when_no_orbax_keys_present(self, tmp_path: Path) -> None:
+        from mogemma.convert import convert_orbax_to_safetensors
+
+        def fake_enumerate(_path: object) -> list[str]:
+            return []
+
+        with patch.object(OrbaxLoader, "enumerate_tensors", staticmethod(fake_enumerate)), pytest.raises(
+            ValueError, match="No Orbax tensors"
+        ):
+            convert_orbax_to_safetensors(tmp_path)
