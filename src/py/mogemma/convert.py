@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -188,6 +188,105 @@ def _iter_ple(model_path: Path, num_layers: int) -> Iterator[tuple[str, np.ndarr
             f"{pfx_out}.per_layer_norm.weight",
             OrbaxLoader.open_tensor(model_path, f"layer_{n}.post_per_layer_input_norm.scale"),
         )
+
+
+# ── config.json generation ──────────────────────────────────────────────────
+
+
+# Per-variant architecture constants from `.agents/knowledge/gemma4-architecture.md`.
+# These are model-family facts (sliding windows, partial RoPE factor, top-k) that
+# can't be derived from tensor shapes alone.
+_VARIANT_CONSTANTS = {
+    "base": {
+        "model_type": "gemma4_text",
+        "sliding_window_size": 1024,
+        "partial_rotary_factor": 0.5,
+    },
+    "ple": {
+        "model_type": "gemma4_text",  # narrowed to _e2b/_e4b below via use_double_wide_mlp
+        "sliding_window_size": 512,
+        "partial_rotary_factor": 0.5,
+    },
+    "moe": {
+        "model_type": "gemma4_text",  # narrowed to _moe_26b below
+        "sliding_window_size": 1024,
+        "partial_rotary_factor": 0.5,
+        "num_experts_per_tok": 8,
+    },
+}
+
+
+def _generate_config_json(
+    keys: list[str],
+    shape_oracle: "Callable[[str], tuple[int, ...]]",
+) -> dict[str, object]:
+    """Synthesize a HF-compatible ``config.json`` dict from the Orbax tensor inventory.
+
+    Values that *can* be derived from tensor shapes (vocab_size, hidden_size,
+    num_attention_heads, …) are derived. Values that can't (sliding-window size,
+    partial rotary factor, MoE top-k) are filled from
+    :data:`_VARIANT_CONSTANTS`.
+
+    Args:
+        keys: full list of Orbax tensor names present in the checkpoint.
+        shape_oracle: callable ``name -> shape`` (decouples shape inspection
+            from the live Orbax loader so this function is unit-testable).
+
+    Returns the dict; caller writes it as JSON.
+    """
+    variant = _variant_from_keys(keys)
+    num_layers = _layer_count(keys)
+
+    # Shape-derived fields. Raise on missing required tensors.
+    embed_shape = shape_oracle("embedder.input_embedding")
+    vocab_size, hidden_size = embed_shape[0], embed_shape[1]
+
+    q_shape = shape_oracle("layer_0.attn.q_einsum.w")
+    num_attention_heads, _q_hidden, head_dim = q_shape[0], q_shape[1], q_shape[2]
+
+    kv_shape = shape_oracle("layer_0.attn.kv_einsum.w")
+    num_key_value_heads = kv_shape[1]
+
+    gating_shape = shape_oracle("layer_0.mlp.gating_einsum.w")
+    # Layout differs between dense (gate/up split) and MoE (experts leading):
+    #   dense: (2, intermediate, H)
+    #   moe:   (num_experts, 2, moe_intermediate, H)
+    if variant == "moe":
+        num_local_experts = gating_shape[0]
+        moe_intermediate_size = gating_shape[2]
+        intermediate_size = moe_intermediate_size  # dense field kept for HF compatibility
+    else:
+        num_local_experts = None
+        moe_intermediate_size = None
+        intermediate_size = gating_shape[1]
+
+    config: dict[str, object] = {
+        **_VARIANT_CONSTANTS[variant],
+        "num_hidden_layers": num_layers,
+        "vocab_size": vocab_size,
+        "hidden_size": hidden_size,
+        "num_attention_heads": num_attention_heads,
+        "num_key_value_heads": num_key_value_heads,
+        "head_dim": head_dim,
+        "intermediate_size": intermediate_size,
+    }
+
+    if variant == "ple":
+        ple_shape = shape_oracle("embedder.per_layer_embeddings")
+        config["vocab_size_per_layer_input"] = ple_shape[0]
+        config["hidden_size_per_layer_input"] = ple_shape[2]
+        # use_double_wide_mlp distinguishes E2B (True) from E4B (False); the
+        # safest signal is intermediate/hidden ratio: E2B uses 4× (6144/1536)
+        # versus E4B's usual 8×. A definitive classifier will land once we have
+        # E4B inventory. For now, emit nothing — downstream _detect_gemma4_variant
+        # treats absent use_double_wide_mlp as E4B.
+
+    if variant == "moe":
+        config["num_local_experts"] = num_local_experts
+        config["moe_intermediate_size"] = moe_intermediate_size
+        config["model_type"] = "gemma4_moe_26b"
+
+    return config
 
 
 # ── Deferred: vision + MoE iterators ────────────────────────────────────────

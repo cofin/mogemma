@@ -381,3 +381,91 @@ class TestDeferredVariantIterators:
             list(_iter_moe_experts(tmp_path, num_layers=1, num_experts=128))
         msg = str(excinfo.value).lower()
         assert "moe" in msg or "expert" in msg
+
+
+from mogemma.convert import _generate_config_json  # noqa: E402
+
+
+class TestGenerateConfigJson:
+    """`_generate_config_json` synthesizes a HF-compatible config.json from Orbax tensor shapes."""
+
+    def _fake_shape_oracle(self, shapes: dict[str, tuple[int, ...]]):
+        """Build a `(name)->shape` callable that simulates OrbaxLoader shape access without I/O."""
+
+        def _oracle(name: str) -> tuple[int, ...]:
+            return shapes[name]
+
+        return _oracle
+
+    def test_base_variant_emits_required_fields(self) -> None:
+        shapes = {
+            "embedder.input_embedding": (262144, 1536),
+            "layer_0.attn.q_einsum.w": (8, 1536, 256),
+            "layer_0.attn.kv_einsum.w": (2, 1, 1536, 256),
+            "layer_0.mlp.gating_einsum.w": (2, 6144, 1536),
+        }
+        keys = list(shapes) + [f"layer_{i}.attn.q_einsum.w" for i in range(1, 35)]
+        config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
+
+        assert config["model_type"].startswith("gemma4")
+        assert config["num_hidden_layers"] == 35
+        assert config["hidden_size"] == 1536
+        assert config["vocab_size"] == 262144
+        assert config["num_attention_heads"] == 8
+        assert config["num_key_value_heads"] == 1
+        assert config["head_dim"] == 256
+        assert config["intermediate_size"] == 6144
+
+    def test_base_variant_is_dense_text(self) -> None:
+        shapes = {
+            "embedder.input_embedding": (262144, 1536),
+            "layer_0.attn.q_einsum.w": (8, 1536, 256),
+            "layer_0.attn.kv_einsum.w": (2, 1, 1536, 256),
+            "layer_0.mlp.gating_einsum.w": (2, 6144, 1536),
+        }
+        keys = list(shapes)
+        config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
+        assert "hidden_size_per_layer_input" not in config
+        assert "num_local_experts" not in config
+
+    def test_ple_variant_includes_per_layer_fields(self) -> None:
+        shapes = {
+            "embedder.input_embedding": (262144, 1536),
+            "embedder.per_layer_embeddings": (262144, 35, 256),
+            "layer_0.attn.q_einsum.w": (8, 1536, 256),
+            "layer_0.attn.kv_einsum.w": (2, 1, 1536, 256),
+            "layer_0.mlp.gating_einsum.w": (2, 6144, 1536),
+        }
+        keys = list(shapes) + [f"layer_{i}.attn.q_einsum.w" for i in range(1, 35)]
+        config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
+
+        assert config["hidden_size_per_layer_input"] == 256
+        assert config["vocab_size_per_layer_input"] == 262144
+
+    def test_moe_variant_includes_expert_fields(self) -> None:
+        shapes = {
+            "embedder.input_embedding": (262144, 3072),
+            "layer_0.attn.q_einsum.w": (16, 3072, 128),
+            "layer_0.attn.kv_einsum.w": (2, 2, 3072, 128),
+            "layer_0.mlp.router_logits.w": (3072, 128),
+            "layer_0.mlp.gating_einsum.w": (128, 2, 704, 3072),
+        }
+        keys = list(shapes) + [f"layer_{i}.attn.q_einsum.w" for i in range(1, 40)]
+        config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
+
+        assert config["num_local_experts"] == 128
+        assert config["moe_intermediate_size"] == 704
+
+    def test_passes_project_validate_config_json(self) -> None:
+        """Generated config must satisfy `HubManager.validate_config_json`."""
+        from mogemma.hub import HubManager
+
+        shapes = {
+            "embedder.input_embedding": (262144, 1536),
+            "layer_0.attn.q_einsum.w": (8, 1536, 256),
+            "layer_0.attn.kv_einsum.w": (2, 1, 1536, 256),
+            "layer_0.mlp.gating_einsum.w": (2, 6144, 1536),
+        }
+        keys = list(shapes)
+        config = _generate_config_json(keys, self._fake_shape_oracle(shapes))
+        HubManager.validate_config_json(config)  # must not raise
