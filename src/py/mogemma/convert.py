@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -28,6 +27,7 @@ from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -458,11 +458,7 @@ def _write_sharded(
 _DEFAULT_SHARD_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GiB per shard
 
 
-def convert_orbax_to_safetensors(
-    model_path: Path,
-    *,
-    shard_size_bytes: int = _DEFAULT_SHARD_SIZE_BYTES,
-) -> list[Path]:
+def convert_orbax_to_safetensors(model_path: Path, *, shard_size_bytes: int = _DEFAULT_SHARD_SIZE_BYTES) -> list[Path]:
     """Convert an Orbax/OCDBT checkpoint at ``model_path`` to HF-style safetensors.
 
     Reads the checkpoint with streaming :class:`OrbaxLoader` helpers, selects the
@@ -496,9 +492,7 @@ def convert_orbax_to_safetensors(
     variant = _variant_from_keys(keys)
     num_layers = _layer_count(keys)
 
-    iterators: list[Iterator[tuple[str, np.ndarray]]] = [
-        _iter_base_transformer(model_path, keys, num_layers),
-    ]
+    iterators: list[Iterator[tuple[str, np.ndarray]]] = [_iter_base_transformer(model_path, keys, num_layers)]
     if variant == "ple":
         iterators.append(_iter_ple(model_path, num_layers))
     elif variant == "moe":

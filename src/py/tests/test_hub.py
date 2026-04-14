@@ -89,9 +89,7 @@ class TestFinalizeDownloadOrbaxConversion:
             return [out]
 
         with patch("mogemma.convert.convert_orbax_to_safetensors", side_effect=fake_convert):
-            result = hub._finalize_download(  # noqa: SLF001
-                "gemma4-e4b", local_dir, staging, tokenizer_required=True
-            )
+            result = hub._finalize_download("gemma4-e4b", local_dir, staging, tokenizer_required=True)
 
         assert result == local_dir
         assert (local_dir / "model.safetensors").exists()
@@ -119,11 +117,11 @@ class TestFinalizeDownloadOrbaxConversion:
             msg = "simulated conversion failure"
             raise RuntimeError(msg)
 
-        with patch("mogemma.convert.convert_orbax_to_safetensors", side_effect=boom):
-            with pytest.raises(RuntimeError, match="simulated conversion failure"):
-                hub._finalize_download(  # noqa: SLF001
-                    "gemma4-e4b", local_dir, staging, tokenizer_required=True
-                )
+        with (
+            patch("mogemma.convert.convert_orbax_to_safetensors", side_effect=boom),
+            pytest.raises(RuntimeError, match="simulated conversion failure"),
+        ):
+            hub._finalize_download("gemma4-e4b", local_dir, staging, tokenizer_required=True)
 
         # On failure the Orbax layout must be preserved for retry.
         assert (local_dir / "ocdbt.process_0").is_dir()
@@ -142,9 +140,7 @@ class TestFinalizeDownloadOrbaxConversion:
         local_dir = cache_root / "final"
 
         with patch("mogemma.convert.convert_orbax_to_safetensors") as mock_convert:
-            hub._finalize_download(  # noqa: SLF001
-                "gemma4-e4b", local_dir, staging, tokenizer_required=True
-            )
+            hub._finalize_download("gemma4-e4b", local_dir, staging, tokenizer_required=True)
             mock_convert.assert_not_called()
 
         assert (local_dir / "model.safetensors").read_bytes() == b"pre-existing"
