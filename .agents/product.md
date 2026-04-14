@@ -1,27 +1,69 @@
-# Initial Concept
+# Product
 
-This is meant to be an ultra modern library that is going to use the new mojo programming langauge to run natively in python trhough the cffi bridge (or whatever it has for performance integration in python) the Google gemmma models. it could be embeddings or one of the llms models they have. Mojo recently released this in January 2026.
 ## Vision
-`mogemma` is an ultra-modern, high-performance library designed to bring Google's Gemma 3 models to the Python ecosystem with near-native speed. By leveraging the Mojo programming language and the MAX framework, `mogemma` provides a seamless, "dead simple" bridge for developers to run state-of-the-art LLMs, multimodal models, and embedding engines locally with minimal overhead.
 
-## Target Audience
-- **Data Scientists & ML Engineers:** Professionals requiring local, high-performance inference of Gemma 3 models.
-- **Python Developers:** Application builders who want to integrate Mojo-powered performance without leaving the Python ecosystem.
-- **Edge & Embedded Engineers:** Developers deploying models on constrained hardware where Mojo's memory safety and efficiency are critical.
+`mogemma` is a high-performance Python library for running Google's **Gemma 4**
+models locally. It pairs a polished Pythonic API with pure-Mojo inference
+kernels compiled into a native extension, delivering near-native throughput
+without leaving the Python ecosystem.
 
-## Core Values
-- **Dead Simple:** A polished, high-level Pythonic API that hides the complexity of Mojo/MAX.
-- **Performant:** Near-zero overhead bridge using Mojo's latest interoperability features.
-- **Configurable:** Deep control over model execution and local resource usage.
-- **Multi-Model:** Native support for the full Gemma 3 family (Text, Vision, and Embeddings).
+## Target audience
 
-## Key Features
-- **High-Performance Embeddings:** Optimized vector generation for search and RAG applications (v1 priority).
-- **Text Generation:** Low-latency inference for Gemma 3 text models (4B, 12B, 27B).
-- **Visual Reasoning:** Integrated support for Gemma 3 vision-language tasks (v2 priority).
-- **Local-First Inference:** Focused on local paths and local MAX framework integration for privacy and control.
-- **Memory Efficiency:** Leveraging Mojo's explicit memory management to handle large weights without Python GC interference.
+- **Data scientists & ML engineers** running Gemma 4 locally for
+  experimentation, evaluation, and RAG pipelines.
+- **Application developers** embedding Gemma 4 in Python services and
+  wanting a single-dependency install (`pip install mogemma`) with
+  reliable performance characteristics.
+- **Edge & research engineers** needing explicit control over memory,
+  device selection, and variant loading — without a heavyweight serving
+  framework.
 
-## Brand & Identity
-- **Minimalist & Professional:** Clean documentation and clear error messages that stay out of the developer's way.
-- **Developer Experience (DX) First:** Polished CLI tools and high-quality "Getting Started" guides.
+## Core values
+
+- **Dead simple API.** One `import mogemma`; load a model by id; call
+  `.generate()` or `.embed()`. Complexity lives in the runtime, not the
+  surface.
+- **Native-speed execution.** Pure Mojo kernels (not a dispatcher over
+  another framework) compiled into `mogemma._core` via hatch-mojo.
+- **Explicit, no silent fallbacks.** Resolution, loading, and device
+  selection all log and raise rather than silently degrading.
+- **Multi-variant, multi-modality.** Text, image, and audio inputs across
+  the Gemma 4 family.
+
+## Shipped capabilities
+
+- **Text generation:** `SyncGemmaModel.generate()` and
+  `AsyncGemmaModel.generate()` (streaming, anyio-based).
+- **Embeddings:** `SyncEmbeddingModel.embed()` and async counterpart;
+  single + batched inputs, tokenized pre-input supported.
+- **Vision inputs:** SigLIP-derived encoder with variable aspect-ratio
+  support; patch budget respects H, W divisible by 48.
+- **Audio inputs (E2B/E4B):** Mel-spectrogram preprocessing, fed to the
+  same transformer structure as vision.
+- **GPU acceleration:** `GPUBackend` via Mojo `std.gpu.host`; CPU-only
+  builds exclude GPU symbols entirely.
+- **Orbax → safetensors conversion:** Downloaded GCS checkpoints are
+  converted on-the-fly to HF-style safetensors for runtime loading.
+
+## Supported variants
+
+Primary target is **Gemma 4**:
+
+- `gemma-4-e2b-it` — compact multimodal (text + image + audio).
+- `gemma-4-e4b-it` — larger multimodal (text + image + audio).
+- `gemma-4-12b-it` — dense text + image.
+- `gemma-4-26b-a4b-it` — MoE (128 experts, top-8) with shared dense MLP;
+  recommended default for reasoning workloads.
+- `gemma-4-31b-it` — dense flagship.
+
+Gemma 3 support is **legacy** — retained for downstream compatibility but
+not the active development target.
+
+## Brand & identity
+
+- **Minimalist, professional documentation.** Short paragraphs, code-
+  first, no marketing fluff.
+- **Developer-experience-first CLI + APIs.** Error messages distinguish
+  clearly between Python-layer and Mojo-layer failures and suggest fixes.
+- **Semantic versioning.** Bumped via `bump-my-version`; release notes
+  explain migration steps when needed.

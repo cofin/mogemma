@@ -13,7 +13,7 @@
 
 - **Hybrid Mojo-Python:** Use `hatch-mojo` plugin (configured in `pyproject.toml` under `[[tool.hatch.build.targets.wheel.hooks.mojo.jobs]]`) for Mojo compilation integration.
 - **Contract Testing:** Use `test_altup_contract.mojo` style for testing cross-language boundaries.
-- **Packaging Baseline:** Use `hatch-mojo>=0.1.5` with `bundle-libs = true` as canonical wheel policy; only keep Linux-specific overrides when they have explicit rationale and exit criteria.
+- **Packaging Baseline:** Use `hatch-mojo>=0.1.8` with `bundle-libs = true` as canonical wheel policy; only keep Linux-specific overrides when they have explicit rationale and exit criteria.
 - **GPU Backend Design:** 
   - Use `comptime if has_accelerator()` to gate GPU code.
   - Standard Mojo GPU API: `std.gpu.host` for context and buffers.
@@ -67,9 +67,5 @@
 ## Context for AI Assistants
 
 - **Source Layout:** Mojo code is in `src/mo/mogemma`, Python code in `src/py/mogemma`.
-# Learnings: automated-benchmarks_20260309
-
-## [2026-03-14] - Granularity Mismatch in Task Tracking
-- **Discovery:** Beads tasks for this flow are at a higher level of granularity (one task per phase) compared to the `spec.md` which breaks them down further (sub-tasks 1.1 to 1.4).
-- **Pattern:** When syncing, the status of the Beads task should generally reflect the aggregate status of its sub-tasks in `spec.md`.
-- **Gotcha:** If a Beads task is `open`, all its corresponding sub-tasks in `spec.md` should be `[ ]`. If it's `in_progress`, the current sub-task should be `[~]`.
+- **Knowledge Base:** Curated per-component docs live in `.agents/knowledge/` (see `.agents/knowledge/README.md` for the index). Per-flow learnings live in `.agents/specs/<flow-id>/learnings.md` — never dump flow artifacts into `knowledge/`.
+- **Style Guides:** `.agents/code-styleguides/python.md`, `.agents/code-styleguides/mojo.md`, `.agents/code-styleguides/testing.md`, `.agents/code-styleguides/bash.md`.

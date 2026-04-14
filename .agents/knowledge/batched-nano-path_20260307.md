@@ -1,7 +1,0 @@
-# Learnings for batched-nano-path_20260307
-
-## [2026-03-07] - Nano Path Vectorization and Batching
-- **Files changed:** `src/mo/mogemma/core.mojo`, `src/mo/mogemma/layers.mojo`, `src/mo/tests/test_layers.mojo`
-- **Learning:** The Gemma 3 Nano architecture contains complex sparse components like AltUp and Laurel. When vectorizing operations across the batch dimension (`batch_size`), contiguous memory mapping requires special care. For standard layer implementations, flattening `[batch_size, hidden_size]` buffers allowed natural integration of `mat_mat_mul` operations over batch matrices. However, Nano uses multiple streams `[batch_size, num_modalities, hidden_size]`, requiring explicitly nested extraction and insertion from these blocks to feed batch matrices into standard MLP/Attention paths correctly. 
-- **Gotcha:** `generate_embeddings_mojo` previously forced `batch_size=1` down to the Nano runtime due to recurrent sequential processing bottlenecks. Re-aligning `_forward_sequence_nano_runtime` to properly map `token_ids_buffer_ptr` up to `batch_size` allows full throughput parity with the standard model inference.
-- **Pattern:** Using internal `for b in range(batch_size):` structures within batched function calls like `_prepare_altup_streams` maintains abstraction purity while operating on dynamically batched strides effectively across multi-modal projections.

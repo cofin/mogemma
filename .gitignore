@@ -25,7 +25,6 @@ GEMINI.md
 docs/*.json
 benchmark-model/
 .agents/archive
-!.agents/**/**/*.md
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
