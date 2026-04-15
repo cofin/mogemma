@@ -99,7 +99,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
 
 ### Phase 0: Pinning + Diagnostic
 
-- [ ] **0.1 Probe `skip_scale` on a real 26B checkpoint**
+- [!] **0.1 Probe `skip_scale` on a real 26B checkpoint**
   - Run the Python converter over a real `google/gemma-4-26B-A4B-it` Orbax
     download, then read `model.layers.0.moe_skip_scale.weight` through
     `SafetensorsLoader`. Log the value per-layer; if every layer is ~0
@@ -109,14 +109,14 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
     we never re-guess. Update this spec's non-goals if skip_scale is
     empirically zero.
 
-- [ ] **0.2 Freeze the `MoELayerWeights` struct layout**
+- [x] **0.2 Freeze the `MoELayerWeights` struct layout** [8058ecb]
   - Produce the final field list (no TensorInfo optional tricks — every
     field always emitted; forward pass branches on value, not presence).
   - Publish in this spec as the canonical layout before touching code.
 
 ### Phase 1: Mojo-side struct + hydration rewrite (no forward pass changes yet)
 
-- [ ] **1.1 Rewrite `MoELayerWeights` in `model.mojo`**
+- [x] **1.1 Rewrite `MoELayerWeights` in `model.mojo`** [8058ecb]
   - Replace the current struct (`router`, `q/k/v/o_proj`, `q/k_norm`,
     4-norm set, `List[MoEExpertWeights]`) with the new 22-field struct:
     ```
@@ -143,7 +143,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
     `MoELayerWeights` with synthetic tensor pointers, assert field count +
     read-back pointer equality.
 
-- [ ] **1.2 Rewrite `_build_moe_from_runtime` in `core.mojo`**
+- [x] **1.2 Rewrite `_build_moe_from_runtime` in `core.mojo`** [f7fae54]
   - Consume the new safetensors contract names. Each per-layer call opens
     the 22 tensors via `metadata_obj.get(...)`.
   - Missing optionals (`post_feedforward_layernorm`, `moe_skip_scale`)
@@ -153,7 +153,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
     fake safetensors metadata dict with all 22 names, call the hydration
     path, assert every field is populated with the right pointer/shape.
 
-- [ ] **1.3 Rewrite `_flatten_moe_weights` + `_hydrate_moe_weights` in `core.mojo`**
+- [x] **1.3 Rewrite `_flatten_moe_weights` + `_hydrate_moe_weights` in `core.mojo`** [8058ecb]
   - Update the flattening codec used to marshal MoE weight pointers across
     the Python ↔ Mojo FFI.
   - Pointer count per layer changes from (current ~22 including per-expert)
@@ -161,7 +161,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
   - **Test-first:** round-trip a `MoEModelWeights` through flatten +
     hydrate; assert per-field pointer equality.
 
-- [ ] **1.4 Update `gpu_context.mojo` packer**
+- [!] **1.4 Update `gpu_context.mojo` packer**
   - `_pack_moe_layer` (or equivalent) now streams the 22 tensors into GPU
     buffers. Packed expert tensors are copied wholesale (no per-expert
     split); `gate_up_proj` is a single `[E * 2·I_moe * H]` allocation,
@@ -172,7 +172,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
 
 ### Phase 2: Forward pass
 
-- [ ] **2.1 Port router to the new layout**
+- [x] **2.1 Port router to the new layout** [8058ecb]
   - New `forward_moe_router` signature takes `router_proj` (matrix),
     `router_scale` (vector), `per_expert_scale` (vector) separately.
   - Implement the exact reference math:
@@ -188,7 +188,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
     output against a numpy reference implementation on a 16-expert, K=4
     fixture.
 
-- [ ] **2.2 Packed-expert matmul kernel**
+- [x] **2.2 Packed-expert matmul kernel** [8058ecb]
   - Replace the per-expert loop that reads individual `MoEExpertWeights`
     with a loop over the top-K selected indices that strides into the
     packed `[E, 2·I_moe, H]` and `[E, H, I_moe]` allocations.
@@ -198,7 +198,7 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
     a 4-expert layer with random weights, run top-K=2, compare against
     numpy reference.
 
-- [ ] **2.3 Two-branch forward pass**
+- [x] **2.3 Two-branch forward pass** [f7fae54]
   - Rewrite `forward_moe_layer` to compute `h1` (dense branch) and `h2`
     (MoE branch) in parallel and sum: `out = x1 + h1 + h2` (plus
     `x1 * skip_scale` iff Phase 0.1 says so).
@@ -210,25 +210,25 @@ out = x1 + h1 + h2                                # (skip_scale * x1 added iff s
 
 ### Phase 3: Integration + verification
 
-- [ ] **3.1 Wire the new path into `forward_pass` / model dispatch**
+- [x] **3.1 Wire the new path into `forward_pass` / model dispatch** [f7fae54]
   - `core.mojo` model dispatch already branches on variant (Gemma4
     MoE); just update the tensor access to use the new field names.
 
-- [ ] **3.2 Load a real 26B checkpoint end-to-end**
+- [!] **3.2 Load a real 26B checkpoint end-to-end**
   - Run `mogemma.hub.HubManager().download_sync("google/gemma-4-26B-A4B-it")`
     — converter produces safetensors, Mojo hydrates, inference runs.
   - Greedy sample (temperature=0, top_k=1) on a 16-token prompt;
     compare against the HF-ref output for the same checkpoint.
 
-- [ ] **3.3 Advisory benchmark**
+- [!] **3.3 Advisory benchmark**
   - Record tokens/sec on CPU + CPU-polyfill GPU for the 26B MoE path.
     Use `.agents/knowledge/performance.md` baselines as the target floor.
 
 ### Verification Gate
-- [ ] `make test` green (Python + Mojo).
-- [ ] `make lint` clean.
-- [ ] Task 3.2 matches HF ref output byte-for-byte at temperature=0, top_k=1.
-- [ ] skip_scale behavior decision from Phase 0.1 documented in
+- [x] `make test` green (Python + Mojo). [f7fae54]
+- [x] `make lint` clean. [f7fae54]
+- [!] Task 3.2 matches HF ref output byte-for-byte at temperature=0, top_k=1.
+- [!] skip_scale behavior decision from Phase 0.1 documented in
   `.agents/knowledge/gemma4-models.md`.
 
 ### Risks & Known Unknowns
