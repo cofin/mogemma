@@ -18,7 +18,7 @@ from mogemma.gpu_context import (
     GPUKVCache,
     GPUScratch,
     upload_layer_weights,
-    upload_expert_weights,
+    upload_moe_attention_weights,
     upload_vision_layer_weights,
 )
 
@@ -328,33 +328,56 @@ def test_upload_layer_weights() raises:
         print("SKIP: test_upload_layer_weights (no GPU)")
 
 
-def test_upload_expert_weights() raises:
-    """Test upload_expert_weights for MoE expert."""
+def test_upload_moe_attention_weights() raises:
+    """Test upload_moe_attention_weights for packed MoE layers."""
     comptime if has_accelerator():
-        from mogemma.model import TensorInfo, MoEExpertWeights
+        from mogemma.model import TensorInfo, MoELayerWeights
 
         var ctx = GPUContext()
-        var data = List[Float32](length=64, fill=2.0)
+        var data = List[Float32](length=512, fill=2.0)
         var p = Int(data.unsafe_ptr())
 
-        var expert = MoEExpertWeights()
-        expert.gate_proj = TensorInfo(p, 8, 4)
-        expert.up_proj = TensorInfo(p, 8, 4)
-        expert.down_proj = TensorInfo(p, 4, 8)
+        var layer = MoELayerWeights()
+        layer.q_proj = TensorInfo(p, 4, 4)
+        layer.k_proj = TensorInfo(p, 2, 4)
+        layer.v_proj = TensorInfo(p, 2, 4)
+        layer.o_proj = TensorInfo(p, 4, 4)
+        layer.q_norm = TensorInfo(p, 4, 1)
+        layer.k_norm = TensorInfo(p, 4, 1)
+        layer.input_layernorm = TensorInfo(p, 4, 1)
+        layer.post_attention_layernorm = TensorInfo(p, 4, 1)
+        layer.pre_feedforward_layernorm = TensorInfo(p, 4, 1)
+        layer.dense_gate_proj = TensorInfo(p, 8, 4)
+        layer.dense_up_proj = TensorInfo(p, 8, 4)
+        layer.dense_down_proj = TensorInfo(p, 4, 8)
+        layer.post_feedforward_layernorm_1 = TensorInfo(p, 4, 1)
+        layer.pre_feedforward_layernorm_2 = TensorInfo(p, 4, 1)
+        layer.router_proj = TensorInfo(p, 6, 4)
+        layer.router_scale = TensorInfo(p, 4, 1)
+        layer.per_expert_scale = TensorInfo(p, 6, 1)
+        layer.expert_gate_up_proj = TensorInfo(p, 12, 4)
+        layer.expert_down_proj = TensorInfo(p, 24, 4)
+        layer.post_feedforward_layernorm_2 = TensorInfo(p, 4, 1)
+        layer.post_feedforward_layernorm = TensorInfo(p, 4, 1)
+        layer.moe_skip_scale = TensorInfo(p, 1, 1)
 
-        var stage = WeightStage(ctx, capacity=128)
-        var gpu_expert = upload_expert_weights(stage, ctx, expert)
+        var stage = WeightStage(ctx, capacity=512)
+        var gpu_layer = upload_moe_attention_weights(stage, ctx, layer)
         ctx.sync()
 
-        if Int(gpu_expert.gate_proj.ptr) == 0:
-            raise Error("expert gate_proj device pointer is null")
-        print("upload_expert_weights: 3 tensors uploaded, pointers valid")
+        if Int(gpu_layer.dense_gate_proj.ptr) == 0:
+            raise Error("dense_gate_proj device pointer is null")
+        if Int(gpu_layer.expert_gate_up_proj.ptr) == 0:
+            raise Error("expert_gate_up_proj device pointer is null")
+        if gpu_layer.router_proj.shape_0 != 6:
+            raise Error("router_proj shape mismatch")
+        print("upload_moe_attention_weights: packed MoE tensors uploaded, pointers valid")
 
         _ = stage
         _ = data
         ctx.cleanup()
     else:
-        print("SKIP: test_upload_expert_weights (no GPU)")
+        print("SKIP: test_upload_moe_attention_weights (no GPU)")
 
 
 def test_upload_vision_layer_weights() raises:
@@ -406,6 +429,6 @@ def main() raises:
     test_gpu_kv_cache()
     test_gpu_scratch()
     test_upload_layer_weights()
-    test_upload_expert_weights()
+    test_upload_moe_attention_weights()
     test_upload_vision_layer_weights()
     print("All gpu_context tests passed")

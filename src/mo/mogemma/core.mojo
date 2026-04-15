@@ -9,7 +9,6 @@ from mogemma.model import (
     ModelWeights,
     LayerWeights,
     PLELayerWeights,
-    MoEExpertWeights,
     MoELayerWeights,
     MoEModelWeights,
     VisionLayerWeights,
@@ -80,10 +79,15 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
 
         var s0 = 0
         var s1 = 0
-        if Int(py=builtins.len(shape_tuple)) > 0:
+        var ndim = Int(py=builtins.len(shape_tuple))
+        if ndim > 0:
             s0 = Int(py=shape_tuple[0])
-        if Int(py=builtins.len(shape_tuple)) > 1:
+        if ndim == 1:
+            s1 = 1
+        elif ndim > 1:
             s1 = Int(py=shape_tuple[1])
+            for i in range(2, ndim):
+                s1 *= Int(py=shape_tuple[i])
 
         if builtins.bool(scale_obj):
             var scale_tuple = scale_obj
@@ -491,8 +495,7 @@ def _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_l
 # ── MoE Weight Loading ────────────────────────────────────────────────────
 
 
-def _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: Int) raises -> MoEModelWeights:
-    var builtins = Python.import_module("builtins")
+def _build_moe_from_runtime(metadata_obj: PythonObject, num_layers: Int) raises -> MoEModelWeights:
     var m = MoEModelWeights()
 
     m.embed_tokens = _tensor_from_meta(metadata_obj.get("model.embed_tokens.weight"), PythonObject())
@@ -523,19 +526,31 @@ def _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts:
         layer.pre_feedforward_layernorm = _tensor_from_meta(
             metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"), PythonObject()
         )
+        layer.dense_gate_proj = _tensor_from_meta(metadata_obj.get(pfx + ".mlp.gate_proj.weight"), PythonObject())
+        layer.dense_up_proj = _tensor_from_meta(metadata_obj.get(pfx + ".mlp.up_proj.weight"), PythonObject())
+        layer.dense_down_proj = _tensor_from_meta(metadata_obj.get(pfx + ".mlp.down_proj.weight"), PythonObject())
+        layer.post_feedforward_layernorm_1 = _tensor_from_meta(
+            metadata_obj.get(pfx + ".post_feedforward_layernorm_1.weight"), PythonObject()
+        )
+        layer.pre_feedforward_layernorm_2 = _tensor_from_meta(
+            metadata_obj.get(pfx + ".pre_feedforward_layernorm_2.weight"), PythonObject()
+        )
+        layer.router_proj = _tensor_from_meta(metadata_obj.get(pfx + ".moe_router.proj.weight"), PythonObject())
+        layer.router_scale = _tensor_from_meta(metadata_obj.get(pfx + ".moe_router.scale"), PythonObject())
+        layer.per_expert_scale = _tensor_from_meta(
+            metadata_obj.get(pfx + ".moe_router.per_expert_scale"), PythonObject()
+        )
+        layer.expert_gate_up_proj = _tensor_from_meta(
+            metadata_obj.get(pfx + ".moe_experts.gate_up_proj"), PythonObject()
+        )
+        layer.expert_down_proj = _tensor_from_meta(metadata_obj.get(pfx + ".moe_experts.down_proj"), PythonObject())
+        layer.post_feedforward_layernorm_2 = _tensor_from_meta(
+            metadata_obj.get(pfx + ".post_feedforward_layernorm_2.weight"), PythonObject()
+        )
         layer.post_feedforward_layernorm = _tensor_from_meta(
             metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"), PythonObject()
         )
-        # Router
-        layer.router = _tensor_from_meta(metadata_obj.get(pfx + ".block_sparse_moe.gate.weight"), PythonObject())
-        # 128 experts
-        for j in range(num_experts):
-            var epfx = pfx + ".block_sparse_moe.experts." + String(j)
-            var expert = MoEExpertWeights()
-            expert.gate_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w1.weight"), PythonObject())
-            expert.down_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w2.weight"), PythonObject())
-            expert.up_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w3.weight"), PythonObject())
-            layer.experts.append(expert^)
+        layer.moe_skip_scale = _tensor_from_meta(metadata_obj.get(pfx + ".moe_skip_scale.weight"), PythonObject())
         m.layers.append(layer^)
 
     return m^
@@ -557,19 +572,23 @@ def _flatten_moe_weights(m: MoEModelWeights) -> List[Int]:
         appender.append(layer.q_norm)
         appender.append(layer.k_norm)
         appender.append(layer.pre_feedforward_layernorm)
+        appender.append(layer.dense_gate_proj)
+        appender.append(layer.dense_up_proj)
+        appender.append(layer.dense_down_proj)
+        appender.append(layer.post_feedforward_layernorm_1)
+        appender.append(layer.pre_feedforward_layernorm_2)
+        appender.append(layer.router_proj)
+        appender.append(layer.router_scale)
+        appender.append(layer.per_expert_scale)
+        appender.append(layer.expert_gate_up_proj)
+        appender.append(layer.expert_down_proj)
+        appender.append(layer.post_feedforward_layernorm_2)
         appender.append(layer.post_feedforward_layernorm)
-        appender.append(layer.router)
-        for j in range(len(layer.experts)):
-            var expert = layer.experts[j]
-            appender.append(expert.gate_proj)
-            appender.append(expert.up_proj)
-            appender.append(expert.down_proj)
+        appender.append(layer.moe_skip_scale)
     return appender.finish()
 
 
-def _hydrate_moe_weights(
-    ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int, num_experts: Int
-) -> MoEModelWeights:
+def _hydrate_moe_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> MoEModelWeights:
     var m = MoEModelWeights()
     var h = Hydrator(ptr_array)
     m.embed_tokens = h.next()
@@ -586,14 +605,19 @@ def _hydrate_moe_weights(
         layer.q_norm = h.next()
         layer.k_norm = h.next()
         layer.pre_feedforward_layernorm = h.next()
+        layer.dense_gate_proj = h.next()
+        layer.dense_up_proj = h.next()
+        layer.dense_down_proj = h.next()
+        layer.post_feedforward_layernorm_1 = h.next()
+        layer.pre_feedforward_layernorm_2 = h.next()
+        layer.router_proj = h.next()
+        layer.router_scale = h.next()
+        layer.per_expert_scale = h.next()
+        layer.expert_gate_up_proj = h.next()
+        layer.expert_down_proj = h.next()
+        layer.post_feedforward_layernorm_2 = h.next()
         layer.post_feedforward_layernorm = h.next()
-        layer.router = h.next()
-        for _ in range(num_experts):
-            var expert = MoEExpertWeights()
-            expert.gate_proj = h.next()
-            expert.up_proj = h.next()
-            expert.down_proj = h.next()
-            layer.experts.append(expert^)
+        layer.moe_skip_scale = h.next()
         m.layers.append(layer^)
     return m^
 
@@ -819,7 +843,7 @@ def _init_model_impl_mojo(
 
     # Build MoE weights if present (26B)
     if num_experts > 0:
-        var moe_model = _build_moe_runtime(metadata_obj, num_layers, num_experts)
+        var moe_model = _build_moe_from_runtime(metadata_obj, num_layers)
         var moe_ptrs = _flatten_moe_weights(moe_model)
         var moe_ptrs_np = np.zeros(len(moe_ptrs), dtype=np.uint64)
         for i in range(len(moe_ptrs)):
@@ -1178,7 +1202,7 @@ def step_mojo(
         var moe_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
             unsafe_from_address=Int(py=moe_ptrs_obj.__array_interface__["data"][0])
         )
-        moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers, num_experts)
+        moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers)
 
     var ple_dim = 0
     if has_ple_flag:
