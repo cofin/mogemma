@@ -835,9 +835,7 @@ class TestConvertOrbaxToSafetensorsRoundTrip:
             }
         return names
 
-    def _install_fake_orbax(
-        self, tensors: dict[str, np.ndarray]
-    ) -> tuple[Any, Any]:
+    def _install_fake_orbax(self, tensors: dict[str, np.ndarray]) -> tuple[Any, Any]:
         """Return (enumerate_patch, open_patch) that back the fake Orbax inventory.
 
         Typed as ``Any`` because ``unittest.mock._patch`` is not exported; the

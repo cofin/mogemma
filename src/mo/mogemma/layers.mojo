@@ -1239,11 +1239,12 @@ def forward_moe_layer[
     backend.rms_norm(dense_post_ptr, dense_out_ptr, weights.post_feedforward_layernorm_1.ptr, hidden_size, 1e-6)
 
     # Router
+    # Router logits consume x1 via no-scale RMSNorm; expert execution uses the MoE pre-norm branch.
     forward_moe_router(
         backend,
         expert_indices_ptr,
         expert_weights_ptr,
-        moe_norm_ptr,
+        residual_ptr,
         weights.router_proj,
         weights.router_scale,
         weights.per_expert_scale,
