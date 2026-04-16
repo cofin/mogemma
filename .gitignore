@@ -30,3 +30,4 @@ benchmark-model/
 *.db
 .beads-credential-key
 .coverage
+src/mo/tests/data/
