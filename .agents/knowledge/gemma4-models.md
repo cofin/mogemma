@@ -126,7 +126,105 @@ Validated at `model.py:109-203`:
 - `use_double_wide_mlp`, `kv_sharing_layer_map`
 - `num_local_experts` / `num_experts`, `num_experts_per_tok`, `moe_intermediate_size`
 
+## MoE layer — skip_scale (26B-A4B-it)
+
+**Source:** empirical probe against `google/gemma-4-26B-A4B-it` Orbax
+checkpoint, 2026-04-16. See `gemma4-26b-skip-scale.csv` for per-layer
+values.
+
+**Decision: LIVE — wire `x1 * skip_scale[0]` into the MoE residual sum.**
+
+All 30 layers have positive, substantive values:
+
+- min: +0.070530 (layer 0)
+- max: +0.815137 (layer 24)
+- mean: +0.624398
+- std: 0.196567
+- count `|v| < 1e-6`: 0 / 30
+
+The distribution shows a characteristic training-learned pattern —
+smaller at the boundary layers (0, 29), settling near ~0.7 in the
+mid-stack. Values are never zero and never negative; this is a
+residual-amplification scalar, not a gate.
+
+**Forward-pass implication (CORRECTED 2026-04-16):** This tensor is
+HF's `layer_scalar` — a **multiplicative scalar on the entire layer
+output**, applied as the last operation in
+`Gemma4TextDecoderLayer.forward()`:
+
+```python
+hidden_states *= self.layer_scalar
+return hidden_states
+```
+
+It is NOT added to the residual. Orbax `layer_N.skip_scale` →
+converter output `model.layers.N.moe_skip_scale.weight` → HF
+`layers.{N}.layer_scalar`. All three names refer to the same `(1,)`
+buffer. See moe-mojo-runtime spec Phase 4.1 for wiring details.
+
+## MoE layer — post_feedforward_layernorm (26B-A4B-it)
+
+**Source:** empirical probe against `google/gemma-4-26B-A4B-it` Orbax
+checkpoint, 2026-04-16. See `gemma4-26b-post-ffw-norm.csv` for
+per-layer weight statistics.
+
+**Decision: LIVE — norm is significantly non-identity, placement
+hypothesis must still be enumerated (Phase 0.1c).**
+
+Per-layer `||w − 1||_inf` across all 30 layers:
+
+- max: 21.950363 (layer 0)
+- layer 29: 8.950735
+- mid-stack (layers 4–28): range 0.97 – 2.71
+- min (closest to identity): 0.969750 (layer 11) — still well above
+  any identity threshold
+
+Per-layer weight-mean distribution:
+
+- layer 0: +13.75 (boundary — strong FFN-output amplification)
+- layers 4–28: +0.87 to +2.42 (mid-stack moderate)
+- layer 29: +5.83 (boundary — strong again)
+
+This "boundary-layer extreme, mid-stack moderate" curve is not a
+quirk of initialization — it's a learned training dynamic, which
+means the tensor is applied somewhere in the forward pass. The
+rule-out of hypothesis H-C (vestigial) is definitive.
+
+**Cross-check of per-branch norms (layer 0):**
+
+- `post_ffw1_norm.scale`: mean +4.34, `||w − 1||_inf` = 88.5
+- `post_ffw2_norm.scale`: mean +4.41, `||w − 1||_inf` = 134.1
+
+All three norms (post_ffw1, post_ffw2, post_ffw) are live and
+independently learned. This rules out H-B (single global norm
+replacing per-branch) — if post_ffw_norm subsumed the per-branch
+norms, the per-branch norms would be identity. They aren't.
+
+**Placement CONFIRMED 2026-04-16 as H-A** via direct reading of
+HuggingFace `transformers/src/transformers/models/gemma4/modeling_gemma4.py`
+`Gemma4TextDecoderLayer.forward()`:
+
+```python
+hidden_states = hidden_states_1 + hidden_states_2         # h1 + h2
+hidden_states = self.post_feedforward_layernorm(hidden_states)
+hidden_states = residual + hidden_states                  # x1 + ...
+```
+
+H-B and H-D are ruled out by direct source reading; no probe harness
+was needed.
+
+## Vision encoder — note
+
+The Orbax inventory contains 31 `post_ffw_norm` keys, not 30: the
+extra one is
+`vision_encoder.transformer.stacked_layers.block.post_ffw_norm.scale`
+— part of the vision tower, not the MoE transformer.
+
 ## Related
 
 - [python-runtime.md](python-runtime.md) — loaders + convert.py
 - [mojo-runtime.md](mojo-runtime.md) — struct layouts
+- [gemma4-26b-skip-scale.csv](gemma4-26b-skip-scale.csv) — per-layer
+  skip_scale probe data
+- [gemma4-26b-post-ffw-norm.csv](gemma4-26b-post-ffw-norm.csv) —
+  per-layer post_ffw_norm weight statistics

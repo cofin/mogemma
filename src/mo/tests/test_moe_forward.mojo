@@ -114,6 +114,9 @@ def test_forward_moe_layer_matches_reference() raises:
     weights.expert_gate_up_proj = TensorInfo(Int(expert_gate_up.unsafe_ptr()), 2, 4)
     weights.expert_down_proj = TensorInfo(Int(expert_down.unsafe_ptr()), 2, 2)
     weights.post_feedforward_layernorm_2 = TensorInfo(Int(zeros2.unsafe_ptr()), 2, 1)
+    weights.post_feedforward_layernorm = TensorInfo(Int(zeros2.unsafe_ptr()), 2, 1)
+    var layer_scalar_buf = List[Float32](length=1, fill=0.5)
+    weights.moe_skip_scale = TensorInfo(Int(layer_scalar_buf.unsafe_ptr()), 1, 1)
 
     var layer_types = List[UInt8](length=1, fill=UInt8(LAYER_TYPE_SLIDING))
     var kv_cache = KVCache(
@@ -197,9 +200,14 @@ def test_forward_moe_layer_matches_reference() raises:
     moe_raw[1] = expert_hidden * down1
     var moe_post = _rms_norm_reference(moe_raw, zeros2)
 
+    # HF-pinned formula: out = layer_scalar * (residual + post_ffw_norm(h1 + h2))
+    var combine_raw = List[Float32](length=2, fill=0.0)
+    for i in range(2):
+        combine_raw[i] = dense_post[i] + moe_post[i]
+    var combine_normed = _rms_norm_reference(combine_raw, zeros2)
     var expected = List[Float32](length=2, fill=0.0)
     for i in range(2):
-        expected[i] = x[i] + dense_post[i] + moe_post[i]
+        expected[i] = (x[i] + combine_normed[i]) * layer_scalar_buf[0]
 
     for i in range(2):
         var diff = out[i] - expected[i]

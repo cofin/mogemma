@@ -1272,7 +1272,20 @@ def forward_moe_layer[
 
     backend.rms_norm(post_moe_ptr, moe_out_ptr, weights.post_feedforward_layernorm_2.ptr, hidden_size, 1e-6)
     backend.vector_add(combine_ptr, dense_post_ptr, post_moe_ptr, hidden_size)
-    backend.vector_add(out_ptr, residual_ptr, combine_ptr, hidden_size)
+    # H-A (HF-ref confirmed): post_feedforward_layernorm applied to (h1 + h2) before residual add.
+    # See .agents/knowledge/gemma4-models.md "MoE layer — post_feedforward_layernorm".
+    # Reuse post_moe_ptr as scratch for the normed combined branches.
+    if weights.post_feedforward_layernorm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        backend.rms_norm(post_moe_ptr, combine_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+        backend.vector_add(out_ptr, residual_ptr, post_moe_ptr, hidden_size)
+    else:
+        backend.vector_add(out_ptr, residual_ptr, combine_ptr, hidden_size)
+    # layer_scalar (HF name) / moe_skip_scale (Orbax name): multiplicative scalar on the entire
+    # layer output, applied last. See .agents/knowledge/gemma4-models.md "MoE layer — skip_scale".
+    if weights.moe_skip_scale.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        var layer_scalar = weights.moe_skip_scale.ptr[0]
+        for i in range(hidden_size):
+            out_ptr[i] = out_ptr[i] * layer_scalar
 
 
 @always_inline
