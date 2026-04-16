@@ -53,7 +53,7 @@ out = residual + h1 + h2                              # (+ skip_scale contributi
 
 ### Router
 
-```
+```mojo
 r = RMSNorm(x, no_scale) * router_scale * hidden_size^-0.5
 probs = softmax(router_logits @ r)
 topk_w, topk_idx = topk(probs, k=num_experts_per_tok)   # k=8
