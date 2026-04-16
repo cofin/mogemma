@@ -8,6 +8,7 @@ Tests verify:
 """
 
 from std.sys import has_accelerator
+from mogemma.gpu_context import has_usable_gpu
 from std.memory import UnsafePointer
 from std.collections import List
 from std.testing import assert_almost_equal
@@ -22,7 +23,9 @@ from mogemma.ops import CPUBackend
 from mogemma.layers import forward_vision_encoder, forward_audio_encoder
 
 
-def _make_ptr(ref l: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
+def _make_ptr(
+    ref l: List[Float32],
+) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(l.unsafe_ptr()))
 
 
@@ -294,7 +297,7 @@ def test_copy_state_cpu_parity() raises:
 
 def test_gpu_copy_state() raises:
     """Test device-to-device copy_state on actual GPU hardware."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from mogemma.gpu_context import GPUContext, copy_state
 
         var ctx = GPUContext()

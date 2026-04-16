@@ -7,9 +7,23 @@ and host↔device transfer primitives. All GPU code is gated behind
 
 from std.sys import has_accelerator
 from std.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
+from std.gpu.host.info import _accelerator_arch
 from std.memory import UnsafePointer
 from std.os import abort
 from std.collections import List
+
+
+def has_usable_gpu() -> Bool:
+    """Check for a GPU that supports kernel compilation.
+
+    Mojo 0.26.3 nightly reports M1 as 'metal:1-metal4' which doesn't match
+    the supported architecture list, causing DeviceContext() to fail.
+    """
+    comptime if not has_accelerator():
+        return False
+    else:
+        return "metal" not in _accelerator_arch()
+
 
 from mogemma.model import (
     TensorInfo,
@@ -70,7 +84,11 @@ struct GPUContext(Movable):
         """
         return self.ctx.enqueue_create_host_buffer[dtype](size)
 
-    def upload(mut self, mut dst: DeviceBuffer[DType.float32], src: HostBuffer[DType.float32]) raises:
+    def upload(
+        mut self,
+        mut dst: DeviceBuffer[DType.float32],
+        src: HostBuffer[DType.float32],
+    ) raises:
         """Enqueue an async copy from pinned host memory to device memory.
 
         Args:
@@ -79,7 +97,11 @@ struct GPUContext(Movable):
         """
         self.ctx.enqueue_copy(dst, src)
 
-    def download(mut self, mut dst: HostBuffer[DType.float32], src: DeviceBuffer[DType.float32]) raises:
+    def download(
+        mut self,
+        mut dst: HostBuffer[DType.float32],
+        src: DeviceBuffer[DType.float32],
+    ) raises:
         """Enqueue an async copy from device memory to pinned host memory.
 
         Args:
@@ -210,7 +232,11 @@ struct WeightStage(Movable):
             if info.shape_0 * info.shape_1 == 0:
                 return info
             var offset = self._pack_tensor(info)
-            return TensorInfo(Int(self.device_buf.unsafe_ptr() + offset), info.shape_0, info.shape_1)
+            return TensorInfo(
+                Int(self.device_buf.unsafe_ptr() + offset),
+                info.shape_0,
+                info.shape_1,
+            )
 
         dev_weights.q_proj = pack(weights.q_proj)
         dev_weights.k_proj = pack(weights.k_proj)
@@ -641,18 +667,26 @@ def upload_layer_weights(mut stage: WeightStage, mut ctx: GPUContext, layer: Lay
     result.up_proj = _tensor_from_device_ptr(base + up_off, layer.up_proj.shape_0, layer.up_proj.shape_1)
     result.down_proj = _tensor_from_device_ptr(base + down_off, layer.down_proj.shape_0, layer.down_proj.shape_1)
     result.input_layernorm = _tensor_from_device_ptr(
-        base + in_norm_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1
+        base + in_norm_off,
+        layer.input_layernorm.shape_0,
+        layer.input_layernorm.shape_1,
     )
     result.post_attention_layernorm = _tensor_from_device_ptr(
-        base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1
+        base + post_attn_off,
+        layer.post_attention_layernorm.shape_0,
+        layer.post_attention_layernorm.shape_1,
     )
     result.q_norm = _tensor_from_device_ptr(base + q_norm_off, layer.q_norm.shape_0, layer.q_norm.shape_1)
     result.k_norm = _tensor_from_device_ptr(base + k_norm_off, layer.k_norm.shape_0, layer.k_norm.shape_1)
     result.pre_feedforward_layernorm = _tensor_from_device_ptr(
-        base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1
+        base + pre_ff_off,
+        layer.pre_feedforward_layernorm.shape_0,
+        layer.pre_feedforward_layernorm.shape_1,
     )
     result.post_feedforward_layernorm = _tensor_from_device_ptr(
-        base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1
+        base + post_ff_off,
+        layer.post_feedforward_layernorm.shape_0,
+        layer.post_feedforward_layernorm.shape_1,
     )
     return result
 
@@ -698,52 +732,84 @@ def upload_moe_attention_weights(
     result.v_proj = _tensor_from_device_ptr(base + v_off, layer.v_proj.shape_0, layer.v_proj.shape_1)
     result.o_proj = _tensor_from_device_ptr(base + o_off, layer.o_proj.shape_0, layer.o_proj.shape_1)
     result.dense_gate_proj = _tensor_from_device_ptr(
-        base + dense_gate_off, layer.dense_gate_proj.shape_0, layer.dense_gate_proj.shape_1
+        base + dense_gate_off,
+        layer.dense_gate_proj.shape_0,
+        layer.dense_gate_proj.shape_1,
     )
     result.dense_up_proj = _tensor_from_device_ptr(
-        base + dense_up_off, layer.dense_up_proj.shape_0, layer.dense_up_proj.shape_1
+        base + dense_up_off,
+        layer.dense_up_proj.shape_0,
+        layer.dense_up_proj.shape_1,
     )
     result.dense_down_proj = _tensor_from_device_ptr(
-        base + dense_down_off, layer.dense_down_proj.shape_0, layer.dense_down_proj.shape_1
+        base + dense_down_off,
+        layer.dense_down_proj.shape_0,
+        layer.dense_down_proj.shape_1,
     )
     result.router_proj = _tensor_from_device_ptr(
-        base + router_proj_off, layer.router_proj.shape_0, layer.router_proj.shape_1
+        base + router_proj_off,
+        layer.router_proj.shape_0,
+        layer.router_proj.shape_1,
     )
     result.router_scale = _tensor_from_device_ptr(
-        base + router_scale_off, layer.router_scale.shape_0, layer.router_scale.shape_1
+        base + router_scale_off,
+        layer.router_scale.shape_0,
+        layer.router_scale.shape_1,
     )
     result.per_expert_scale = _tensor_from_device_ptr(
-        base + per_expert_scale_off, layer.per_expert_scale.shape_0, layer.per_expert_scale.shape_1
+        base + per_expert_scale_off,
+        layer.per_expert_scale.shape_0,
+        layer.per_expert_scale.shape_1,
     )
     result.expert_gate_up_proj = _tensor_from_device_ptr(
-        base + expert_gate_up_off, layer.expert_gate_up_proj.shape_0, layer.expert_gate_up_proj.shape_1
+        base + expert_gate_up_off,
+        layer.expert_gate_up_proj.shape_0,
+        layer.expert_gate_up_proj.shape_1,
     )
     result.expert_down_proj = _tensor_from_device_ptr(
-        base + expert_down_off, layer.expert_down_proj.shape_0, layer.expert_down_proj.shape_1
+        base + expert_down_off,
+        layer.expert_down_proj.shape_0,
+        layer.expert_down_proj.shape_1,
     )
     result.input_layernorm = _tensor_from_device_ptr(
-        base + in_ln_off, layer.input_layernorm.shape_0, layer.input_layernorm.shape_1
+        base + in_ln_off,
+        layer.input_layernorm.shape_0,
+        layer.input_layernorm.shape_1,
     )
     result.post_attention_layernorm = _tensor_from_device_ptr(
-        base + post_attn_off, layer.post_attention_layernorm.shape_0, layer.post_attention_layernorm.shape_1
+        base + post_attn_off,
+        layer.post_attention_layernorm.shape_0,
+        layer.post_attention_layernorm.shape_1,
     )
     result.pre_feedforward_layernorm = _tensor_from_device_ptr(
-        base + pre_ff_off, layer.pre_feedforward_layernorm.shape_0, layer.pre_feedforward_layernorm.shape_1
+        base + pre_ff_off,
+        layer.pre_feedforward_layernorm.shape_0,
+        layer.pre_feedforward_layernorm.shape_1,
     )
     result.post_feedforward_layernorm_1 = _tensor_from_device_ptr(
-        base + post_ff1_off, layer.post_feedforward_layernorm_1.shape_0, layer.post_feedforward_layernorm_1.shape_1
+        base + post_ff1_off,
+        layer.post_feedforward_layernorm_1.shape_0,
+        layer.post_feedforward_layernorm_1.shape_1,
     )
     result.pre_feedforward_layernorm_2 = _tensor_from_device_ptr(
-        base + pre_ff2_off, layer.pre_feedforward_layernorm_2.shape_0, layer.pre_feedforward_layernorm_2.shape_1
+        base + pre_ff2_off,
+        layer.pre_feedforward_layernorm_2.shape_0,
+        layer.pre_feedforward_layernorm_2.shape_1,
     )
     result.post_feedforward_layernorm_2 = _tensor_from_device_ptr(
-        base + post_ff2_off, layer.post_feedforward_layernorm_2.shape_0, layer.post_feedforward_layernorm_2.shape_1
+        base + post_ff2_off,
+        layer.post_feedforward_layernorm_2.shape_0,
+        layer.post_feedforward_layernorm_2.shape_1,
     )
     result.post_feedforward_layernorm = _tensor_from_device_ptr(
-        base + post_ff_off, layer.post_feedforward_layernorm.shape_0, layer.post_feedforward_layernorm.shape_1
+        base + post_ff_off,
+        layer.post_feedforward_layernorm.shape_0,
+        layer.post_feedforward_layernorm.shape_1,
     )
     result.moe_skip_scale = _tensor_from_device_ptr(
-        base + skip_scale_off, layer.moe_skip_scale.shape_0, layer.moe_skip_scale.shape_1
+        base + skip_scale_off,
+        layer.moe_skip_scale.shape_0,
+        layer.moe_skip_scale.shape_1,
     )
     result.q_norm = _tensor_from_device_ptr(base + q_norm_off, layer.q_norm.shape_0, layer.q_norm.shape_1)
     result.k_norm = _tensor_from_device_ptr(base + k_norm_off, layer.k_norm.shape_0, layer.k_norm.shape_1)
