@@ -173,14 +173,11 @@ jobs:
       - name: Run tests
         run: uv run pytest src/py/tests
 
-      - name: Run parity gates
-        run: uv run python tools/run_parity_gates.py --model gemma3n-e2b-it
-
-      - name: Upload parity artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: parity-artifact
-          path: parity_artifact.json
+      # Real-weight parity gates are deferred to the gpu-ci-modal follow-on
+      # flow. Linux CI runners have ~14 GB of disk (smallest working model is
+      # ~36 GB after Orbax->safetensors conversion) and no GPU, so we cannot
+      # run parity here. The previous parity-gate step is intentionally
+      # removed - do not re-add without a Modal-backed runner.
 
       - name: Run CPU benchmark harness (Generation)
         run: uv run python tools/benchmark.py --mode generation --rounds 20 --max-new-tokens 64 > benchmark_cpu_generation.json

@@ -5,12 +5,22 @@ from __future__ import annotations
 import pytest
 
 from mogemma.config import EmbeddingConfig, GenerationConfig
+from mogemma.hub import KNOWN_GCS_MODELS
 
 
 class TestGenerationConfigDefaults:
     def test_default_model_path(self) -> None:
         config = GenerationConfig()
         assert str(config.model_path) == "google/gemma-4-E4B-it"
+
+    def test_default_model_path_in_catalog(self) -> None:
+        """Default must resolve to a model currently published in gs://gemma-data.
+
+        Catches regressions where the default points at a prefix with zero objects
+        (as happened with the pretrained E4B default prior to this flow).
+        """
+        config = GenerationConfig()
+        assert str(config.model_path) in KNOWN_GCS_MODELS
 
     def test_default_top_k(self) -> None:
         config = GenerationConfig()
@@ -32,7 +42,16 @@ class TestGenerationConfigDefaults:
 class TestEmbeddingConfigDefaults:
     def test_default_model_path(self) -> None:
         config = EmbeddingConfig()
-        assert str(config.model_path) == "google/gemma-4-E4B"
+        assert str(config.model_path) == "google/gemma-4-E4B-it"
+
+    def test_default_model_path_in_catalog(self) -> None:
+        """Default must resolve to a model currently published in gs://gemma-data.
+
+        A 2026-04-16 probe confirmed the pretrained E4B prefix has zero objects;
+        the E4B-it variant is the pragmatic default until pretrained ships.
+        """
+        config = EmbeddingConfig()
+        assert str(config.model_path) in KNOWN_GCS_MODELS
 
 
 class TestGenerationConfigValidation:

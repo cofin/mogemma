@@ -19,6 +19,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 from mogemma import GenerationConfig, SyncGemmaModel
 from tests.parity_config import DETERMINISTIC_PROFILE, PARITY_THRESHOLDS, PERF_THRESHOLDS, PROMPT_FIXTURES
 
+DEFAULT_MODEL_ID = "google/gemma-4-E2B-it"
+"""Smallest instruction-tuned Gemma 4 variant currently published to
+``gs://gemma-data`` — used as the parity-gate baseline when ``--model`` is
+not passed."""
+
 
 def get_system_metadata() -> dict[str, Any]:
     """Retrieve system hardware and OS metadata."""
@@ -64,7 +69,7 @@ def run_prompt_with_device(model_id: str, prompt_text: str, device: str) -> dict
 def main() -> None:
     """Run the parity gates checks."""
     parser = argparse.ArgumentParser(description="Mogemma Parity Gates Runner")
-    parser.add_argument("--model", type=str, default="gemma3n-e2b-it", help="Nano model ID to test")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL_ID, help="Model ID to test")
     parser.add_argument("--baseline", type=str, help="Path to baseline artifact JSON")
     parser.add_argument("--output", type=str, default="parity_artifact.json", help="Output JSON path")
     args = parser.parse_args()

@@ -19,6 +19,21 @@ _GCS_BUCKET = "gemma-data"
 _GCS_TOKENIZER_PATH = "tokenizers/tokenizer_gemma4.model"
 _ASYNC_DOWNLOAD_CONCURRENCY = 6
 
+KNOWN_GCS_MODELS: frozenset[str] = frozenset({
+    "google/gemma-4-E2B-it",
+    "google/gemma-4-E4B-it",
+    "google/gemma-4-26B-A4B-it",
+})
+"""Model IDs currently published under ``gs://gemma-data/checkpoints/``.
+
+Hand-maintained. A live probe on 2026-04-16 confirmed these three prefixes
+resolve to non-empty listings; the pretrained ``E2B`` / ``E4B`` variants are
+not yet published and intentionally excluded.
+
+Public only so the test suite can use it as an allow-list. Not enforced at
+runtime — arbitrary ``model_path`` values still flow through the resolver
+and surface a clean GCS 404 on a typo instead of a ``KeyError``."""
+
 
 class HubManager:
     """Manages downloading and caching Gemma 4 models from Google Cloud Storage."""

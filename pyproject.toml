@@ -110,6 +110,9 @@ include-dirs = ["src/mo"]
 [tool.pytest.ini_options]
 testpaths = ["src/py/tests", "src/mo/tests"]
 pythonpath = ["src/py"]
+markers = [
+    "gcs: live-network test against gs://gemma-data; skipped unless MOGEMMA_LIVE_GCS=1",
+]
 filterwarnings = [
     "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
     "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",

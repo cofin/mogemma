@@ -36,3 +36,19 @@ Each flow has its own detailed spec and plan in its respective folder.
 ## [ ] Flow: MoE Mojo Runtime (Chapter 2b)
 *Planning. Mojo-side rewrite to consume the two-branch MoE safetensors contract: struct layout, hydration, GPU packer, router + packed-expert kernels, two-branch forward pass. Blocks live 26B-A4B-it inference.*
 *Link: [./specs/moe-mojo-runtime/spec.md](./specs/moe-mojo-runtime/spec.md)*
+
+## [~] Flow: Fix Stale Defaults
+*Active. `EmbeddingConfig` default + every `tools/*.py` + `check-release` CI step reference models that are missing from `gs://gemma-data` after the hub migration. Unblocks package defaults and the release runbook. Landing directly on `fix/timeout` (PR #16) per user direction.*
+*Link: [./specs/fix-stale-defaults/spec.md](./specs/fix-stale-defaults/spec.md)*
+
+## [ ] Flow: GPU CI on Modal (Tier C)
+*Queued. Stand up Modal-based GPU runner for `test_gpu_*.mojo` on every PR + on-demand real-weight parity gates. Follow-on to `fix-stale-defaults`.*
+
+## [ ] Flow: Mojo Tests in CI
+*Queued. Add `src/mo/tests` to the CI pytest target so CPU-path Mojo regressions are caught even without GPU hardware. Free, high-leverage, no storage required.*
+
+## [ ] Flow: Metal DeviceContext Workaround
+*Queued. Investigate the stdlib `metal:1-metal4` arch-list rejection that forces `has_usable_gpu()` to skip Metal entirely. Unblocks GPU coverage on M-series developer hardware.*
+
+## [ ] Flow: Vision GPU Null-Ptr Fix
+*Queued. Fix the vision-encoder null-pointer rebind in the GPU upload path that was gated out in `657f8ed`. Prerequisite for re-enabling vision on GPU.*

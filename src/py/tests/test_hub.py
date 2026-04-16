@@ -7,7 +7,49 @@ from unittest.mock import patch
 
 import pytest
 
-from mogemma.hub import HubManager
+from mogemma.hub import KNOWN_GCS_MODELS, HubManager
+
+
+class TestKnownGCSModels:
+    """The module-level catalog of models known to exist in gs://gemma-data.
+
+    Kept as a hand-maintained frozenset because the bucket is public read-only
+    and adding models is a manual ops step, not a runtime discovery. The live
+    probe in test_hub_live.py verifies each entry still has objects.
+    """
+
+    def test_is_frozenset_of_strings(self) -> None:
+        assert isinstance(KNOWN_GCS_MODELS, frozenset)
+        assert all(isinstance(m, str) for m in KNOWN_GCS_MODELS)
+
+    def test_nonempty(self) -> None:
+        assert len(KNOWN_GCS_MODELS) >= 1
+
+    def test_entries_are_google_prefixed_model_ids(self) -> None:
+        for model_id in KNOWN_GCS_MODELS:
+            assert model_id.startswith("google/"), f"Unexpected catalog entry: {model_id!r}"
+
+    def test_contains_three_currently_available_models(self) -> None:
+        """Matches the 2026-04-16 gs://gemma-data probe result."""
+        expected = {"google/gemma-4-E2B-it", "google/gemma-4-E4B-it", "google/gemma-4-26B-A4B-it"}
+        assert expected.issubset(KNOWN_GCS_MODELS)
+
+    def test_no_stale_gemma3_entries(self) -> None:
+        for model_id in KNOWN_GCS_MODELS:
+            lowered = model_id.lower()
+            assert "gemma3-" not in lowered, f"Stale Gemma 3 entry: {model_id!r}"
+            assert "gemma3n-" not in lowered, f"Stale Gemma 3n entry: {model_id!r}"
+
+    def test_no_missing_pretrained_variants(self) -> None:
+        """Catalog must not lie about what's actually in the bucket.
+
+        Pretrained E2B/E4B are not in ``gs://gemma-data`` as of 2026-04-16.
+        When Google publishes them, add them and delete this guard.
+        """
+        for model_id in KNOWN_GCS_MODELS:
+            assert model_id not in {"google/gemma-4-E2B", "google/gemma-4-E4B"}, (
+                f"Pretrained variant {model_id!r} is not in gs://gemma-data; remove from catalog."
+            )
 
 
 class TestGetTokenizerPath:

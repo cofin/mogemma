@@ -96,10 +96,10 @@ Four Gemma 4 variants are supported (auto-detected from `config.json`):
 | Model ID | Description |
 |---|---|
 | `google/gemma-4-E2B-it` | Compact multimodal (text + image + audio), ~2B params |
-| `google/gemma-4-E4B-it` | **Default** for `SyncGemmaModel` / `AsyncGemmaModel` — latest small multimodal |
-| `google/gemma-4-E4B` | **Default** for `SyncEmbeddingModel` — pretrained (better embedding quality) |
+| `google/gemma-4-E4B-it` | **Default** for `SyncGemmaModel` / `AsyncGemmaModel` / `SyncEmbeddingModel` — latest small multimodal |
 | `google/gemma-4-26B-A4B-it` | MoE (128 experts, top-8), 4B active — heavier reasoning |
-| `google/gemma-4-31B-it` | Dense flagship, text + image |
+
+Pretrained (non-instruction-tuned) E2B / E4B are listed in the Gemma 4 family but are not currently published to `gs://gemma-data`; `SyncEmbeddingModel` therefore defaults to the `-it` variant until pretrained ships.
 
 Pass a model ID to override the default:
 
