@@ -5,7 +5,7 @@
   "parent_prd": "gcs-orbax-migration",
   "beads_epic_id": "mogemma-4xl",
   "created_at": "2026-04-14T21:00:00Z",
-  "updated_at": "2026-04-16T00:00:00+00:00",
+  "updated_at": "2026-04-16T12:00:00+00:00",
   "description": "Mojo-side runtime for Gemma 4 26B-A4B-it MoE: two-branch forward pass, packed-expert kernels, hydration from converted safetensors. Phase 0 empirical probe pins skip_scale and post_ffw_norm semantics before forward-pass wiring.",
   "synced_at": "2026-04-15T20:44:53.743648+00:00"
 }

@@ -416,7 +416,7 @@ store = GCSStore("gemma-data", config={"skip_signature": "true"})
   - **Test-first:** round-trip a `MoEModelWeights` through flatten +
     hydrate; assert per-field pointer equality.
 
-- [!] **1.4 Update `gpu_context.mojo` packer**
+- [x] **1.4 Update `gpu_context.mojo` packer** [8058ecb]
   - `_pack_moe_layer` (or equivalent) now streams the 22 tensors into GPU
     buffers. Packed expert tensors are copied wholesale (no per-expert
     split); `gate_up_proj` is a single `[E * 2·I_moe * H]` allocation,
@@ -509,7 +509,7 @@ store = GCSStore("gemma-data", config={"skip_signature": "true"})
 This phase only runs after Phase 0 is complete. Each task selects one
 branch based on the knowledge-file decisions.
 
-- [!] **4.1 Wire `layer_scalar` (Orbax `skip_scale`) as multiplicative output scalar**
+- [x] **4.1 Wire `layer_scalar` (Orbax `skip_scale`) as multiplicative output scalar** [708d8e0]
   - **Confirmed placement:** `out *= weights.moe_skip_scale.ptr[0]`
     applied as the **last operation in `forward_moe_layer`**, after
     the residual add and after any optional PLE gate residual.
@@ -527,7 +527,7 @@ branch based on the knowledge-file decisions.
     the same `(1,)` buffer. The Mojo struct field stays
     `moe_skip_scale` for consistency with the safetensors contract.
 
-- [!] **4.2 Wire `post_feedforward_layernorm` (H-A confirmed)**
+- [x] **4.2 Wire `post_feedforward_layernorm` (H-A confirmed)** [708d8e0]
   - **Pinned formula:** see the "Canonical forward formula" quoted
     in Phase 0.1c. Specifically:
 
@@ -556,18 +556,18 @@ branch based on the knowledge-file decisions.
     deterministic-seed random weights, compare Mojo output to
     numpy reference with `||diff||_inf < 1e-5` gate.
 
-- [!] **4.3 Refresh 26B-A4B-it parity after Phase 4.1 + 4.2**
+- [~] **4.3 Refresh 26B-A4B-it parity after Phase 4.1 + 4.2**
+  - Layer-0 numpy parity passes [d433fbd]. Full greedy parity pending
+    safetensors conversion (Orbax cached, `.part` cleaned).
   - Re-run Phase 3.2 Gate B. Must pass before calling the flow done.
 
 ### Verification Gate
 
-- [x] `make test` green (Python + Mojo). [f7fae54]
-- [x] `make lint` clean. [f7fae54]
-- [!] Phase 0.1a result recorded in `.agents/knowledge/gemma4-models.md`.
-- [!] Phase 0.1b result recorded in `.agents/knowledge/gemma4-models.md`.
-- [!] Phase 0.1c hypothesis pinned in
-  `.agents/knowledge/gemma4-26b-post-ffw-norm-placement.md` (if 0.1b
-  showed non-identity).
+- [x] `make test` green (294 passed). [d433fbd]
+- [x] `make lint` clean. [d433fbd]
+- [x] Phase 0.1a result recorded in `.agents/knowledge/gemma4-models.md`. [708d8e0]
+- [x] Phase 0.1b result recorded in `.agents/knowledge/gemma4-models.md`. [708d8e0]
+- [x] Phase 0.1c hypothesis pinned (H-A confirmed from HF source). [708d8e0]
 - [!] Phase 3.2 Gate A cosine drift `< 1e-5` at all probed layers.
 - [!] Phase 3.2 Gate B greedy bit-exact parity with HF reference
   (32-token continuation from the fixed 8-token prompt).
