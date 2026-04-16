@@ -14,10 +14,21 @@ Kernel categories:
 
 from std.sys import has_accelerator
 from std.os import abort
-from std.gpu import block_idx, thread_idx, block_dim, global_idx, warp_id, lane_id
+from std.gpu import (
+    block_idx,
+    thread_idx,
+    block_dim,
+    global_idx,
+    warp_id,
+    lane_id,
+)
 from std.gpu.host import DeviceContext, DeviceBuffer
 from std.gpu.sync import barrier, syncwarp
-from std.gpu.primitives.warp import sum as warp_sum, max as warp_max, broadcast as warp_broadcast
+from std.gpu.primitives.warp import (
+    sum as warp_sum,
+    max as warp_max,
+    broadcast as warp_broadcast,
+)
 from std.gpu.primitives.block import sum as block_sum, max as block_max
 from std.gpu.memory import AddressSpace, external_memory
 from std.memory import UnsafePointer
@@ -1126,4 +1137,13 @@ def kv_write_kernel(
     Handles ring buffer wrap for sliding layers and linear write for full layers.
     Launch: grid_dim = 1, block_dim = ceildiv(kv_size, 32) * 32 (up to 1024)
     """
-    _kv_write_impl(global_idx.x, dst_ptr, src_ptr, kv_size, pos, cache_size, layer_offset, Bool(is_full_int))
+    _kv_write_impl(
+        global_idx.x,
+        dst_ptr,
+        src_ptr,
+        kv_size,
+        pos,
+        cache_size,
+        layer_offset,
+        Bool(is_full_int),
+    )

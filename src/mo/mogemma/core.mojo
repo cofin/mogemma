@@ -9,7 +9,6 @@ from mogemma.model import (
     ModelWeights,
     LayerWeights,
     PLELayerWeights,
-    MoEExpertWeights,
     MoELayerWeights,
     MoEModelWeights,
     VisionLayerWeights,
@@ -41,6 +40,7 @@ from mogemma.gpu_context import (
     GPUPersistentBuffers,
     GPUKVCache,
     GPUScratch,
+    has_usable_gpu,
 )
 
 
@@ -55,7 +55,10 @@ def _ensure_step_logits(logits_obj: PythonObject, np: PythonObject) raises -> Py
 
 
 def _ensure_embedding_matrix(
-    embeddings_obj: PythonObject, expected_rows: Int, expected_cols: Int, np: PythonObject
+    embeddings_obj: PythonObject,
+    expected_rows: Int,
+    expected_cols: Int,
+    np: PythonObject,
 ) raises -> PythonObject:
     var builtins = Python.import_module("builtins")
     var embeddings = np.asarray(embeddings_obj, dtype=np.float32)
@@ -80,10 +83,15 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
 
         var s0 = 0
         var s1 = 0
-        if Int(py=builtins.len(shape_tuple)) > 0:
+        var ndim = Int(py=builtins.len(shape_tuple))
+        if ndim > 0:
             s0 = Int(py=shape_tuple[0])
-        if Int(py=builtins.len(shape_tuple)) > 1:
+        if ndim == 1:
+            s1 = 1
+        elif ndim > 1:
             s1 = Int(py=shape_tuple[1])
+            for i in range(2, ndim):
+                s1 *= Int(py=shape_tuple[i])
 
         if builtins.bool(scale_obj):
             var scale_tuple = scale_obj
@@ -366,6 +374,7 @@ def _build_vision_runtime(metadata_obj: PythonObject, num_vision_layers: Int) ra
         layer_entry.append(metadata_obj.get(pfx + ".self_attn.v_proj.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".self_attn.out_proj.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".mlp.fc1.weight"))
+        layer_entry.append(metadata_obj.get(pfx + ".mlp.fc1_up.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".mlp.fc2.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".layer_norm1.weight"))
         layer_entry.append(metadata_obj.get(pfx + ".layer_norm2.weight"))
@@ -391,9 +400,10 @@ def _build_vision_from_runtime(runtime_obj: PythonObject, num_vision_layers: Int
         vl.v_proj = _tensor_from_meta(entry[2], PythonObject())
         vl.o_proj = _tensor_from_meta(entry[3], PythonObject())
         vl.fc1 = _tensor_from_meta(entry[4], PythonObject())
-        vl.fc2 = _tensor_from_meta(entry[5], PythonObject())
-        vl.layer_norm1 = _tensor_from_meta(entry[6], PythonObject())
-        vl.layer_norm2 = _tensor_from_meta(entry[7], PythonObject())
+        vl.fc1_up = _tensor_from_meta(entry[5], PythonObject())
+        vl.fc2 = _tensor_from_meta(entry[6], PythonObject())
+        vl.layer_norm1 = _tensor_from_meta(entry[7], PythonObject())
+        vl.layer_norm2 = _tensor_from_meta(entry[8], PythonObject())
         vm.layers.append(vl^)
 
     return vm^
@@ -412,6 +422,7 @@ def _flatten_vision_weights(vm: VisionModelWeights) -> List[Int]:
         appender.append(layer.v_proj)
         appender.append(layer.o_proj)
         appender.append(layer.fc1)
+        appender.append(layer.fc1_up)
         appender.append(layer.fc2)
         appender.append(layer.layer_norm1)
         appender.append(layer.layer_norm2)
@@ -434,6 +445,7 @@ def _hydrate_vision_weights(
         vl.v_proj = h.next()
         vl.o_proj = h.next()
         vl.fc1 = h.next()
+        vl.fc1_up = h.next()
         vl.fc2 = h.next()
         vl.layer_norm1 = h.next()
         vl.layer_norm2 = h.next()
@@ -455,7 +467,8 @@ def _build_ple_weights(metadata_obj: PythonObject, num_layers: Int) raises -> Li
         var ple = PLELayerWeights()
         ple.per_layer_embedding = _tensor_from_meta(emb, PythonObject())
         ple.per_layer_projection = _tensor_from_meta(
-            metadata_obj.get(pfx + ".per_layer_projection.weight"), PythonObject()
+            metadata_obj.get(pfx + ".per_layer_projection.weight"),
+            PythonObject(),
         )
         ple.per_layer_norm = _tensor_from_meta(metadata_obj.get(pfx + ".per_layer_norm.weight"), PythonObject())
         ple_layers.append(ple^)
@@ -487,8 +500,7 @@ def _hydrate_ple_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_l
 # ── MoE Weight Loading ────────────────────────────────────────────────────
 
 
-def _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts: Int) raises -> MoEModelWeights:
-    var builtins = Python.import_module("builtins")
+def _build_moe_from_runtime(metadata_obj: PythonObject, num_layers: Int) raises -> MoEModelWeights:
     var m = MoEModelWeights()
 
     m.embed_tokens = _tensor_from_meta(metadata_obj.get("model.embed_tokens.weight"), PythonObject())
@@ -500,38 +512,61 @@ def _build_moe_runtime(metadata_obj: PythonObject, num_layers: Int, num_experts:
         var layer = MoELayerWeights()
         layer.input_layernorm = _tensor_from_meta(metadata_obj.get(pfx + ".input_layernorm.weight"), PythonObject())
         layer.post_attention_layernorm = _tensor_from_meta(
-            metadata_obj.get(pfx + ".post_attention_layernorm.weight"), PythonObject()
+            metadata_obj.get(pfx + ".post_attention_layernorm.weight"),
+            PythonObject(),
         )
         layer.q_proj = _tensor_from_meta(
-            metadata_obj.get(pfx + ".self_attn.q_proj.weight"), metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale")
+            metadata_obj.get(pfx + ".self_attn.q_proj.weight"),
+            metadata_obj.get(pfx + ".self_attn.q_proj.weight_scale"),
         )
         layer.k_proj = _tensor_from_meta(
-            metadata_obj.get(pfx + ".self_attn.k_proj.weight"), metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale")
+            metadata_obj.get(pfx + ".self_attn.k_proj.weight"),
+            metadata_obj.get(pfx + ".self_attn.k_proj.weight_scale"),
         )
         layer.v_proj = _tensor_from_meta(
-            metadata_obj.get(pfx + ".self_attn.v_proj.weight"), metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale")
+            metadata_obj.get(pfx + ".self_attn.v_proj.weight"),
+            metadata_obj.get(pfx + ".self_attn.v_proj.weight_scale"),
         )
         layer.o_proj = _tensor_from_meta(
-            metadata_obj.get(pfx + ".self_attn.o_proj.weight"), metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale")
+            metadata_obj.get(pfx + ".self_attn.o_proj.weight"),
+            metadata_obj.get(pfx + ".self_attn.o_proj.weight_scale"),
         )
         layer.q_norm = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.q_norm.weight"), PythonObject())
         layer.k_norm = _tensor_from_meta(metadata_obj.get(pfx + ".self_attn.k_norm.weight"), PythonObject())
         layer.pre_feedforward_layernorm = _tensor_from_meta(
-            metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"), PythonObject()
+            metadata_obj.get(pfx + ".pre_feedforward_layernorm.weight"),
+            PythonObject(),
+        )
+        layer.dense_gate_proj = _tensor_from_meta(metadata_obj.get(pfx + ".mlp.gate_proj.weight"), PythonObject())
+        layer.dense_up_proj = _tensor_from_meta(metadata_obj.get(pfx + ".mlp.up_proj.weight"), PythonObject())
+        layer.dense_down_proj = _tensor_from_meta(metadata_obj.get(pfx + ".mlp.down_proj.weight"), PythonObject())
+        layer.post_feedforward_layernorm_1 = _tensor_from_meta(
+            metadata_obj.get(pfx + ".post_feedforward_layernorm_1.weight"),
+            PythonObject(),
+        )
+        layer.pre_feedforward_layernorm_2 = _tensor_from_meta(
+            metadata_obj.get(pfx + ".pre_feedforward_layernorm_2.weight"),
+            PythonObject(),
+        )
+        layer.router_proj = _tensor_from_meta(metadata_obj.get(pfx + ".moe_router.proj.weight"), PythonObject())
+        layer.router_scale = _tensor_from_meta(metadata_obj.get(pfx + ".moe_router.scale"), PythonObject())
+        layer.per_expert_scale = _tensor_from_meta(
+            metadata_obj.get(pfx + ".moe_router.per_expert_scale"),
+            PythonObject(),
+        )
+        layer.expert_gate_up_proj = _tensor_from_meta(
+            metadata_obj.get(pfx + ".moe_experts.gate_up_proj"), PythonObject()
+        )
+        layer.expert_down_proj = _tensor_from_meta(metadata_obj.get(pfx + ".moe_experts.down_proj"), PythonObject())
+        layer.post_feedforward_layernorm_2 = _tensor_from_meta(
+            metadata_obj.get(pfx + ".post_feedforward_layernorm_2.weight"),
+            PythonObject(),
         )
         layer.post_feedforward_layernorm = _tensor_from_meta(
-            metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"), PythonObject()
+            metadata_obj.get(pfx + ".post_feedforward_layernorm.weight"),
+            PythonObject(),
         )
-        # Router
-        layer.router = _tensor_from_meta(metadata_obj.get(pfx + ".block_sparse_moe.gate.weight"), PythonObject())
-        # 128 experts
-        for j in range(num_experts):
-            var epfx = pfx + ".block_sparse_moe.experts." + String(j)
-            var expert = MoEExpertWeights()
-            expert.gate_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w1.weight"), PythonObject())
-            expert.down_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w2.weight"), PythonObject())
-            expert.up_proj = _tensor_from_meta(metadata_obj.get(epfx + ".w3.weight"), PythonObject())
-            layer.experts.append(expert^)
+        layer.moe_skip_scale = _tensor_from_meta(metadata_obj.get(pfx + ".moe_skip_scale.weight"), PythonObject())
         m.layers.append(layer^)
 
     return m^
@@ -553,19 +588,23 @@ def _flatten_moe_weights(m: MoEModelWeights) -> List[Int]:
         appender.append(layer.q_norm)
         appender.append(layer.k_norm)
         appender.append(layer.pre_feedforward_layernorm)
+        appender.append(layer.dense_gate_proj)
+        appender.append(layer.dense_up_proj)
+        appender.append(layer.dense_down_proj)
+        appender.append(layer.post_feedforward_layernorm_1)
+        appender.append(layer.pre_feedforward_layernorm_2)
+        appender.append(layer.router_proj)
+        appender.append(layer.router_scale)
+        appender.append(layer.per_expert_scale)
+        appender.append(layer.expert_gate_up_proj)
+        appender.append(layer.expert_down_proj)
+        appender.append(layer.post_feedforward_layernorm_2)
         appender.append(layer.post_feedforward_layernorm)
-        appender.append(layer.router)
-        for j in range(len(layer.experts)):
-            var expert = layer.experts[j]
-            appender.append(expert.gate_proj)
-            appender.append(expert.up_proj)
-            appender.append(expert.down_proj)
+        appender.append(layer.moe_skip_scale)
     return appender.finish()
 
 
-def _hydrate_moe_weights(
-    ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int, num_experts: Int
-) -> MoEModelWeights:
+def _hydrate_moe_weights(ptr_array: UnsafePointer[Int, MutExternalOrigin], num_layers: Int) -> MoEModelWeights:
     var m = MoEModelWeights()
     var h = Hydrator(ptr_array)
     m.embed_tokens = h.next()
@@ -582,14 +621,19 @@ def _hydrate_moe_weights(
         layer.q_norm = h.next()
         layer.k_norm = h.next()
         layer.pre_feedforward_layernorm = h.next()
+        layer.dense_gate_proj = h.next()
+        layer.dense_up_proj = h.next()
+        layer.dense_down_proj = h.next()
+        layer.post_feedforward_layernorm_1 = h.next()
+        layer.pre_feedforward_layernorm_2 = h.next()
+        layer.router_proj = h.next()
+        layer.router_scale = h.next()
+        layer.per_expert_scale = h.next()
+        layer.expert_gate_up_proj = h.next()
+        layer.expert_down_proj = h.next()
+        layer.post_feedforward_layernorm_2 = h.next()
         layer.post_feedforward_layernorm = h.next()
-        layer.router = h.next()
-        for _ in range(num_experts):
-            var expert = MoEExpertWeights()
-            expert.gate_proj = h.next()
-            expert.up_proj = h.next()
-            expert.down_proj = h.next()
-            layer.experts.append(expert^)
+        layer.moe_skip_scale = h.next()
         m.layers.append(layer^)
     return m^
 
@@ -815,7 +859,7 @@ def _init_model_impl_mojo(
 
     # Build MoE weights if present (26B)
     if num_experts > 0:
-        var moe_model = _build_moe_runtime(metadata_obj, num_layers, num_experts)
+        var moe_model = _build_moe_from_runtime(metadata_obj, num_layers)
         var moe_ptrs = _flatten_moe_weights(moe_model)
         var moe_ptrs_np = np.zeros(len(moe_ptrs), dtype=np.uint64)
         for i in range(len(moe_ptrs)):
@@ -872,7 +916,7 @@ def _init_gpu_resources(llm: PythonObject) raises:
     Creates GPUContext, WeightStage, GPUPersistentBuffers, GPUKVCache, and GPUScratch.
     All handles are heap-allocated and stored as integer pointers in the dict.
     """
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var builtins = Python.import_module("builtins")
 
         # Create GPU context
@@ -930,7 +974,15 @@ def _init_gpu_resources(llm: PythonObject) raises:
         for i in range(num_layers):
             layer_types_list[i] = cpu_kv_cache[].layer_types[i]
         var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types_list.unsafe_ptr()))
-        var gpu_kv_cache = GPUKVCache(gpu_ctx, num_layers, num_kv_heads, head_dim, window_size, max_seq_len, lt_ptr)
+        var gpu_kv_cache = GPUKVCache(
+            gpu_ctx,
+            num_layers,
+            num_kv_heads,
+            head_dim,
+            window_size,
+            max_seq_len,
+            lt_ptr,
+        )
 
         # Create GPUScratch
         var gpu_scratch = GPUScratch(gpu_ctx, hidden_size, max_seq_len, num_heads)
@@ -1174,7 +1226,7 @@ def step_mojo(
         var moe_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
             unsafe_from_address=Int(py=moe_ptrs_obj.__array_interface__["data"][0])
         )
-        moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers, num_experts)
+        moe_model = _hydrate_moe_weights(moe_ptrs_ptr, num_layers)
 
     var ple_dim = 0
     if has_ple_flag:
@@ -1201,7 +1253,7 @@ def step_mojo(
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
             )
@@ -1219,7 +1271,13 @@ def step_mojo(
                 unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
             )
 
-            _run_step[GPUBackend, GPUKVCache, WeightStage, GPUContext, PersistentBuffers](
+            _run_step[
+                GPUBackend,
+                GPUKVCache,
+                WeightStage,
+                GPUContext,
+                PersistentBuffers,
+            ](
                 backend,
                 out_logits_ptr,
                 token_id,
@@ -1352,7 +1410,7 @@ def process_image_mojo(
 
     var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
     if use_gpu:
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
             )
@@ -1534,7 +1592,7 @@ def step_with_embedding_mojo(
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
                 unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
             )
@@ -1671,7 +1729,7 @@ def generate_embeddings_mojo(
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
         if use_gpu:
-            comptime if has_accelerator():
+            comptime if has_usable_gpu():
                 var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
                     unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
                 )
@@ -1807,7 +1865,7 @@ def _free_arena_impl_mojo(llm: PythonObject) raises:
 
 def _cleanup_gpu_resources(llm: PythonObject) raises:
     """Release all GPU resources. Safe to call when no GPU context exists."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var builtins = Python.import_module("builtins")
         var gpu_init = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0))
         if gpu_init == 0:
@@ -1864,7 +1922,7 @@ def reset_cache_mojo(llm: PythonObject) raises:
     var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
 
     if use_gpu:
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var gpu_kv_addr = Int(py=llm["_gpu_kv_cache_ptr"])
             var gpu_ctx_addr = Int(py=llm["_gpu_context_ptr"])
             if gpu_kv_addr != 0 and gpu_ctx_addr != 0:

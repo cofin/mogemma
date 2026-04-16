@@ -5,7 +5,11 @@ from std.memory import UnsafePointer
 from std.collections import List
 from std.testing import assert_almost_equal
 
-from mogemma.ops_gpu import _kv_write_impl, _attention_scores_impl, _attention_value_accum_impl
+from mogemma.ops_gpu import (
+    _kv_write_impl,
+    _attention_scores_impl,
+    _attention_value_accum_impl,
+)
 
 
 def test_kv_write_kernel_logic() raises:
@@ -126,7 +130,17 @@ def test_attention_value_accum_kernel_logic() raises:
     for h in range(num_heads):
         for tid in range(head_dim):
             _attention_value_accum_impl(
-                h, tid, head_dim, o_ptr, s_ptr, v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
+                h,
+                tid,
+                head_dim,
+                o_ptr,
+                s_ptr,
+                v_ptr,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                valid_len,
+                kv_size,
             )
 
     # Head 0: 1.0 * [10, 20] + 0.0 * [30, 40] = [10, 20]

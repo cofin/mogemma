@@ -18,12 +18,13 @@ class TestAutoLoader:
         with pytest.raises(FileNotFoundError, match="No supported model format"):
             auto_loader(tmp_path)
 
-    def test_error_message_no_orbax_mention(self, tmp_path: Path) -> None:
-        """Error message should not mention Orbax or OCDBT."""
+    def test_error_message_mentions_both_formats(self, tmp_path: Path) -> None:
+        """Error message should mention both supported checkpoint formats."""
         with pytest.raises(FileNotFoundError) as exc_info:
             auto_loader(tmp_path)
-        assert "Orbax" not in str(exc_info.value)
-        assert "OCDBT" not in str(exc_info.value)
+        msg = str(exc_info.value)
+        assert "safetensors" in msg.lower()
+        assert ("orbax" in msg.lower()) or ("ocdbt" in msg.lower())
 
 
 class TestSafetensorsLoaderCanLoad:

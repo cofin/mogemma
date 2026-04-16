@@ -167,7 +167,7 @@ struct ModelWeights(Movable):
     @always_inline
     def get_embedding[
         B: ComputeBackend
-    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]):
+    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin],):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
@@ -187,24 +187,9 @@ struct PLELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.per_layer_norm = TensorInfo(0, 0, 0)
 
 
-@fieldwise_init
-struct MoEExpertWeights(Copyable, ImplicitlyCopyable, Movable):
-    """Weights for a single MoE expert MLP."""
-
-    var gate_proj: TensorInfo
-    var up_proj: TensorInfo
-    var down_proj: TensorInfo
-
-    def __init__(out self):
-        self.gate_proj = TensorInfo(0, 0, 0)
-        self.up_proj = TensorInfo(0, 0, 0)
-        self.down_proj = TensorInfo(0, 0, 0)
-
-
 struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
-    """Weights for a single MoE transformer layer: attention + router + experts."""
+    """Weights for a single Gemma 4 MoE layer: attention + dense branch + routed experts."""
 
-    var router: TensorInfo
     var q_proj: TensorInfo
     var k_proj: TensorInfo
     var v_proj: TensorInfo
@@ -214,11 +199,21 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var input_layernorm: TensorInfo
     var post_attention_layernorm: TensorInfo
     var pre_feedforward_layernorm: TensorInfo
+    var dense_gate_proj: TensorInfo
+    var dense_up_proj: TensorInfo
+    var dense_down_proj: TensorInfo
+    var post_feedforward_layernorm_1: TensorInfo
+    var pre_feedforward_layernorm_2: TensorInfo
+    var router_proj: TensorInfo
+    var router_scale: TensorInfo
+    var per_expert_scale: TensorInfo
+    var expert_gate_up_proj: TensorInfo
+    var expert_down_proj: TensorInfo
+    var post_feedforward_layernorm_2: TensorInfo
     var post_feedforward_layernorm: TensorInfo
-    var experts: List[MoEExpertWeights]
+    var moe_skip_scale: TensorInfo
 
     def __init__(out self):
-        self.router = TensorInfo(0, 0, 0)
         self.q_proj = TensorInfo(0, 0, 0)
         self.k_proj = TensorInfo(0, 0, 0)
         self.v_proj = TensorInfo(0, 0, 0)
@@ -228,11 +223,21 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.input_layernorm = TensorInfo(0, 0, 0)
         self.post_attention_layernorm = TensorInfo(0, 0, 0)
         self.pre_feedforward_layernorm = TensorInfo(0, 0, 0)
+        self.dense_gate_proj = TensorInfo(0, 0, 0)
+        self.dense_up_proj = TensorInfo(0, 0, 0)
+        self.dense_down_proj = TensorInfo(0, 0, 0)
+        self.post_feedforward_layernorm_1 = TensorInfo(0, 0, 0)
+        self.pre_feedforward_layernorm_2 = TensorInfo(0, 0, 0)
+        self.router_proj = TensorInfo(0, 0, 0)
+        self.router_scale = TensorInfo(0, 0, 0)
+        self.per_expert_scale = TensorInfo(0, 0, 0)
+        self.expert_gate_up_proj = TensorInfo(0, 0, 0)
+        self.expert_down_proj = TensorInfo(0, 0, 0)
+        self.post_feedforward_layernorm_2 = TensorInfo(0, 0, 0)
         self.post_feedforward_layernorm = TensorInfo(0, 0, 0)
-        self.experts = []
+        self.moe_skip_scale = TensorInfo(0, 0, 0)
 
     def __init__(out self, *, copy: Self):
-        self.router = copy.router
         self.q_proj = copy.q_proj
         self.k_proj = copy.k_proj
         self.v_proj = copy.v_proj
@@ -242,13 +247,21 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.input_layernorm = copy.input_layernorm
         self.post_attention_layernorm = copy.post_attention_layernorm
         self.pre_feedforward_layernorm = copy.pre_feedforward_layernorm
+        self.dense_gate_proj = copy.dense_gate_proj
+        self.dense_up_proj = copy.dense_up_proj
+        self.dense_down_proj = copy.dense_down_proj
+        self.post_feedforward_layernorm_1 = copy.post_feedforward_layernorm_1
+        self.pre_feedforward_layernorm_2 = copy.pre_feedforward_layernorm_2
+        self.router_proj = copy.router_proj
+        self.router_scale = copy.router_scale
+        self.per_expert_scale = copy.per_expert_scale
+        self.expert_gate_up_proj = copy.expert_gate_up_proj
+        self.expert_down_proj = copy.expert_down_proj
+        self.post_feedforward_layernorm_2 = copy.post_feedforward_layernorm_2
         self.post_feedforward_layernorm = copy.post_feedforward_layernorm
-        self.experts = []
-        for i in range(len(copy.experts)):
-            self.experts.append(copy.experts[i])
+        self.moe_skip_scale = copy.moe_skip_scale
 
     def __init__(out self, *, implicit_copy: Self):
-        self.router = implicit_copy.router
         self.q_proj = implicit_copy.q_proj
         self.k_proj = implicit_copy.k_proj
         self.v_proj = implicit_copy.v_proj
@@ -258,10 +271,19 @@ struct MoELayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.input_layernorm = implicit_copy.input_layernorm
         self.post_attention_layernorm = implicit_copy.post_attention_layernorm
         self.pre_feedforward_layernorm = implicit_copy.pre_feedforward_layernorm
+        self.dense_gate_proj = implicit_copy.dense_gate_proj
+        self.dense_up_proj = implicit_copy.dense_up_proj
+        self.dense_down_proj = implicit_copy.dense_down_proj
+        self.post_feedforward_layernorm_1 = implicit_copy.post_feedforward_layernorm_1
+        self.pre_feedforward_layernorm_2 = implicit_copy.pre_feedforward_layernorm_2
+        self.router_proj = implicit_copy.router_proj
+        self.router_scale = implicit_copy.router_scale
+        self.per_expert_scale = implicit_copy.per_expert_scale
+        self.expert_gate_up_proj = implicit_copy.expert_gate_up_proj
+        self.expert_down_proj = implicit_copy.expert_down_proj
+        self.post_feedforward_layernorm_2 = implicit_copy.post_feedforward_layernorm_2
         self.post_feedforward_layernorm = implicit_copy.post_feedforward_layernorm
-        self.experts = []
-        for i in range(len(implicit_copy.experts)):
-            self.experts.append(implicit_copy.experts[i])
+        self.moe_skip_scale = implicit_copy.moe_skip_scale
 
 
 @fieldwise_init
@@ -282,7 +304,7 @@ struct MoEModelWeights(Movable):
     @always_inline
     def get_embedding[
         B: ComputeBackend
-    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]):
+    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin],):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
@@ -297,6 +319,7 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
     var v_proj: TensorInfo
     var o_proj: TensorInfo
     var fc1: TensorInfo
+    var fc1_up: TensorInfo
     var fc2: TensorInfo
     var layer_norm1: TensorInfo
     var layer_norm2: TensorInfo
@@ -307,6 +330,7 @@ struct VisionLayerWeights(Copyable, ImplicitlyCopyable, Movable):
         self.v_proj = TensorInfo(0, 0, 0)
         self.o_proj = TensorInfo(0, 0, 0)
         self.fc1 = TensorInfo(0, 0, 0)
+        self.fc1_up = TensorInfo(0, 0, 0)
         self.fc2 = TensorInfo(0, 0, 0)
         self.layer_norm1 = TensorInfo(0, 0, 0)
         self.layer_norm2 = TensorInfo(0, 0, 0)

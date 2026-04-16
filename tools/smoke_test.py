@@ -11,10 +11,14 @@ from pathlib import Path
 
 from mogemma import GenerationConfig, SyncGemmaModel
 
+DEFAULT_MODEL_ID = "google/gemma-4-E2B-it"
+"""Smallest instruction-tuned Gemma 4 variant currently published to
+``gs://gemma-data``. Override via the ``MOGEMMA_SMOKE_TEST_MODEL`` env var."""
+
 
 def main() -> None:
     """Run the Mojo bridge smoke test."""
-    model_name = os.environ.get("MOGEMMA_SMOKE_TEST_MODEL", "gemma3n-e2b-it")
+    model_name = os.environ.get("MOGEMMA_SMOKE_TEST_MODEL", DEFAULT_MODEL_ID)
     # This automatically downloads the model using the HubManager if missing
     config = GenerationConfig(model_path=model_name, max_tokens=15, temperature=0.0, top_k=1, top_p=1.0)
 

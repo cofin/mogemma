@@ -8,6 +8,7 @@ Since CI may not have a GPU, tests verify:
 """
 
 from std.sys import has_accelerator
+from mogemma.gpu_context import has_usable_gpu
 from std.memory import UnsafePointer
 from std.collections import List
 
@@ -18,7 +19,7 @@ from mogemma.gpu_context import (
     GPUKVCache,
     GPUScratch,
     upload_layer_weights,
-    upload_expert_weights,
+    upload_moe_attention_weights,
     upload_vision_layer_weights,
 )
 
@@ -30,7 +31,7 @@ def test_gpu_context_imports():
 
 def test_gpu_context_lifecycle() raises:
     """Test GPUContext creation and cleanup on GPU, or graceful skip on CPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var ctx = GPUContext()
         print("GPUContext created on GPU device")
         ctx.cleanup()
@@ -41,7 +42,7 @@ def test_gpu_context_lifecycle() raises:
 
 def test_allocate_device_buffer() raises:
     """Test DeviceBuffer allocation via GPUContext."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var ctx = GPUContext()
         var buf = ctx.allocate_buffer[DType.float32](1024)
         print("Allocated 1024-element float32 DeviceBuffer")
@@ -53,7 +54,7 @@ def test_allocate_device_buffer() raises:
 
 def test_allocate_host_buffer() raises:
     """Test HostBuffer (pinned memory) allocation via GPUContext."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var ctx = GPUContext()
         var buf = ctx.allocate_host_buffer[DType.float32](1024)
         print("Allocated 1024-element float32 HostBuffer")
@@ -65,12 +66,12 @@ def test_allocate_host_buffer() raises:
 
 def test_upload_download_roundtrip() raises:
     """Test host → device → host data round-trip preserves values."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var ctx = GPUContext()
 
         # Create host buffer with known values
         var host_src = ctx.allocate_host_buffer[DType.float32](16)
-        var src_ptr = host_src.unsafe_ptr()
+        var src_ptr = host_src.unsafe_ptr().value()
         for i in range(16):
             src_ptr.store(i, Float32(Float64(i) * 3.14))
 
@@ -85,7 +86,7 @@ def test_upload_download_roundtrip() raises:
         ctx.sync()
 
         # Verify round-trip
-        var dst_ptr = host_dst.unsafe_ptr()
+        var dst_ptr = host_dst.unsafe_ptr().value()
         for i in range(16):
             var expected = Float32(Float64(i) * 3.14)
             var actual = dst_ptr.load(i)
@@ -111,7 +112,7 @@ def test_weight_stage_imports():
 
 def test_weight_stage_creation() raises:
     """Test WeightStage allocation on GPU, skip on CPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var ctx = GPUContext()
         var stage = WeightStage(ctx, capacity=4096)
         print("WeightStage created with capacity 4096")
@@ -123,7 +124,7 @@ def test_weight_stage_creation() raises:
 
 def test_weight_stage_upload_tensor() raises:
     """Test uploading a tensor via WeightStage and verifying data round-trip."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from mogemma.model import TensorInfo
 
         var ctx = GPUContext()
@@ -147,7 +148,7 @@ def test_weight_stage_upload_tensor() raises:
         ctx.download(host_out, stage.device_buf)
         ctx.sync()
 
-        var out_ptr = host_out.unsafe_ptr()
+        var out_ptr = host_out.unsafe_ptr().value()
         for i in range(12):
             var expected = Float32(Float64(i) + 1.0)
             var actual = out_ptr.load(i)
@@ -168,7 +169,7 @@ def test_weight_stage_upload_tensor() raises:
 
 def test_persistent_buffers() raises:
     """Test persistent buffer allocation for embed_tokens and lm_head."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from mogemma.model import TensorInfo
 
         var ctx = GPUContext()
@@ -218,7 +219,7 @@ def test_persistent_buffers() raises:
 
 def test_gpu_kv_cache() raises:
     """Test GPUKVCache construction matches CPU KVCache layout."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from mogemma.model import KVCache, LAYER_TYPE_SLIDING, LAYER_TYPE_FULL
 
         var ctx = GPUContext()
@@ -263,7 +264,7 @@ def test_gpu_kv_cache() raises:
 
 def test_gpu_scratch() raises:
     """Test GPU scratch buffer allocation matches CPU formula."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var ctx = GPUContext()
 
         # hidden=256, max_seq=1024, heads=8
@@ -284,7 +285,7 @@ def test_gpu_scratch() raises:
 
 def test_upload_layer_weights() raises:
     """Test upload_layer_weights packs all 13 tensors and returns device pointers."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from mogemma.model import TensorInfo, LayerWeights
 
         var ctx = GPUContext()
@@ -328,38 +329,61 @@ def test_upload_layer_weights() raises:
         print("SKIP: test_upload_layer_weights (no GPU)")
 
 
-def test_upload_expert_weights() raises:
-    """Test upload_expert_weights for MoE expert."""
-    comptime if has_accelerator():
-        from mogemma.model import TensorInfo, MoEExpertWeights
+def test_upload_moe_attention_weights() raises:
+    """Test upload_moe_attention_weights for packed MoE layers."""
+    comptime if has_usable_gpu():
+        from mogemma.model import TensorInfo, MoELayerWeights
 
         var ctx = GPUContext()
-        var data = List[Float32](length=64, fill=2.0)
+        var data = List[Float32](length=512, fill=2.0)
         var p = Int(data.unsafe_ptr())
 
-        var expert = MoEExpertWeights()
-        expert.gate_proj = TensorInfo(p, 8, 4)
-        expert.up_proj = TensorInfo(p, 8, 4)
-        expert.down_proj = TensorInfo(p, 4, 8)
+        var layer = MoELayerWeights()
+        layer.q_proj = TensorInfo(p, 4, 4)
+        layer.k_proj = TensorInfo(p, 2, 4)
+        layer.v_proj = TensorInfo(p, 2, 4)
+        layer.o_proj = TensorInfo(p, 4, 4)
+        layer.q_norm = TensorInfo(p, 4, 1)
+        layer.k_norm = TensorInfo(p, 4, 1)
+        layer.input_layernorm = TensorInfo(p, 4, 1)
+        layer.post_attention_layernorm = TensorInfo(p, 4, 1)
+        layer.pre_feedforward_layernorm = TensorInfo(p, 4, 1)
+        layer.dense_gate_proj = TensorInfo(p, 8, 4)
+        layer.dense_up_proj = TensorInfo(p, 8, 4)
+        layer.dense_down_proj = TensorInfo(p, 4, 8)
+        layer.post_feedforward_layernorm_1 = TensorInfo(p, 4, 1)
+        layer.pre_feedforward_layernorm_2 = TensorInfo(p, 4, 1)
+        layer.router_proj = TensorInfo(p, 6, 4)
+        layer.router_scale = TensorInfo(p, 4, 1)
+        layer.per_expert_scale = TensorInfo(p, 6, 1)
+        layer.expert_gate_up_proj = TensorInfo(p, 12, 4)
+        layer.expert_down_proj = TensorInfo(p, 24, 4)
+        layer.post_feedforward_layernorm_2 = TensorInfo(p, 4, 1)
+        layer.post_feedforward_layernorm = TensorInfo(p, 4, 1)
+        layer.moe_skip_scale = TensorInfo(p, 1, 1)
 
-        var stage = WeightStage(ctx, capacity=128)
-        var gpu_expert = upload_expert_weights(stage, ctx, expert)
+        var stage = WeightStage(ctx, capacity=512)
+        var gpu_layer = upload_moe_attention_weights(stage, ctx, layer)
         ctx.sync()
 
-        if Int(gpu_expert.gate_proj.ptr) == 0:
-            raise Error("expert gate_proj device pointer is null")
-        print("upload_expert_weights: 3 tensors uploaded, pointers valid")
+        if Int(gpu_layer.dense_gate_proj.ptr) == 0:
+            raise Error("dense_gate_proj device pointer is null")
+        if Int(gpu_layer.expert_gate_up_proj.ptr) == 0:
+            raise Error("expert_gate_up_proj device pointer is null")
+        if gpu_layer.router_proj.shape_0 != 6:
+            raise Error("router_proj shape mismatch")
+        print("upload_moe_attention_weights: packed MoE tensors uploaded, pointers valid")
 
         _ = stage
         _ = data
         ctx.cleanup()
     else:
-        print("SKIP: test_upload_expert_weights (no GPU)")
+        print("SKIP: test_upload_moe_attention_weights (no GPU)")
 
 
 def test_upload_vision_layer_weights() raises:
     """Test upload_vision_layer_weights for vision encoder."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from mogemma.model import TensorInfo, VisionLayerWeights
 
         var ctx = GPUContext()
@@ -406,6 +430,6 @@ def main() raises:
     test_gpu_kv_cache()
     test_gpu_scratch()
     test_upload_layer_weights()
-    test_upload_expert_weights()
+    test_upload_moe_attention_weights()
     test_upload_vision_layer_weights()
     print("All gpu_context tests passed")

@@ -24,10 +24,10 @@ CLAUDE.md
 GEMINI.md
 docs/*.json
 benchmark-model/
-.agents
-
+.agents/archive
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
 .coverage
+src/mo/tests/data/

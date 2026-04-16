@@ -1,9 +1,8 @@
-"""Model resolution and HuggingFace download helpers."""
+"""Model resolution and GCS download helpers."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -12,15 +11,32 @@ from pathlib import Path
 from typing import Any
 
 import obstore as obs
-from obstore.store import HTTPStore, LocalStore
+from obstore.store import GCSStore, LocalStore
 
 logger = logging.getLogger(__name__)
 
-_HF_BASE = "https://huggingface.co"
+_GCS_BUCKET = "gemma-data"
+_GCS_TOKENIZER_PATH = "tokenizers/tokenizer_gemma4.model"
+_ASYNC_DOWNLOAD_CONCURRENCY = 6
+
+KNOWN_GCS_MODELS: frozenset[str] = frozenset({
+    "google/gemma-4-E2B-it",
+    "google/gemma-4-E4B-it",
+    "google/gemma-4-26B-A4B-it",
+})
+"""Model IDs currently published under ``gs://gemma-data/checkpoints/``.
+
+Hand-maintained. A live probe on 2026-04-16 confirmed these three prefixes
+resolve to non-empty listings; the pretrained ``E2B`` / ``E4B`` variants are
+not yet published and intentionally excluded.
+
+Public only so the test suite can use it as an allow-list. Not enforced at
+runtime — arbitrary ``model_path`` values still flow through the resolver
+and surface a clean GCS 404 on a typo instead of a ``KeyError``."""
 
 
 class HubManager:
-    """Manages downloading and caching Gemma 4 models from HuggingFace."""
+    """Manages downloading and caching Gemma 4 models from Google Cloud Storage."""
 
     def __init__(self, cache_path: str | Path | None = None) -> None:
         """Initialize the HubManager."""
@@ -35,40 +51,46 @@ class HubManager:
 
         self.cache_path.mkdir(parents=True, exist_ok=True)
 
-    # ── URL helpers ────────────────────────────────────────────────────
-
-    @staticmethod
-    def _hf_resolve_url(repo_id: str, filename: str) -> str:
-        """Build a HuggingFace ``/resolve/main/`` URL for *filename*."""
-        return f"{_HF_BASE}/{repo_id}/resolve/main/{filename}"
-
     # ── Store factory ──────────────────────────────────────────────────
 
     @staticmethod
-    def _make_hf_store(repo_id: str, token: str | None = None) -> HTTPStore:
-        """Create an obstore HTTPStore pointed at a HuggingFace repo."""
-        base_url = f"{_HF_BASE}/{repo_id}/resolve/main"
-        client_options: dict[str, Any] = {}
-        if token:
-            client_options["default_headers"] = {"Authorization": f"Bearer {token}"}
-        return HTTPStore.from_url(base_url, client_options=client_options)  # type: ignore[arg-type]
+    def _make_gcs_store() -> GCSStore:
+        """Create an obstore ``GCSStore`` for the public ``gemma-data`` bucket.
 
-    @staticmethod
-    def _get_hf_token() -> str | None:
-        """Read the ``HF_TOKEN`` environment variable."""
-        return os.environ.get("HF_TOKEN")
+        Uses ``skip_signature=true`` because the bucket is public and requires
+        no authentication.
+        """
+        # ``config`` is typed as ``GCSConfig | None`` in obstore stubs; passing
+        # a plain dict matches the documented runtime API, so we cast for type
+        # checkers without importing the private typing alias.
+        config: Any = {"skip_signature": "true"}
+        return GCSStore(_GCS_BUCKET, config=config)
 
     # ── Model-id helpers ───────────────────────────────────────────────
 
     @staticmethod
     def _clean_model_id(model_id: str) -> str:
-        """Normalize model id (strip ``google/`` prefix, collapse ``gemma-`` → ``gemma``)."""
+        """Normalize model id to GCS path form: lowercase, no ``google/``, ``gemma-`` → ``gemma``."""
         clean_id = model_id.removeprefix("google/")
-        return clean_id.replace("gemma-", "gemma") if clean_id.startswith("gemma-") else clean_id
+        if clean_id.startswith("gemma-"):
+            clean_id = clean_id.replace("gemma-", "gemma", 1)
+        return clean_id.lower()
 
     @staticmethod
     def _cache_dir_for_model_id(cache_root: Path, model_id: str) -> Path:
         return cache_root / model_id.replace("/", "--")
+
+    # ── GCS path helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _gcs_checkpoint_prefix(clean_id: str) -> str:
+        """Return the GCS prefix under which *clean_id*'s checkpoint files live."""
+        return f"checkpoints/{clean_id}/"
+
+    @staticmethod
+    def _gcs_tokenizer_path() -> str:
+        """Return the bucket-relative path to the shared Gemma 4 tokenizer."""
+        return _GCS_TOKENIZER_PATH
 
     # ── Local file helpers ─────────────────────────────────────────────
 
@@ -78,7 +100,7 @@ class HubManager:
         return LocalStore("/"), str(p).lstrip("/")
 
     @staticmethod
-    def _head_exists(store: LocalStore | HTTPStore, path: str) -> bool:
+    def _head_exists(store: LocalStore | GCSStore, path: str) -> bool:
         try:
             obs.head(store, path)
         except Exception as exc:  # noqa: BLE001
@@ -103,32 +125,82 @@ class HubManager:
             store, f"{p}/model.safetensors.index.json"
         )
 
+    @staticmethod
+    def _has_orbax(path: Path) -> bool:
+        """Return ``True`` when *path* contains an Orbax/OCDBT checkpoint."""
+        return (path / "ocdbt.process_0").is_dir() and (path / "manifest.ocdbt").exists()
+
+    _ORBAX_ARTIFACT_NAMES: tuple[str, ...] = (
+        "ocdbt.process_0",
+        "manifest.ocdbt",
+        "_METADATA",
+        "_CHECKPOINT_METADATA",
+        "descriptor",
+        "d",
+        "commit_success.txt",
+    )
+
+    @classmethod
+    def _cleanup_orbax_artifacts(cls, path: Path) -> None:
+        """Remove Orbax/OCDBT residue under *path* after successful conversion.
+
+        Preserves ``config.json``, tokenizer files, and any safetensors output.
+        """
+        for name in cls._ORBAX_ARTIFACT_NAMES:
+            target = path / name
+            if not target.exists():
+                continue
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+
     @classmethod
     def _has_model_files(cls, path: Path) -> bool:
-        """Return ``True`` when *path* contains safetensors model files."""
-        return cls._has_safetensors(path)
+        """Return ``True`` when *path* contains safetensors or Orbax model files."""
+        return cls._has_safetensors(path) or cls._has_orbax(path)
 
-    # ── Shard discovery ────────────────────────────────────────────────
-
-    @staticmethod
-    def _parse_shard_filenames(index: dict[str, Any]) -> list[str]:
-        """Extract unique shard filenames from a ``model.safetensors.index.json`` weight_map."""
-        weight_map = index.get("weight_map")
-        if not weight_map:
-            msg = "Index JSON missing or empty 'weight_map'"
-            raise ValueError(msg)
-        return sorted(set(weight_map.values()))
-
-    # ── Download skip logic ────────────────────────────────────────────
+    # ── Remote file enumeration ────────────────────────────────────────
 
     @staticmethod
-    def _should_skip_download(dest: Path, expected_size: int | None) -> bool:
-        """Return ``True`` when *dest* exists with the expected byte size."""
-        if expected_size is None:
-            return False
-        if not dest.exists():
-            return False
-        return dest.stat().st_size == expected_size
+    def _relative_under(prefix: str, full_path: str) -> str | None:
+        """Return *full_path* stripped of *prefix*, or ``None`` if it should be skipped."""
+        if not full_path.startswith(prefix):
+            return None
+        rel = full_path[len(prefix) :]
+        if not rel:
+            return None
+        # obstore/GCS can surface pseudo-directory marker objects like "d_$folder$".
+        if "_$folder$" in rel:
+            return None
+        return rel
+
+    @classmethod
+    def _list_remote_files(cls, store: GCSStore, prefix: str) -> list[str]:
+        """Enumerate all object paths under *prefix* (returned relative to *prefix*)."""
+        results: list[str] = []
+        for page in obs.list(store, prefix):
+            for obj in page:
+                rel = cls._relative_under(prefix, obj["path"])
+                if rel is not None:
+                    results.append(rel)
+        return results
+
+    @classmethod
+    async def _list_remote_files_async(cls, store: GCSStore, prefix: str) -> list[str]:
+        """Async variant of :meth:`_list_remote_files`.
+
+        ``obs.list`` returns a ``ListStream`` that supports both ``__iter__``
+        and ``__aiter__``, so the async variant iterates the same stream with
+        ``async for``.
+        """
+        results: list[str] = []
+        async for page in obs.list(store, prefix):
+            for obj in page:
+                rel = cls._relative_under(prefix, obj["path"])
+                if rel is not None:
+                    results.append(rel)
+        return results
 
     # ── File I/O helpers ───────────────────────────────────────────────
 
@@ -136,10 +208,6 @@ class HubManager:
     def _write_file(destination: Path, data: bytes) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(data)
-
-    @staticmethod
-    def _normalize_list_page(page: object) -> list[object]:
-        return list(page) if isinstance(page, list) else [page]
 
     @staticmethod
     def _is_within_cache_root(path: Path, cache_root: Path) -> bool:
@@ -159,13 +227,13 @@ class HubManager:
     # ── Tokenizer resolution ───────────────────────────────────────────
 
     def _get_tokenizer_path(self, clean_id: str) -> str | None:
-        """Determine the tokenizer filename for download based on model family."""
+        """Return the local tokenizer filename for *clean_id* (after download)."""
         if "gemma4" in clean_id:
             return "tokenizer.model"
         return None
 
     def resolve_tokenizer(self, model_dir: Path, *, tokenizer_path: Path | None = None) -> Path:
-        """Resolve the tokenizer file with priority: explicit > HF local > error.
+        """Resolve the tokenizer file with priority: explicit > cached > error.
 
         Args:
             model_dir: The local directory containing downloaded model files.
@@ -184,12 +252,15 @@ class HubManager:
             msg = f"Explicit tokenizer path does not exist: {tokenizer_path}"
             raise FileNotFoundError(msg)
 
-        # 2. HF-downloaded tokenizer.model in model directory
-        hf_tokenizer = model_dir / "tokenizer.model"
-        if hf_tokenizer.exists():
-            return hf_tokenizer
+        # 2. Tokenizer downloaded alongside the model
+        local_tokenizer = model_dir / "tokenizer.model"
+        if local_tokenizer.exists():
+            return local_tokenizer
 
-        msg = f"No tokenizer found in {model_dir}. Expected 'tokenizer.model' from HuggingFace download."
+        msg = (
+            f"No tokenizer found in {model_dir}. "
+            "Expected 'tokenizer.model' from the GCS download (gs://gemma-data/tokenizers/tokenizer_gemma4.model)."
+        )
         raise FileNotFoundError(msg)
 
     # ── Config validation ──────────────────────────────────────────────
@@ -216,11 +287,11 @@ class HubManager:
 
     # ── Error types ────────────────────────────────────────────────────
 
-    class HFDownloadError(ConnectionError):
-        """Raised when a HuggingFace download fails."""
+    class GCSDownloadError(ConnectionError):
+        """Raised when a download from the ``gemma-data`` GCS bucket fails."""
 
     class ModelNotFoundError(FileNotFoundError):
-        """Raised when a model is not found on HuggingFace."""
+        """Raised when a model checkpoint is not found in the ``gemma-data`` GCS bucket."""
 
     # ── Resolve ────────────────────────────────────────────────────────
 
@@ -255,53 +326,24 @@ class HubManager:
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid HuggingFace model id (e.g., google/gemma-4-26B-A4B-it)."
+                "Use an existing local directory or a Gemma 4 model id that maps to the "
+                f"public gs://{_GCS_BUCKET} bucket (e.g., google/gemma-4-26B-A4B-it)."
             )
             raise ValueError(msg)
 
         return Path(model_id)
 
-    # ── Download (sync) ────────────────────────────────────────────────
+    # ── Download helpers ───────────────────────────────────────────────
 
-    def _fetch_index_json(self, store: HTTPStore, repo_id: str) -> dict[str, Any]:
-        """Fetch and parse ``model.safetensors.index.json`` from HuggingFace."""
-        try:
-            result = obs.get(store, "model.safetensors.index.json")
-            return dict(json.loads(bytes(result.bytes())))
-        except Exception as exc:
-            msg = f"Failed to fetch model index for '{repo_id}' from HuggingFace: {exc}"
-            raise self.ModelNotFoundError(msg) from exc
-
-    async def _fetch_index_json_async(self, store: HTTPStore, repo_id: str) -> dict[str, Any]:
-        """Fetch and parse ``model.safetensors.index.json`` from HuggingFace (async)."""
-        try:
-            result = await obs.get_async(store, "model.safetensors.index.json")
-            return dict(json.loads(bytes(await result.bytes_async())))
-        except Exception as exc:
-            msg = f"Failed to fetch model index for '{repo_id}' from HuggingFace: {exc}"
-            raise self.ModelNotFoundError(msg) from exc
-
-    def _download_hf_file(
-        self, store: HTTPStore, filename: str, dest_dir: Path, expected_size: int | None = None
-    ) -> None:
-        """Download a single file from HuggingFace to *dest_dir*."""
-        dest = dest_dir / filename
-        if self._should_skip_download(dest, expected_size):
-            logger.debug("Skipping %s (already exists with correct size)", filename)
-            return
-        result = obs.get(store, filename)
+    def _download_file(self, store: GCSStore, remote_path: str, dest: Path) -> None:
+        """Download a single object from GCS to *dest*."""
+        result = obs.get(store, remote_path)
         data = bytes(result.bytes())
         self._write_file(dest, data)
 
-    async def _download_hf_file_async(
-        self, store: HTTPStore, filename: str, dest_dir: Path, expected_size: int | None = None
-    ) -> None:
-        """Download a single file from HuggingFace (async)."""
-        dest = dest_dir / filename
-        if self._should_skip_download(dest, expected_size):
-            logger.debug("Skipping %s (already exists with correct size)", filename)
-            return
-        result = await obs.get_async(store, filename)
+    async def _download_file_async(self, store: GCSStore, remote_path: str, dest: Path) -> None:
+        """Async variant of :meth:`_download_file`."""
+        result = await obs.get_async(store, remote_path)
         data = bytes(await result.bytes_async())
         await asyncio.to_thread(self._write_file, dest, data)
 
@@ -312,7 +354,10 @@ class HubManager:
             msg = f"Download failed for '{clean_id}': integrity error (missing tokenizer.model)"
             raise ValueError(msg)
         if not self._has_model_files(staging_dir):
-            msg = f"Download failed for '{clean_id}': integrity error (missing model artifacts)"
+            msg = (
+                f"Download failed for '{clean_id}': integrity error "
+                "(no safetensors or Orbax artifacts in staging directory)"
+            )
             raise ValueError(msg)
         if not self._is_within_cache_root(local_dir, self.cache_path):
             msg = f"Downloader returned invalid cache path for '{clean_id}'"
@@ -320,99 +365,124 @@ class HubManager:
         if local_dir.exists():
             self._cleanup_dir(local_dir)
         staging_dir.rename(local_dir)
+
+        # If the downloaded checkpoint is Orbax-only, convert it to safetensors
+        # and drop the Orbax artifacts. On conversion failure the Orbax layout
+        # is preserved so the user can retry without re-downloading.
+        if self._has_orbax(local_dir) and not self._has_safetensors(local_dir):
+            from mogemma.convert import convert_orbax_to_safetensors  # noqa: PLC0415
+
+            convert_orbax_to_safetensors(local_dir)
+            if self._has_safetensors(local_dir):
+                self._cleanup_orbax_artifacts(local_dir)
+
         return local_dir
 
+    # ── Download (sync) ────────────────────────────────────────────────
+
     def download_sync(self, model_id: str) -> Path:
-        """Download a Gemma 4 model from HuggingFace."""
+        """Download a Gemma 4 model from the public ``gemma-data`` GCS bucket."""
         clean_id = self._clean_model_id(model_id)
         local_dir = self._cache_dir_for_model_id(self.cache_path, model_id)
-        token = self._get_hf_token()
-        store = self._make_hf_store(model_id, token=token)
-        tokenizer_path = self._get_tokenizer_path(clean_id)
-
-        # 1. Fetch index.json to discover shard files
-        index = self._fetch_index_json(store, model_id)
-        shard_files = self._parse_shard_filenames(index)
-
-        # 2. Build download list: index.json + shards + config.json + tokenizer
-        files_to_download = ["model.safetensors.index.json", "config.json", *shard_files]
-        if tokenizer_path:
-            files_to_download.append(tokenizer_path)
+        store = self._make_gcs_store()
+        tokenizer_local_name = self._get_tokenizer_path(clean_id)
+        checkpoint_prefix = self._gcs_checkpoint_prefix(clean_id)
 
         try:
-            logger.info("Downloading %d files for %s from HuggingFace...", len(files_to_download), model_id)
-            staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
-            try:
-                # Write the index.json we already fetched
-                self._write_file(staging_dir / "model.safetensors.index.json", json.dumps(index).encode())
+            remote_files = self._list_remote_files(store, checkpoint_prefix)
+        except Exception as exc:
+            msg = f"Failed to list GCS checkpoint '{checkpoint_prefix}' for '{model_id}': {exc}"
+            raise self.ModelNotFoundError(msg) from exc
 
-                # Download remaining files
-                for filename in files_to_download:
-                    if filename == "model.safetensors.index.json":
-                        continue  # Already written above
-                    self._download_hf_file(store, filename, staging_dir)
+        if not remote_files:
+            msg = f"No objects found under gs://{_GCS_BUCKET}/{checkpoint_prefix} for '{model_id}'"
+            raise self.ModelNotFoundError(msg)
 
-                return self._finalize_download(
-                    clean_id, local_dir, staging_dir, tokenizer_required=tokenizer_path is not None
-                )
-            except Exception:
-                self._cleanup_dir(staging_dir)
-                raise
-        except self.ModelNotFoundError:
-            raise
-        except Exception:
+        staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
+        try:
+            logger.info(
+                "Downloading %d checkpoint files for %s from gs://%s/%s ...",
+                len(remote_files),
+                model_id,
+                _GCS_BUCKET,
+                checkpoint_prefix,
+            )
+            for rel_path in remote_files:
+                self._download_file(store, checkpoint_prefix + rel_path, staging_dir / rel_path)
+
+            if tokenizer_local_name:
+                self._download_file(store, self._gcs_tokenizer_path(), staging_dir / tokenizer_local_name)
+
+            return self._finalize_download(
+                clean_id, local_dir, staging_dir, tokenizer_required=tokenizer_local_name is not None
+            )
+        except Exception as exc:
+            self._cleanup_dir(staging_dir)
             if local_dir.exists() and not self._has_model_files(local_dir):
                 self._cleanup_dir(local_dir)
-            raise
+            if isinstance(exc, self.ModelNotFoundError | ValueError):
+                raise
+            msg = f"GCS download failed for '{model_id}': {exc}"
+            raise self.GCSDownloadError(msg) from exc
+
+    # ── Download (async) ───────────────────────────────────────────────
 
     async def download_async(self, model_id: str) -> Path:
-        """Download a Gemma 4 model from HuggingFace (async)."""
+        """Download a Gemma 4 model from the public ``gemma-data`` GCS bucket (async)."""
         clean_id = self._clean_model_id(model_id)
         local_dir = self._cache_dir_for_model_id(self.cache_path, model_id)
-        token = self._get_hf_token()
-        store = self._make_hf_store(model_id, token=token)
-        tokenizer_path = self._get_tokenizer_path(clean_id)
-
-        # 1. Fetch index.json
-        index = await self._fetch_index_json_async(store, model_id)
-        shard_files = self._parse_shard_filenames(index)
-
-        # 2. Build download list
-        files_to_download = ["model.safetensors.index.json", "config.json", *shard_files]
-        if tokenizer_path:
-            files_to_download.append(tokenizer_path)
+        store = self._make_gcs_store()
+        tokenizer_local_name = self._get_tokenizer_path(clean_id)
+        checkpoint_prefix = self._gcs_checkpoint_prefix(clean_id)
 
         try:
-            logger.info("Downloading %d files for %s from HuggingFace...", len(files_to_download), model_id)
-            staging_dir = Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
-            try:
-                # Write the index.json we already fetched
-                await asyncio.to_thread(
-                    self._write_file, staging_dir / "model.safetensors.index.json", json.dumps(index).encode()
-                )
+            remote_files = await self._list_remote_files_async(store, checkpoint_prefix)
+        except Exception as exc:
+            msg = f"Failed to list GCS checkpoint '{checkpoint_prefix}' for '{model_id}': {exc}"
+            raise self.ModelNotFoundError(msg) from exc
 
-                # Download remaining files
-                for filename in files_to_download:
-                    if filename == "model.safetensors.index.json":
-                        continue
-                    await self._download_hf_file_async(store, filename, staging_dir)
+        if not remote_files:
+            msg = f"No objects found under gs://{_GCS_BUCKET}/{checkpoint_prefix} for '{model_id}'"
+            raise self.ModelNotFoundError(msg)
 
-                return await asyncio.to_thread(
-                    self._finalize_download,
-                    clean_id,
-                    local_dir,
-                    staging_dir,
-                    tokenizer_required=tokenizer_path is not None,
-                )
-            except Exception:
-                await asyncio.to_thread(self._cleanup_dir, staging_dir)
-                raise
-        except self.ModelNotFoundError:
-            raise
-        except Exception:
+        staging_dir = await asyncio.to_thread(
+            lambda: Path(tempfile.mkdtemp(prefix=f".{local_dir.name}.", dir=self.cache_path))
+        )
+        semaphore = asyncio.Semaphore(_ASYNC_DOWNLOAD_CONCURRENCY)
+
+        async def _bounded_download(remote: str, dest: Path) -> None:
+            async with semaphore:
+                await self._download_file_async(store, remote, dest)
+
+        try:
+            logger.info(
+                "Downloading %d checkpoint files for %s from gs://%s/%s (concurrency=%d) ...",
+                len(remote_files),
+                model_id,
+                _GCS_BUCKET,
+                checkpoint_prefix,
+                _ASYNC_DOWNLOAD_CONCURRENCY,
+            )
+            tasks = [_bounded_download(checkpoint_prefix + rel, staging_dir / rel) for rel in remote_files]
+            if tokenizer_local_name:
+                tasks.append(_bounded_download(self._gcs_tokenizer_path(), staging_dir / tokenizer_local_name))
+            await asyncio.gather(*tasks)
+
+            return await asyncio.to_thread(
+                self._finalize_download,
+                clean_id,
+                local_dir,
+                staging_dir,
+                tokenizer_required=tokenizer_local_name is not None,
+            )
+        except Exception as exc:
+            await asyncio.to_thread(self._cleanup_dir, staging_dir)
             if local_dir.exists() and not self._has_model_files(local_dir):
                 await asyncio.to_thread(self._cleanup_dir, local_dir)
-            raise
+            if isinstance(exc, self.ModelNotFoundError | ValueError):
+                raise
+            msg = f"GCS download failed for '{model_id}': {exc}"
+            raise self.GCSDownloadError(msg) from exc
 
     async def resolve_model_async(
         self, model_id: str, *, download_if_missing: bool = False, strict: bool = False, **_kwargs: object
@@ -450,7 +520,8 @@ class HubManager:
         if strict:
             msg = (
                 f"Cannot resolve model path '{model_id}'. "
-                "Use an existing local directory or a valid HuggingFace model id (e.g., google/gemma-4-26B-A4B-it)."
+                "Use an existing local directory or a Gemma 4 model id that maps to the "
+                f"public gs://{_GCS_BUCKET} bucket (e.g., google/gemma-4-26B-A4B-it)."
             )
             raise ValueError(msg)
         return Path(model_id)

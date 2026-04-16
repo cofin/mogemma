@@ -63,6 +63,17 @@ Capture command output with timestamps in release notes.
    - `docs/baseline-generation.json`
    - `docs/baseline-embedding.json`
 
+### Note on real-weight parity gates
+
+Real-weight GPU-vs-CPU parity gates previously ran in the `check-release`
+CI job via `tools/run_parity_gates.py`. That step has been removed because
+(a) GitHub Linux runners have ~14 GB of disk and cannot hold the smallest
+working Gemma 4 checkpoint (~36 GB after Orbax→safetensors conversion),
+and (b) the runners have no GPU. The flow `gpu-ci-modal` (see
+`.agents/flows.md`) is the owner of rebuilding this gate on a Modal-backed
+runner. Until that flow lands, real-weight parity is a manual step on a
+machine with sufficient storage and an NVIDIA GPU.
+
 ## GitHub release workflow (trusted publishing)
 
 1. Push release commit to the target branch.

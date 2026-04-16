@@ -12,11 +12,18 @@ from pathlib import Path
 # Ensure we import the local source tree instead of any installed wheel
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 
-from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncGemmaModel
+from mogemma import EmbeddingConfig, GenerationConfig, SyncEmbeddingModel, SyncGemmaModel
 
-TEXT_MODEL_ID = "gemma3-270m-it"
-EMBED_MODEL_ID = "gemma3-270m-it"
-NANO_MODEL_ID = "gemma3n-e2b-it"
+TEXT_MODEL_ID = "google/gemma-4-E4B-it"
+"""Default text-generation model for end-to-end validation."""
+
+EMBED_MODEL_ID = "google/gemma-4-E4B-it"
+"""Default embedding model for end-to-end validation. Matches the
+``EmbeddingConfig`` default (pretrained E4B is not currently in
+``gs://gemma-data``)."""
+
+NANO_MODEL_ID = "google/gemma-4-E2B-it"
+"""Smallest validated Gemma 4 variant; used for quick sanity runs."""
 
 
 _INSTRUCTION_START = "<start_of_turn>"
@@ -29,10 +36,8 @@ def _format_instruction_prompt(user_text: str) -> str:
     return f"{_INSTRUCTION_START}user\n{user_text}{_INSTRUCTION_END}{_INSTRUCTION_START}model\n"
 
 
-def _assert_semantic_quality(model_id: str, response: str) -> None:
+def _assert_semantic_quality(response: str) -> None:
     # A lightweight quality gate to catch egregious failures (gibberish, endless padding)
-    if "gemma3n" in model_id:
-        return
     clean_resp = response.strip().lower()
     min_len = 5
     if len(clean_resp) < min_len or "paris" not in clean_resp:
@@ -53,7 +58,7 @@ def validate_llm_generation(model_id: str, device: str = "cpu") -> None:
         sys.stdout.write(f"Prompt: '{prompt}'\n")
         response = model.generate(prompt_to_send)
         sys.stdout.write(f"Response: {response}\n")
-        _assert_semantic_quality(model_id, response)
+        _assert_semantic_quality(response)
         sys.stdout.write("\nSUCCESS: Text generation works end-to-end.\n")
     except ValueError as e:
         sys.stdout.write(f"\nFAILED: Semantic validation error: {e}\n")

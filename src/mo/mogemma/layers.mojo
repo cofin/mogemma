@@ -5,15 +5,14 @@ from mogemma.gpu_context import (
     WeightStage,
     GPUContext,
     upload_layer_weights,
-    upload_expert_weights,
     upload_moe_attention_weights,
     upload_vision_layer_weights,
+    has_usable_gpu,
 )
 from mogemma.model import (
     LayerWeights,
     ModelWeights,
     PLELayerWeights,
-    MoEExpertWeights,
     MoELayerWeights,
     MoEModelWeights,
     VisionLayerWeights,
@@ -106,10 +105,22 @@ def forward_sliding_attention[
     # 1b. Per-head QK norms
     if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
         for h in range(num_heads):
-            backend.rms_norm(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+            backend.rms_norm(
+                q_ptr + h * head_dim,
+                q_ptr + h * head_dim,
+                weights.q_norm.ptr,
+                head_dim,
+                1e-6,
+            )
     if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
         for h in range(num_kv_heads):
-            backend.rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+            backend.rms_norm(
+                k_ptr + h * head_dim,
+                k_ptr + h * head_dim,
+                weights.k_norm.ptr,
+                head_dim,
+                1e-6,
+            )
 
     # 2. Apply RoPE (sliding: theta=10K, full head_dim rotation)
     var sliding_freqs = rope_tables.get_sliding_freqs(pos)
@@ -123,8 +134,24 @@ def forward_sliding_attention[
     # 3. Write K, V to ring buffer
     var layer_offset = kv_cache.get_layer_offset(layer_idx)
     var window_size = kv_cache.get_window_size()
-    backend.kv_write(kv_cache.get_k_ptr(), k_ptr, kv_size, pos, window_size, layer_offset, False)
-    backend.kv_write(kv_cache.get_v_ptr(), v_ptr, kv_size, pos, window_size, layer_offset, False)
+    backend.kv_write(
+        kv_cache.get_k_ptr(),
+        k_ptr,
+        kv_size,
+        pos,
+        window_size,
+        layer_offset,
+        False,
+    )
+    backend.kv_write(
+        kv_cache.get_v_ptr(),
+        v_ptr,
+        kv_size,
+        pos,
+        window_size,
+        layer_offset,
+        False,
+    )
 
     # 4. Compute attention within sliding window
     var attn_range = kv_cache.get_attention_range(layer_idx, pos)
@@ -137,14 +164,29 @@ def forward_sliding_attention[
     var scores_ptr = attn_out_ptr + q_size
 
     backend.attention_scores(
-        scores_ptr, q_ptr, layer_k_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size, scale
+        scores_ptr,
+        q_ptr,
+        layer_k_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
+        scale,
     )
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
 
     backend.attention_value_accum(
-        attn_out_ptr, scores_ptr, layer_v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
+        attn_out_ptr,
+        scores_ptr,
+        layer_v_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
     )
 
     # 5. Output projection
@@ -193,10 +235,22 @@ def forward_full_attention[
     # 1b. Per-head QK norms
     if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
         for h in range(num_heads):
-            backend.rms_norm(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+            backend.rms_norm(
+                q_ptr + h * head_dim,
+                q_ptr + h * head_dim,
+                weights.q_norm.ptr,
+                head_dim,
+                1e-6,
+            )
     if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
         for h in range(num_kv_heads):
-            backend.rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+            backend.rms_norm(
+                k_ptr + h * head_dim,
+                k_ptr + h * head_dim,
+                weights.k_norm.ptr,
+                head_dim,
+                1e-6,
+            )
 
     # 2. Apply RoPE (full: theta=1M, partial rotation on first rotary_dim dims)
     var rotary_dim = rope_tables.rotary_dim
@@ -212,8 +266,24 @@ def forward_full_attention[
     # 3. Write K, V to linear cache
     var layer_offset = kv_cache.get_layer_offset(layer_idx)
     var cache_size = kv_cache.get_layer_cache_size(layer_idx)
-    backend.kv_write(kv_cache.get_k_ptr(), k_ptr, kv_size, pos, cache_size, layer_offset, True)
-    backend.kv_write(kv_cache.get_v_ptr(), v_ptr, kv_size, pos, cache_size, layer_offset, True)
+    backend.kv_write(
+        kv_cache.get_k_ptr(),
+        k_ptr,
+        kv_size,
+        pos,
+        cache_size,
+        layer_offset,
+        True,
+    )
+    backend.kv_write(
+        kv_cache.get_v_ptr(),
+        v_ptr,
+        kv_size,
+        pos,
+        cache_size,
+        layer_offset,
+        True,
+    )
 
     # 4. Standard causal attention over all past positions
     var valid_len = pos + 1
@@ -225,14 +295,29 @@ def forward_full_attention[
     var scores_ptr = attn_out_ptr + q_size
 
     backend.attention_scores(
-        scores_ptr, q_ptr, layer_k_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size, scale
+        scores_ptr,
+        q_ptr,
+        layer_k_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
+        scale,
     )
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
 
     backend.attention_value_accum(
-        attn_out_ptr, scores_ptr, layer_v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
+        attn_out_ptr,
+        scores_ptr,
+        layer_v_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
     )
 
     # 5. Output projection
@@ -264,9 +349,33 @@ def forward_vision_attention[
     var v_ptr = scratch_ptr + q_size + kv_size
 
     # Project Q, K, V: [num_tokens, hidden_size] @ [hidden_size, hidden_size]^T
-    _gemm_dispatch(backend, q_ptr, x_ptr, weights.q_proj, num_tokens, hidden_size, num_heads * head_dim)
-    _gemm_dispatch(backend, k_ptr, x_ptr, weights.k_proj, num_tokens, hidden_size, num_heads * head_dim)
-    _gemm_dispatch(backend, v_ptr, x_ptr, weights.v_proj, num_tokens, hidden_size, num_heads * head_dim)
+    _gemm_dispatch(
+        backend,
+        q_ptr,
+        x_ptr,
+        weights.q_proj,
+        num_tokens,
+        hidden_size,
+        num_heads * head_dim,
+    )
+    _gemm_dispatch(
+        backend,
+        k_ptr,
+        x_ptr,
+        weights.k_proj,
+        num_tokens,
+        hidden_size,
+        num_heads * head_dim,
+    )
+    _gemm_dispatch(
+        backend,
+        v_ptr,
+        x_ptr,
+        weights.v_proj,
+        num_tokens,
+        hidden_size,
+        num_heads * head_dim,
+    )
 
     var scale = 1.0 / sqrt(Float32(head_dim))
     var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
@@ -302,7 +411,15 @@ def forward_vision_attention[
                     out_head.store(d, out_head.load(d) + prob * v_head.load(d))
 
     # Output projection
-    _gemm_dispatch(backend, out_ptr, attn_out_ptr, weights.o_proj, num_tokens, num_heads * head_dim, hidden_size)
+    _gemm_dispatch(
+        backend,
+        out_ptr,
+        attn_out_ptr,
+        weights.o_proj,
+        num_tokens,
+        num_heads * head_dim,
+        hidden_size,
+    )
 
 
 @always_inline
@@ -327,7 +444,11 @@ def forward_vision_layer[
     var norm1_ptr = scratch_ptr
     for t in range(num_tokens):
         backend.rms_norm(
-            norm1_ptr + t * hidden_size, x_ptr + t * hidden_size, weights.layer_norm1.ptr, hidden_size, 1e-6
+            norm1_ptr + t * hidden_size,
+            x_ptr + t * hidden_size,
+            weights.layer_norm1.ptr,
+            hidden_size,
+            1e-6,
         )
 
     # Bidirectional attention
@@ -354,19 +475,59 @@ def forward_vision_layer[
     var norm2_ptr = scratch_ptr + total * 3
     for t in range(num_tokens):
         backend.rms_norm(
-            norm2_ptr + t * hidden_size, residual_ptr + t * hidden_size, weights.layer_norm2.ptr, hidden_size, 1e-6
+            norm2_ptr + t * hidden_size,
+            residual_ptr + t * hidden_size,
+            weights.layer_norm2.ptr,
+            hidden_size,
+            1e-6,
         )
 
-    # Vision MLP: fc1 → GELU → fc2 (NOT GEGLU)
+    # Vision MLP: GEGLU — gate = fc1(x), up = fc1_up(x), hidden = gelu(gate) * up, out = fc2(hidden)
+    # Gemma 4 vision ships GEGLU-shaped weights (gating_einsum with a 2-axis
+    # for gate+up) — see .agents/specs/orbax-safetensors-conversion/e2b-inventory.txt.
+    var inter_total = num_tokens * intermediate_size
     var fc1_out_ptr = scratch_ptr + total * 4
-    _gemm_dispatch(backend, fc1_out_ptr, norm2_ptr, weights.fc1, num_tokens, hidden_size, intermediate_size)
+    _gemm_dispatch(
+        backend,
+        fc1_out_ptr,
+        norm2_ptr,
+        weights.fc1,
+        num_tokens,
+        hidden_size,
+        intermediate_size,
+    )
 
-    var gelu_out_ptr = scratch_ptr + total * 4 + num_tokens * intermediate_size
+    var fc1_up_out_ptr = scratch_ptr + total * 4 + inter_total
+    _gemm_dispatch(
+        backend,
+        fc1_up_out_ptr,
+        norm2_ptr,
+        weights.fc1_up,
+        num_tokens,
+        hidden_size,
+        intermediate_size,
+    )
+
+    var gelu_out_ptr = scratch_ptr + total * 4 + inter_total * 2
     for t in range(num_tokens):
-        backend.gelu(gelu_out_ptr + t * intermediate_size, fc1_out_ptr + t * intermediate_size, intermediate_size)
+        var gate_off = t * intermediate_size
+        backend.gelu(gelu_out_ptr + gate_off, fc1_out_ptr + gate_off, intermediate_size)
+        for d in range(intermediate_size):
+            gelu_out_ptr.store(
+                gate_off + d,
+                gelu_out_ptr.load(gate_off + d) * fc1_up_out_ptr.load(gate_off + d),
+            )
 
-    var mlp_out_ptr = scratch_ptr + total * 5 + num_tokens * intermediate_size
-    _gemm_dispatch(backend, mlp_out_ptr, gelu_out_ptr, weights.fc2, num_tokens, intermediate_size, hidden_size)
+    var mlp_out_ptr = scratch_ptr + total * 4 + inter_total * 3
+    _gemm_dispatch(
+        backend,
+        mlp_out_ptr,
+        gelu_out_ptr,
+        weights.fc2,
+        num_tokens,
+        intermediate_size,
+        hidden_size,
+    )
 
     # MLP residual
     for i in range(total):
@@ -405,7 +566,13 @@ def forward_vision_encoder[
     # 1. Patch embedding: [num_patches, patch_dim] @ [vision_hidden, patch_dim]^T → [num_patches, vision_hidden]
     var embedded_ptr = scratch_ptr
     _gemm_dispatch(
-        backend, embedded_ptr, patches_ptr, weights.patch_embedding, num_patches, patch_dim, vision_hidden_size
+        backend,
+        embedded_ptr,
+        patches_ptr,
+        weights.patch_embedding,
+        num_patches,
+        patch_dim,
+        vision_hidden_size,
     )
 
     # 2. Add position embeddings (learned, [max_patches, vision_hidden])
@@ -421,7 +588,7 @@ def forward_vision_encoder[
     for l in range(num_layers):
         # Upload layer weights to GPU (when GPU backend)
         var layer_weights = weights.layers[l]
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var stage_ptr = UnsafePointer(to=stage)
             var ctx_ptr = UnsafePointer(to=ctx)
             var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
@@ -465,7 +632,13 @@ def forward_vision_encoder[
     var pooled_w = grid_w // pool_kernel
     var pooled_tokens = pooled_h * pooled_w
     _gemm_dispatch(
-        backend, out_ptr, pooled_ptr, weights.projection, pooled_tokens, vision_hidden_size, decoder_hidden_size
+        backend,
+        out_ptr,
+        pooled_ptr,
+        weights.projection,
+        pooled_tokens,
+        vision_hidden_size,
+        decoder_hidden_size,
     )
 
 
@@ -502,7 +675,13 @@ def forward_audio_encoder[
     var conv_out_ptr = scratch_ptr
     if num_conv > 0:
         _gemm_dispatch(
-            backend, conv_out_ptr, features_ptr, weights.conv_weights[0], num_tokens, n_mels, audio_hidden_size
+            backend,
+            conv_out_ptr,
+            features_ptr,
+            weights.conv_weights[0],
+            num_tokens,
+            n_mels,
+            audio_hidden_size,
         )
         # Subsequent conv layers: [audio_hidden_size] → [audio_hidden_size] with stride-2 downsampling
         for c in range(1, num_conv):
@@ -524,7 +703,15 @@ def forward_audio_encoder[
             num_tokens = new_tokens
     else:
         # No conv: project mel directly
-        _gemm_dispatch(backend, conv_out_ptr, features_ptr, weights.projection, num_tokens, n_mels, audio_hidden_size)
+        _gemm_dispatch(
+            backend,
+            conv_out_ptr,
+            features_ptr,
+            weights.projection,
+            num_tokens,
+            n_mels,
+            audio_hidden_size,
+        )
 
     var total = num_tokens * audio_hidden_size
 
@@ -541,7 +728,7 @@ def forward_audio_encoder[
     for l in range(num_layers):
         # Upload layer weights to GPU (when GPU backend)
         var layer_weights = weights.layers[l]
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var stage_ptr = UnsafePointer(to=stage)
             var ctx_ptr = UnsafePointer(to=ctx)
             var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
@@ -575,7 +762,15 @@ def forward_audio_encoder[
         )
 
     # 5. Projection → decoder hidden dim
-    _gemm_dispatch(backend, out_ptr, norm_ptr, weights.projection, num_tokens, audio_hidden_size, decoder_hidden_size)
+    _gemm_dispatch(
+        backend,
+        out_ptr,
+        norm_ptr,
+        weights.projection,
+        num_tokens,
+        audio_hidden_size,
+        decoder_hidden_size,
+    )
 
 
 @always_inline
@@ -599,8 +794,24 @@ def forward_mlp[
     var up_ptr = scratch_ptr + batch_size * intermediate_size
     var geglu_out_ptr = scratch_ptr + batch_size * intermediate_size * 2
 
-    _gemm_dispatch(backend, gate_ptr, x_ptr, weights.gate_proj, batch_size, hidden_size, intermediate_size)
-    _gemm_dispatch(backend, up_ptr, x_ptr, weights.up_proj, batch_size, hidden_size, intermediate_size)
+    _gemm_dispatch(
+        backend,
+        gate_ptr,
+        x_ptr,
+        weights.gate_proj,
+        batch_size,
+        hidden_size,
+        intermediate_size,
+    )
+    _gemm_dispatch(
+        backend,
+        up_ptr,
+        x_ptr,
+        weights.up_proj,
+        batch_size,
+        hidden_size,
+        intermediate_size,
+    )
 
     for b in range(batch_size):
         backend.geglu(
@@ -610,7 +821,15 @@ def forward_mlp[
             intermediate_size,
         )
 
-    _gemm_dispatch(backend, out_ptr, geglu_out_ptr, weights.down_proj, batch_size, intermediate_size, hidden_size)
+    _gemm_dispatch(
+        backend,
+        out_ptr,
+        geglu_out_ptr,
+        weights.down_proj,
+        batch_size,
+        intermediate_size,
+        hidden_size,
+    )
 
 
 @always_inline
@@ -684,7 +903,13 @@ def forward_gemma4_layer[
 
     # Post-attention norm
     var post_attn_ptr = scratch_ptr + hidden_size * 2
-    backend.rms_norm(post_attn_ptr, attn_out_ptr, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+    backend.rms_norm(
+        post_attn_ptr,
+        attn_out_ptr,
+        weights.post_attention_layernorm.ptr,
+        hidden_size,
+        1e-6,
+    )
 
     # Attention residual
     var residual_ptr = scratch_ptr + hidden_size * 3
@@ -692,16 +917,36 @@ def forward_gemma4_layer[
 
     # Pre-MLP norm
     var norm_residual_ptr = scratch_ptr + hidden_size * 4
-    backend.rms_norm(norm_residual_ptr, residual_ptr, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    backend.rms_norm(
+        norm_residual_ptr,
+        residual_ptr,
+        weights.pre_feedforward_layernorm.ptr,
+        hidden_size,
+        1e-6,
+    )
 
     # MLP
     var mlp_out_ptr = scratch_ptr + hidden_size * 5
     var mlp_scratch_ptr = scratch_ptr + hidden_size * 6
-    forward_mlp(backend, mlp_out_ptr, norm_residual_ptr, weights, hidden_size, intermediate_size, mlp_scratch_ptr)
+    forward_mlp(
+        backend,
+        mlp_out_ptr,
+        norm_residual_ptr,
+        weights,
+        hidden_size,
+        intermediate_size,
+        mlp_scratch_ptr,
+    )
 
     # Post-MLP norm
     var post_mlp_ptr = scratch_ptr + hidden_size * 7
-    backend.rms_norm(post_mlp_ptr, mlp_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
+    backend.rms_norm(
+        post_mlp_ptr,
+        mlp_out_ptr,
+        weights.post_feedforward_layernorm.ptr,
+        hidden_size,
+        1e-6,
+    )
 
     # MLP residual
     backend.vector_add(out_ptr, residual_ptr, post_mlp_ptr, hidden_size)
@@ -744,7 +989,7 @@ def forward_gemma4_step[
     # Embed and scale
     var emb_scale = sqrt(Float32(hidden_size))
     var embed_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.embed_tokens.ptr)
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.embed_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
             embed_ptr = p_cast.embed_ptr
@@ -755,7 +1000,7 @@ def forward_gemma4_step[
     for l in range(num_layers):
         # 1. Orchestrate weights (CPU: use direct, GPU: stream)
         var weights = model.layers[l]
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var stage_ptr = UnsafePointer(to=stage)
             var ctx_ptr = UnsafePointer(to=ctx)
             var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
@@ -788,7 +1033,7 @@ def forward_gemma4_step[
     var norm_out = next_state
     var norm_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.norm.ptr)
     var lm_head_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.lm_head.ptr)
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.norm_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
             norm_ptr = p_cast.norm_ptr
@@ -838,7 +1083,7 @@ def forward_gemma4_step_with_embedding[
     # Layer loop (same as forward_gemma4_step)
     for l in range(num_layers):
         var weights = model.layers[l]
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var stage_ptr = UnsafePointer(to=stage)
             var ctx_ptr = UnsafePointer(to=ctx)
             var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
@@ -870,7 +1115,7 @@ def forward_gemma4_step_with_embedding[
     var norm_out = next_state
     var norm_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.norm.ptr)
     var lm_head_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.lm_head.ptr)
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.norm_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
             norm_ptr = p_cast.norm_ptr
@@ -902,7 +1147,13 @@ def forward_ple_input[
     var emb_src = ple_weights.per_layer_embedding.ptr + token_id * ple_dim
     for i in range(ple_dim):
         embed_ptr.store(i, emb_src.load(i))
-    backend.vec_mat_mul(proj_ptr, embed_ptr, ple_weights.per_layer_projection.ptr, ple_dim, hidden_size)
+    backend.vec_mat_mul(
+        proj_ptr,
+        embed_ptr,
+        ple_weights.per_layer_projection.ptr,
+        ple_dim,
+        hidden_size,
+    )
     var normed_ptr = scratch_ptr + ple_dim + hidden_size
     backend.rms_norm(normed_ptr, proj_ptr, ple_weights.per_layer_norm.ptr, hidden_size, 1e-6)
     backend.vector_add(out_ptr, out_ptr, normed_ptr, hidden_size)
@@ -948,7 +1199,7 @@ def forward_gemma4_ple_step[
         if model.has_ple and l < len(model.ple_layers):
             ple_weights = model.ple_layers[l]
 
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var stage_ptr = UnsafePointer(to=stage)
             var ctx_ptr = UnsafePointer(to=ctx)
             var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
@@ -957,7 +1208,15 @@ def forward_gemma4_ple_step[
             ctx_ref[].sync()
 
         if model.has_ple and l < len(model.ple_layers):
-            forward_ple_input(backend, current_state, token_id, ple_weights, hidden_size, ple_dim, layer_scratch)
+            forward_ple_input(
+                backend,
+                current_state,
+                token_id,
+                ple_weights,
+                hidden_size,
+                ple_dim,
+                layer_scratch,
+            )
         var source_layer = -1
         if num_kv_sharing_layers > 0 and l < num_kv_sharing_layers:
             source_layer = Int(kv_sharing_map_ptr.load(l))
@@ -1016,32 +1275,52 @@ def forward_moe_router[
     expert_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
     expert_weights_ptr: UnsafePointer[Float32, MutAnyOrigin],
     hidden_ptr: UnsafePointer[Float32, MutAnyOrigin],
-    router_weight: TensorInfo,
+    router_proj: TensorInfo,
+    router_scale: TensorInfo,
+    per_expert_scale: TensorInfo,
     hidden_size: Int,
     num_experts: Int,
     k: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
 ):
-    """Route hidden state to top-k experts: logits → softmax → top_k → renormalize."""
-    var logits_ptr = scratch_ptr
-    _gemm_dispatch(backend, logits_ptr, hidden_ptr, router_weight, 1, hidden_size, num_experts)
+    """Route hidden state to top-k experts using the Gemma 4 MoE contract."""
+    var normalized_ptr = scratch_ptr
+    var sum_sq: Float32 = 0.0
+    for i in range(hidden_size):
+        var value = hidden_ptr.load(i)
+        sum_sq += value * value
+    var inv_rms = 1.0 / sqrt(sum_sq / Float32(hidden_size) + 1e-6)
+    var inv_hidden = 1.0 / sqrt(Float32(hidden_size))
+    for i in range(hidden_size):
+        var value = hidden_ptr.load(i) * inv_rms
+        value *= router_scale.ptr.load(i)
+        normalized_ptr.store(i, value * inv_hidden)
+
+    var logits_ptr = scratch_ptr + hidden_size
+    _gemm_dispatch(
+        backend,
+        logits_ptr,
+        normalized_ptr,
+        router_proj,
+        1,
+        hidden_size,
+        num_experts,
+    )
     backend.softmax(logits_ptr, num_experts)
     backend.top_k(logits_ptr, k, num_experts, expert_indices_ptr, expert_weights_ptr)
 
-    # Simple renormalization (k is small, e.g. 2 or 8)
-    # On CPU this is fast. On GPU, we would need a copy back or a separate kernel.
-    # For now, we only implement this for CPU-accessible pointers.
-    # (GPU path will handle this via specific Chapter 4 orchestration if needed)
-    comptime if has_accelerator():
-        pass
-    else:
-        var weight_sum: Float32 = 0.0
+    var weight_sum: Float32 = 0.0
+    for i in range(k):
+        weight_sum += expert_weights_ptr.load(i)
+    if weight_sum > 0.0:
+        var inv_sum = 1.0 / weight_sum
         for i in range(k):
-            weight_sum += expert_weights_ptr.load(i)
-        if weight_sum > 0.0:
-            var inv_sum = 1.0 / weight_sum
-            for i in range(k):
-                expert_weights_ptr.store(i, expert_weights_ptr.load(i) * inv_sum)
+            expert_weights_ptr.store(i, expert_weights_ptr.load(i) * inv_sum)
+
+    for i in range(k):
+        var expert_idx = Int(expert_indices_ptr.load(i))
+        var scaled = expert_weights_ptr.load(i) * per_expert_scale.ptr.load(expert_idx)
+        expert_weights_ptr.store(i, scaled)
 
 
 @always_inline
@@ -1053,7 +1332,8 @@ def forward_moe_experts[
     hidden_ptr: UnsafePointer[Float32, MutAnyOrigin],
     expert_indices_ptr: UnsafePointer[Int32, MutAnyOrigin],
     expert_weights_ptr: UnsafePointer[Float32, MutAnyOrigin],
-    experts: List[MoEExpertWeights],
+    expert_gate_up_proj: TensorInfo,
+    expert_down_proj: TensorInfo,
     k: Int,
     hidden_size: Int,
     intermediate_size: Int,
@@ -1061,15 +1341,13 @@ def forward_moe_experts[
     mut stage: S,
     mut ctx: C,
 ):
-    """Execute selected experts and compute weighted sum.
-
-    On GPU, each expert's weights are streamed to device on-demand via
-    upload_expert_weights — only the k selected experts are uploaded.
-    """
+    """Execute the selected packed experts and compute the weighted sum."""
     var gate_ptr = scratch_ptr
     var up_ptr = scratch_ptr + intermediate_size
     var geglu_out_ptr = scratch_ptr + intermediate_size * 2
     var expert_out_ptr = scratch_ptr + intermediate_size * 3
+    var gate_up_stride = 2 * intermediate_size * hidden_size
+    var down_stride = hidden_size * intermediate_size
 
     # Zero the output accumulator
     for i in range(hidden_size):
@@ -1079,21 +1357,52 @@ def forward_moe_experts[
         var idx = Int(expert_indices_ptr.load(sel))
         var weight = expert_weights_ptr.load(sel)
 
-        var expert = experts[idx]
-        comptime if has_accelerator():
-            var stage_ptr = UnsafePointer(to=stage)
-            var ctx_ptr = UnsafePointer(to=ctx)
-            var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
-            var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
-            expert = upload_expert_weights(stage_ref[], ctx_ref[], expert)
-            ctx_ref[].sync()
+        var gate_up_base = expert_gate_up_proj.ptr + idx * gate_up_stride
+        var gate_tensor = TensorInfo(Int(gate_up_base), intermediate_size, hidden_size)
+        var up_tensor = TensorInfo(
+            Int(gate_up_base + intermediate_size * hidden_size),
+            intermediate_size,
+            hidden_size,
+        )
+        var down_tensor = TensorInfo(
+            Int(expert_down_proj.ptr + idx * down_stride),
+            hidden_size,
+            intermediate_size,
+        )
 
-        _gemm_dispatch(backend, gate_ptr, hidden_ptr, expert.gate_proj, 1, hidden_size, intermediate_size)
-        _gemm_dispatch(backend, up_ptr, hidden_ptr, expert.up_proj, 1, hidden_size, intermediate_size)
+        _gemm_dispatch(
+            backend,
+            gate_ptr,
+            hidden_ptr,
+            gate_tensor,
+            1,
+            hidden_size,
+            intermediate_size,
+        )
+        _gemm_dispatch(
+            backend,
+            up_ptr,
+            hidden_ptr,
+            up_tensor,
+            1,
+            hidden_size,
+            intermediate_size,
+        )
         backend.geglu(geglu_out_ptr, gate_ptr, up_ptr, intermediate_size)
-        _gemm_dispatch(backend, expert_out_ptr, geglu_out_ptr, expert.down_proj, 1, intermediate_size, hidden_size)
+        _gemm_dispatch(
+            backend,
+            expert_out_ptr,
+            geglu_out_ptr,
+            down_tensor,
+            1,
+            intermediate_size,
+            hidden_size,
+        )
 
         backend.vector_add_scaled(out_ptr, out_ptr, expert_out_ptr, weight, hidden_size)
+
+    _ = stage
+    _ = ctx
 
 
 @always_inline
@@ -1120,7 +1429,7 @@ def forward_moe_layer[
     mut stage: S,
     mut ctx: C,
 ):
-    """Single MoE transformer layer: attention (K=V) + MoE block."""
+    """Single Gemma 4 MoE layer: attention + dense branch + routed expert branch."""
     var norm_x_ptr = scratch_ptr
     backend.rms_norm(norm_x_ptr, x_ptr, weights.input_layernorm.ptr, hidden_size, 1e-6)
     var q_size = num_heads * head_dim
@@ -1132,13 +1441,25 @@ def forward_moe_layer[
     var v_ptr = attn_scratch_ptr + q_size + kv_size
     _gemm_dispatch(backend, q_ptr, norm_x_ptr, weights.q_proj, 1, hidden_size, q_size)
     _gemm_dispatch(backend, k_ptr, norm_x_ptr, weights.k_proj, 1, hidden_size, kv_size)
-    _gemm_dispatch(backend, v_ptr, norm_x_ptr, weights.k_proj, 1, hidden_size, kv_size)  # K=V
+    _gemm_dispatch(backend, v_ptr, norm_x_ptr, weights.v_proj, 1, hidden_size, kv_size)
     if weights.q_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
         for h in range(num_heads):
-            backend.rms_norm(q_ptr + h * head_dim, q_ptr + h * head_dim, weights.q_norm.ptr, head_dim, 1e-6)
+            backend.rms_norm(
+                q_ptr + h * head_dim,
+                q_ptr + h * head_dim,
+                weights.q_norm.ptr,
+                head_dim,
+                1e-6,
+            )
     if weights.k_norm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
         for h in range(num_kv_heads):
-            backend.rms_norm(k_ptr + h * head_dim, k_ptr + h * head_dim, weights.k_norm.ptr, head_dim, 1e-6)
+            backend.rms_norm(
+                k_ptr + h * head_dim,
+                k_ptr + h * head_dim,
+                weights.k_norm.ptr,
+                head_dim,
+                1e-6,
+            )
 
     # 2. Apply RoPE (hybrid logic)
     if kv_cache.get_layer_type(layer_idx) == LAYER_TYPE_SLIDING:
@@ -1163,8 +1484,24 @@ def forward_moe_layer[
     var layer_offset = kv_cache.get_layer_offset(layer_idx)
     var cache_size = kv_cache.get_layer_cache_size(layer_idx)
     var is_full = kv_cache.get_layer_type(layer_idx) == LAYER_TYPE_FULL
-    backend.kv_write(kv_cache.get_k_ptr(), k_ptr, kv_size, pos, cache_size, layer_offset, is_full)
-    backend.kv_write(kv_cache.get_v_ptr(), v_ptr, kv_size, pos, cache_size, layer_offset, is_full)
+    backend.kv_write(
+        kv_cache.get_k_ptr(),
+        k_ptr,
+        kv_size,
+        pos,
+        cache_size,
+        layer_offset,
+        is_full,
+    )
+    backend.kv_write(
+        kv_cache.get_v_ptr(),
+        v_ptr,
+        kv_size,
+        pos,
+        cache_size,
+        layer_offset,
+        is_full,
+    )
 
     # 4. Attention
     var attn_range = kv_cache.get_attention_range(layer_idx, pos)
@@ -1176,49 +1513,122 @@ def forward_moe_layer[
     var scores_ptr = attn_weighted_ptr + q_size
 
     backend.attention_scores(
-        scores_ptr, q_ptr, layer_k_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size, scale
+        scores_ptr,
+        q_ptr,
+        layer_k_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
+        scale,
     )
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
     backend.attention_value_accum(
-        attn_weighted_ptr, scores_ptr, layer_v_ptr, num_heads, num_kv_heads, head_dim, valid_len, kv_size
+        attn_weighted_ptr,
+        scores_ptr,
+        layer_v_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
     )
 
-    _gemm_dispatch(backend, attn_out_ptr, attn_weighted_ptr, weights.o_proj, 1, q_size, hidden_size)
+    _gemm_dispatch(
+        backend,
+        attn_out_ptr,
+        attn_weighted_ptr,
+        weights.o_proj,
+        1,
+        q_size,
+        hidden_size,
+    )
     var post_attn_ptr = scratch_ptr + hidden_size * 2
-    backend.rms_norm(post_attn_ptr, attn_out_ptr, weights.post_attention_layernorm.ptr, hidden_size, 1e-6)
+    backend.rms_norm(
+        post_attn_ptr,
+        attn_out_ptr,
+        weights.post_attention_layernorm.ptr,
+        hidden_size,
+        1e-6,
+    )
     var residual_ptr = scratch_ptr + hidden_size * 3
     backend.vector_add(residual_ptr, x_ptr, post_attn_ptr, hidden_size)
-    var norm_residual_ptr = scratch_ptr + hidden_size * 4
-    backend.rms_norm(norm_residual_ptr, residual_ptr, weights.pre_feedforward_layernorm.ptr, hidden_size, 1e-6)
-    var moe_out_ptr = scratch_ptr + hidden_size * 5
-    var moe_scratch = scratch_ptr + hidden_size * 6
+    var dense_norm_ptr = scratch_ptr + hidden_size * 4
+    backend.rms_norm(
+        dense_norm_ptr,
+        residual_ptr,
+        weights.pre_feedforward_layernorm.ptr,
+        hidden_size,
+        1e-6,
+    )
+    var dense_out_ptr = scratch_ptr + hidden_size * 5
+    var dense_post_ptr = scratch_ptr + hidden_size * 6
+    var moe_norm_ptr = scratch_ptr + hidden_size * 7
+    backend.rms_norm(
+        moe_norm_ptr,
+        residual_ptr,
+        weights.pre_feedforward_layernorm_2.ptr,
+        hidden_size,
+        1e-6,
+    )
+    var moe_out_ptr = scratch_ptr + hidden_size * 8
+    var post_moe_ptr = scratch_ptr + hidden_size * 9
+    var combine_ptr = scratch_ptr + hidden_size * 10
+    var dense_intermediate_size = weights.dense_gate_proj.shape_0
+    var dense_scratch = scratch_ptr + hidden_size * 11
+    var moe_scratch = dense_scratch + dense_intermediate_size * 3
     var expert_indices_ptr = UnsafePointer[Int32, MutAnyOrigin](unsafe_from_address=Int(moe_scratch))
     var expert_weights_ptr = moe_scratch + moe_top_k
-    var router_scratch = moe_scratch + moe_top_k * 2
+    var router_work_ptr = moe_scratch + moe_top_k * 2
+    var expert_scratch = router_work_ptr + hidden_size + num_experts
+
+    var dense_weights = LayerWeights()
+    dense_weights.gate_proj = weights.dense_gate_proj
+    dense_weights.up_proj = weights.dense_up_proj
+    dense_weights.down_proj = weights.dense_down_proj
+    forward_mlp(
+        backend,
+        dense_out_ptr,
+        dense_norm_ptr,
+        dense_weights,
+        hidden_size,
+        dense_intermediate_size,
+        dense_scratch,
+    )
+    backend.rms_norm(
+        dense_post_ptr,
+        dense_out_ptr,
+        weights.post_feedforward_layernorm_1.ptr,
+        hidden_size,
+        1e-6,
+    )
 
     # Router
+    # Router logits consume x1 via no-scale RMSNorm; expert execution uses the MoE pre-norm branch.
     forward_moe_router(
         backend,
         expert_indices_ptr,
         expert_weights_ptr,
-        norm_residual_ptr,
-        weights.router,
+        residual_ptr,
+        weights.router_proj,
+        weights.router_scale,
+        weights.per_expert_scale,
         hidden_size,
         num_experts,
         moe_top_k,
-        router_scratch,
+        router_work_ptr,
     )
 
-    # Experts — each selected expert's weights streamed on-demand via stage/ctx
-    var expert_scratch = router_scratch + num_experts
     forward_moe_experts(
         backend,
         moe_out_ptr,
-        norm_residual_ptr,
+        moe_norm_ptr,
         expert_indices_ptr,
         expert_weights_ptr,
-        weights.experts,
+        weights.expert_gate_up_proj,
+        weights.expert_down_proj,
         moe_top_k,
         hidden_size,
         moe_intermediate_size,
@@ -1227,9 +1637,34 @@ def forward_moe_layer[
         ctx,
     )
 
-    var post_moe_ptr = scratch_ptr + hidden_size * 7
-    backend.rms_norm(post_moe_ptr, moe_out_ptr, weights.post_feedforward_layernorm.ptr, hidden_size, 1e-6)
-    backend.vector_add(out_ptr, residual_ptr, post_moe_ptr, hidden_size)
+    backend.rms_norm(
+        post_moe_ptr,
+        moe_out_ptr,
+        weights.post_feedforward_layernorm_2.ptr,
+        hidden_size,
+        1e-6,
+    )
+    backend.vector_add(combine_ptr, dense_post_ptr, post_moe_ptr, hidden_size)
+    # H-A (HF-ref confirmed): post_feedforward_layernorm applied to (h1 + h2) before residual add.
+    # See .agents/knowledge/gemma4-models.md "MoE layer — post_feedforward_layernorm".
+    # Reuse post_moe_ptr as scratch for the normed combined branches.
+    if weights.post_feedforward_layernorm.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        backend.rms_norm(
+            post_moe_ptr,
+            combine_ptr,
+            weights.post_feedforward_layernorm.ptr,
+            hidden_size,
+            1e-6,
+        )
+        backend.vector_add(out_ptr, residual_ptr, post_moe_ptr, hidden_size)
+    else:
+        backend.vector_add(out_ptr, residual_ptr, combine_ptr, hidden_size)
+    # layer_scalar (HF name) / moe_skip_scale (Orbax name): multiplicative scalar on the entire
+    # layer output, applied last. See .agents/knowledge/gemma4-models.md "MoE layer — skip_scale".
+    if weights.moe_skip_scale.ptr != UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0):
+        var layer_scalar = weights.moe_skip_scale.ptr[0]
+        for i in range(hidden_size):
+            out_ptr[i] = out_ptr[i] * layer_scalar
 
 
 @always_inline
@@ -1257,12 +1692,7 @@ def forward_gemma4_moe_step[
     mut ctx: C,
     persistent: P,
 ):
-    """Full 26B MoE forward step: embed → MoE layers → norm → logits.
-
-    GPU weight streaming: each MoE layer is a 2-phase upload:
-    1. Attention+router+norms via upload_moe_attention_weights (fits staging buffer)
-    2. Each selected expert via upload_expert_weights inside forward_moe_experts
-    """
+    """Full 26B MoE forward step: embed → MoE layers → norm → logits."""
     var num_layers = len(model.layers)
     var current_state = scratch_ptr
     var next_state = scratch_ptr + hidden_size
@@ -1271,7 +1701,7 @@ def forward_gemma4_moe_step[
     # Embed and scale — use persistent GPU buffer when available
     var emb_scale = sqrt(Float32(hidden_size))
     var embed_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.embed_tokens.ptr)
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.embed_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
             embed_ptr = p_cast.embed_ptr
@@ -1281,12 +1711,11 @@ def forward_gemma4_moe_step[
     # Layer loop with 2-phase weight streaming
     for l in range(num_layers):
         var weights = model.layers[l]
-        comptime if has_accelerator():
+        comptime if has_usable_gpu():
             var stage_ptr = UnsafePointer(to=stage)
             var ctx_ptr = UnsafePointer(to=ctx)
             var stage_ref = rebind[UnsafePointer[WeightStage, MutAnyOrigin]](stage_ptr)
             var ctx_ref = rebind[UnsafePointer[GPUContext, MutAnyOrigin]](ctx_ptr)
-            # Phase 1: upload attention+router+norms (experts stay on CPU)
             weights = upload_moe_attention_weights(stage_ref[], ctx_ref[], weights)
             ctx_ref[].sync()
 
@@ -1317,7 +1746,7 @@ def forward_gemma4_moe_step[
     var norm_out_moe = next_state
     var norm_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.norm.ptr)
     var lm_head_ptr = rebind[UnsafePointer[Float32, MutAnyOrigin]](model.lm_head.ptr)
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         var p_cast = rebind[PersistentBuffers](persistent)
         if p_cast.norm_ptr != UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0):
             norm_ptr = p_cast.norm_ptr

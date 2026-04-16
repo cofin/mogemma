@@ -7,6 +7,7 @@ Since CI may not have a GPU, tests verify:
 """
 
 from std.sys import has_accelerator
+from mogemma.gpu_context import has_usable_gpu
 from std.memory import UnsafePointer
 from std.collections import List
 from std.testing import assert_almost_equal
@@ -97,7 +98,7 @@ def test_gpu_ops_imports():
 
 def test_gelu_kernel_gpu() raises:
     """Test gelu_kernel produces correct output on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -139,7 +140,7 @@ def test_gelu_kernel_gpu() raises:
 
 def test_geglu_kernel_gpu() raises:
     """Test geglu_kernel produces correct output on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -182,7 +183,7 @@ def test_geglu_kernel_gpu() raises:
 
 def test_rope_rotate_kernel_gpu() raises:
     """Test rope_rotate_kernel produces correct output on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -235,7 +236,7 @@ def test_rope_rotate_kernel_gpu() raises:
 
 def test_softmax_kernel_gpu() raises:
     """Test softmax_kernel produces correct output on GPU (small vector)."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -272,7 +273,7 @@ def test_softmax_kernel_gpu() raises:
 
 def test_softmax_strided_kernel_gpu() raises:
     """Test softmax_strided_kernel for larger vectors."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -308,7 +309,7 @@ def test_softmax_strided_kernel_gpu() raises:
 
 def test_rms_norm_kernel_gpu() raises:
     """Test rms_norm_kernel with Gemma's (1+w) scaling on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -354,7 +355,7 @@ def test_rms_norm_kernel_gpu() raises:
 
 def test_vec_mat_mul_kernel_gpu() raises:
     """Test vec_mat_mul_kernel with shared memory tiling on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -402,7 +403,7 @@ def test_vec_mat_mul_kernel_gpu() raises:
 
 def test_mat_mat_mul_kernel_gpu() raises:
     """Test mat_mat_mul_kernel 2D tiled matmul on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -454,7 +455,7 @@ def test_mat_mat_mul_kernel_gpu() raises:
 
 def test_vec_mat_mul_i8_kernel_gpu() raises:
     """Test vec_mat_mul_i8_kernel quantized matmul on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -507,7 +508,7 @@ def test_vec_mat_mul_i8_kernel_gpu() raises:
 
 def test_average_pool_2d_kernel_gpu() raises:
     """Test average_pool_2d_kernel on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -556,7 +557,7 @@ def test_average_pool_2d_kernel_gpu() raises:
 
 def test_top_k_kernel_gpu() raises:
     """Test top_k_kernel on GPU."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
@@ -608,7 +609,7 @@ def test_top_k_kernel_gpu() raises:
 
 def test_gpu_backend_launch_gelu() raises:
     """Test GPUBackend.launch_gelu convenience method."""
-    comptime if has_accelerator():
+    comptime if has_usable_gpu():
         from std.gpu.host import DeviceContext
 
         var ctx = DeviceContext()
