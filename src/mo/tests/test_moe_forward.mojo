@@ -17,11 +17,15 @@ from mogemma.model import (
 from mogemma.ops import CPUBackend
 
 
-def _ptr(ref values: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
+def _ptr(
+    ref values: List[Float32],
+) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(values.unsafe_ptr()))
 
 
-def _i64_ptr(ref values: List[Int64]) -> UnsafePointer[Int64, MutExternalOrigin]:
+def _i64_ptr(
+    ref values: List[Int64],
+) -> UnsafePointer[Int64, MutExternalOrigin]:
     return UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(values.unsafe_ptr()))
 
 

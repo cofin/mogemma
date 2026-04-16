@@ -167,7 +167,7 @@ struct ModelWeights(Movable):
     @always_inline
     def get_embedding[
         B: ComputeBackend
-    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]):
+    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin],):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
@@ -304,7 +304,7 @@ struct MoEModelWeights(Movable):
     @always_inline
     def get_embedding[
         B: ComputeBackend
-    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin]):
+    ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin],):
         var hidden_size = self.embed_tokens.shape_1
         var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)

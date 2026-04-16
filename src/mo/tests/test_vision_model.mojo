@@ -5,7 +5,12 @@ from std.collections import List
 def test_vision_layer_weights_default_init() raises:
     var vl = VisionLayerWeights()
     # All tensors should be zero-initialized
-    print("VisionLayerWeights default init: shape_0=", vl.q_proj.shape_0, "shape_1=", vl.q_proj.shape_1)
+    print(
+        "VisionLayerWeights default init: shape_0=",
+        vl.q_proj.shape_0,
+        "shape_1=",
+        vl.q_proj.shape_1,
+    )
     if vl.q_proj.shape_0 != 0 or vl.q_proj.shape_1 != 0:
         raise Error("q_proj should be zero-initialized")
     if vl.fc1.shape_0 != 0 or vl.fc2.shape_0 != 0:

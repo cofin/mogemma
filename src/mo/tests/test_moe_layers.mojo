@@ -6,11 +6,15 @@ from mogemma.model import TensorInfo
 from mogemma.ops import CPUBackend
 
 
-def _ptr(ref values: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
+def _ptr(
+    ref values: List[Float32],
+) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(values.unsafe_ptr()))
 
 
-def _i32_ptr(ref values: List[Int32]) -> UnsafePointer[Int32, MutExternalOrigin]:
+def _i32_ptr(
+    ref values: List[Int32],
+) -> UnsafePointer[Int32, MutExternalOrigin]:
     return UnsafePointer[Int32, MutExternalOrigin](unsafe_from_address=Int(values.unsafe_ptr()))
 
 

@@ -52,7 +52,15 @@ def test_forward_mlp() raises:
     var scratch = alloc_zeros(intermediate_size * 4)
 
     var backend = CPUBackend()
-    forward_mlp(backend, get_ptr(out), get_ptr(x), weights, hidden_size, intermediate_size, get_ptr(scratch))
+    forward_mlp(
+        backend,
+        get_ptr(out),
+        get_ptr(x),
+        weights,
+        hidden_size,
+        intermediate_size,
+        get_ptr(scratch),
+    )
 
     for i in range(hidden_size):
         assert_almost_equal(out[i], Float32(32.0), atol=2e-3)

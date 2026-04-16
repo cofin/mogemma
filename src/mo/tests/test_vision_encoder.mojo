@@ -6,7 +6,9 @@ from mogemma.ops import gelu, average_pool_2d, CPUBackend
 from mogemma.layers import forward_vision_attention, forward_vision_encoder
 
 
-def _make_ptr(ref l: List[Float32]) -> UnsafePointer[Float32, MutExternalOrigin]:
+def _make_ptr(
+    ref l: List[Float32],
+) -> UnsafePointer[Float32, MutExternalOrigin]:
     return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(l.unsafe_ptr()))
 
 
