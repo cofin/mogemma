@@ -62,6 +62,29 @@ def _gemm_dispatch[
         else:
             backend.mat_mat_mul(out_ptr, x_ptr, w.ptr, batch_size, in_dim, out_dim)
 
+@always_inline
+def _gemm_dispatch_softcap[
+    B: ComputeBackend
+](
+    mut backend: B,
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w: TensorInfo,
+    batch_size: Int,
+    in_dim: Int,
+    out_dim: Int,
+    cap: Float32,
+):
+    if w.is_quantized:
+        backend.vec_mat_mul_i8_softcap(out_ptr, x_ptr, w.i8_ptr, w.scale_ptr, in_dim, out_dim, cap)
+    else:
+        if batch_size == 1:
+            backend.vec_mat_mul_softcap(out_ptr, x_ptr, w.ptr, in_dim, out_dim, cap)
+        else:
+            # We don't support mat_mat_mul_softcap yet, so fallback
+            backend.mat_mat_mul(out_ptr, x_ptr, w.ptr, batch_size, in_dim, out_dim)
+            backend.apply_softcap(out_ptr, batch_size * out_dim, cap)
+
 
 @always_inline
 def forward_sliding_attention[
@@ -81,6 +104,7 @@ def forward_sliding_attention[
     rope_tables: RoPETables,
     k_eq_v: Bool,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    attn_soft_cap: Float32,
 ):
     """Sliding-window attention for a single token (batch_size=1).
 
@@ -163,17 +187,31 @@ def forward_sliding_attention[
     var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
     var scores_ptr = attn_out_ptr + q_size
 
-    backend.attention_scores(
-        scores_ptr,
-        q_ptr,
-        layer_k_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
-        valid_len,
-        kv_size,
-        scale,
-    )
+    if attn_soft_cap > 0.0:
+        backend.attention_scores_softcap(
+            scores_ptr,
+            q_ptr,
+            layer_k_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+            attn_soft_cap,
+        )
+    else:
+        backend.attention_scores(
+            scores_ptr,
+            q_ptr,
+            layer_k_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+        )
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
@@ -212,6 +250,7 @@ def forward_full_attention[
     k_eq_v: Bool,
     max_seq_len: Int,  # for scores buffer sizing
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    attn_soft_cap: Float32,
 ):
     """Full global attention for a single token (batch_size=1).
 
@@ -294,17 +333,31 @@ def forward_full_attention[
     var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
     var scores_ptr = attn_out_ptr + q_size
 
-    backend.attention_scores(
-        scores_ptr,
-        q_ptr,
-        layer_k_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
-        valid_len,
-        kv_size,
-        scale,
-    )
+    if attn_soft_cap > 0.0:
+        backend.attention_scores_softcap(
+            scores_ptr,
+            q_ptr,
+            layer_k_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+            attn_soft_cap,
+        )
+    else:
+        backend.attention_scores(
+            scores_ptr,
+            q_ptr,
+            layer_k_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+        )
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
@@ -852,6 +905,7 @@ def forward_gemma4_layer[
     k_eq_v: Bool,
     max_seq_len: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    attn_soft_cap: Float32,
 ):
     """Executes a single Gemma 4 transformer layer with attention type dispatch.
 
@@ -881,6 +935,7 @@ def forward_gemma4_layer[
             rope_tables,
             k_eq_v,
             attn_scratch_ptr,
+            attn_soft_cap,
         )
     else:
         forward_full_attention(
@@ -899,6 +954,7 @@ def forward_gemma4_layer[
             k_eq_v,
             max_seq_len,
             attn_scratch_ptr,
+            attn_soft_cap,
         )
 
     # Post-attention norm
@@ -975,6 +1031,7 @@ def forward_gemma4_step[
     mut stage: S,
     mut ctx: C,
     persistent: P,
+    attn_soft_cap: Float32,
 ):
     """Executes a single autoregressive generation step for Gemma 4.
 
@@ -1025,6 +1082,7 @@ def forward_gemma4_step[
             k_eq_v,
             max_seq_len,
             layer_scratch,
+            attn_soft_cap,
         )
         # Swap states
         backend.copy(current_state, next_state, hidden_size)
@@ -1067,6 +1125,7 @@ def forward_gemma4_step_with_embedding[
     mut stage: S,
     mut ctx: C,
     persistent: P,
+    attn_soft_cap: Float32,
 ):
     """Like forward_gemma4_step but uses a pre-computed embedding instead of token lookup.
 
@@ -1108,6 +1167,7 @@ def forward_gemma4_step_with_embedding[
             k_eq_v,
             max_seq_len,
             layer_scratch,
+            attn_soft_cap,
         )
         backend.copy(current_state, next_state, hidden_size)
 
@@ -1185,6 +1245,7 @@ def forward_gemma4_ple_step[
     mut stage: S,
     mut ctx: C,
     persistent: P,
+    attn_soft_cap: Float32,
 ):
     """E2B/E4B forward step with PLE injection and optional shared-KV attention."""
     var num_layers = len(model.layers)
@@ -1238,6 +1299,7 @@ def forward_gemma4_ple_step[
                 k_eq_v,
                 max_seq_len,
                 layer_scratch,
+                attn_soft_cap,
             )
         else:
             forward_gemma4_layer(
@@ -1257,6 +1319,7 @@ def forward_gemma4_ple_step[
                 k_eq_v,
                 max_seq_len,
                 layer_scratch,
+                attn_soft_cap,
             )
         backend.copy(current_state, next_state, hidden_size)
     var norm_out_ple = next_state
@@ -1428,6 +1491,7 @@ def forward_moe_layer[
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
+    attn_soft_cap: Float32,
 ):
     """Single Gemma 4 MoE layer: attention + dense branch + routed expert branch."""
     var norm_x_ptr = scratch_ptr
@@ -1512,17 +1576,32 @@ def forward_moe_layer[
     var attn_weighted_ptr = attn_scratch_ptr + q_size + kv_size + kv_size
     var scores_ptr = attn_weighted_ptr + q_size
 
-    backend.attention_scores(
-        scores_ptr,
-        q_ptr,
-        layer_k_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
-        valid_len,
-        kv_size,
-        scale,
-    )
+    if attn_soft_cap > 0.0:
+        backend.attention_scores_softcap(
+            scores_ptr,
+            q_ptr,
+            layer_k_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+            attn_soft_cap,
+        )
+    else:
+        backend.attention_scores(
+            scores_ptr,
+            q_ptr,
+            layer_k_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+        )
+
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
     backend.attention_value_accum(
@@ -1691,6 +1770,7 @@ def forward_gemma4_moe_step[
     mut stage: S,
     mut ctx: C,
     persistent: P,
+    attn_soft_cap: Float32,
 ):
     """Full 26B MoE forward step: embed → MoE layers → norm → logits."""
     var num_layers = len(model.layers)
@@ -1739,6 +1819,7 @@ def forward_gemma4_moe_step[
             layer_scratch,
             stage,
             ctx,
+            attn_soft_cap,
         )
         backend.copy(current_state, next_state, hidden_size)
 

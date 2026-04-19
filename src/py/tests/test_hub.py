@@ -29,9 +29,14 @@ class TestKnownGCSModels:
         for model_id in KNOWN_GCS_MODELS:
             assert model_id.startswith("google/"), f"Unexpected catalog entry: {model_id!r}"
 
-    def test_contains_three_currently_available_models(self) -> None:
+    def test_contains_four_currently_available_models(self) -> None:
         """Matches the 2026-04-16 gs://gemma-data probe result."""
-        expected = {"google/gemma-4-E2B-it", "google/gemma-4-E4B-it", "google/gemma-4-26B-A4B-it"}
+        expected = {
+            "google/gemma-4-E2B-it",
+            "google/gemma-4-E4B-it",
+            "google/gemma-4-31B-it",
+            "google/gemma-4-26B-A4B-it",
+        }
         assert expected.issubset(KNOWN_GCS_MODELS)
 
     def test_no_stale_gemma3_entries(self) -> None:

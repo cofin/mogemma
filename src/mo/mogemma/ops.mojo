@@ -1,4 +1,4 @@
-from std.math import sqrt, erf, exp
+from std.math import sqrt, erf, exp, tanh
 from std.memory import UnsafePointer
 
 
@@ -173,6 +173,39 @@ def vec_mat_mul[
 
 
 @always_inline
+def vec_mat_mul_softcap[
+    nelts: Int = 16
+](
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    in_dim: Int,
+    out_dim: Int,
+    cap: Float32,
+):
+    var inv_cap: Float32 = 1.0 / cap
+    for o in range(out_dim):
+        var acc: Float32 = 0.0
+        var i = 0
+        var w_row_ptr = w_ptr + o * in_dim
+
+        while i <= in_dim - nelts:
+            var x_val = x_ptr.load[width=nelts](i)
+            var w_val = w_row_ptr.load[width=nelts](i)
+            acc += (x_val * w_val).reduce_add()
+            i += nelts
+
+        while i < in_dim:
+            var x_val = x_ptr.load(i)
+            var w_val = w_row_ptr.load(i)
+            acc += x_val * w_val
+            i += 1
+
+        var capped_acc = tanh(acc * inv_cap) * cap
+        out_ptr.store(o, capped_acc)
+
+
+@always_inline
 def mat_mat_mul[
     nelts: Int = 16
 ](
@@ -235,6 +268,42 @@ def vec_mat_mul_i8[
         # If it were per-channel, it would be scale_ptr.load(o).
         var scale = scale_ptr.load(0)
         out_ptr.store(o, acc * scale)
+
+
+@always_inline
+def vec_mat_mul_i8_softcap[
+    nelts: Int = 16
+](
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+    scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    in_dim: Int,
+    out_dim: Int,
+    cap: Float32,
+):
+    var inv_cap: Float32 = 1.0 / cap
+    for o in range(out_dim):
+        var acc: Float32 = 0.0
+        var i = 0
+        var w_row_ptr = w_ptr + o * in_dim
+
+        while i <= in_dim - nelts:
+            var x_val = x_ptr.load[width=nelts](i)
+            var w_val_i8 = w_row_ptr.load[width=nelts](i)
+            var w_val = w_val_i8.cast[DType.float32]()
+            acc += (x_val * w_val).reduce_add()
+            i += nelts
+
+        while i < in_dim:
+            var x_val = x_ptr.load(i)
+            var w_val = Float32(w_row_ptr.load(i))
+            acc += x_val * w_val
+            i += 1
+
+        var scale = scale_ptr.load(0)
+        var capped_acc = tanh(acc * scale * inv_cap) * cap
+        out_ptr.store(o, capped_acc)
 
 
 @always_inline
@@ -416,6 +485,18 @@ trait ComputeBackend:
     ):
         ...
 
+    def vec_mat_mul_i8_softcap(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+        scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+        cap: Float32,
+    ):
+        ...
+
     def mat_mat_mul(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -434,6 +515,14 @@ trait ComputeBackend:
         weight_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
         eps: Float32,
+    ):
+        ...
+
+    def apply_softcap(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
     ):
         ...
 
@@ -554,6 +643,21 @@ trait ComputeBackend:
     ):
         ...
 
+    def attention_scores_softcap(
+        mut self,
+        scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+        scale: Float32,
+        cap: Float32,
+    ):
+        ...
+
     def attention_value_accum(
         mut self,
         out_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -567,10 +671,57 @@ trait ComputeBackend:
     ):
         ...
 
+@always_inline
+def apply_softcap_cpu[
+    nelts: Int = 16
+](ptr: UnsafePointer[Float32, MutAnyOrigin], size: Int, cap: Float32,):
+    var inv_cap: Float32 = 1.0 / cap
+    var i = 0
+    while i <= size - nelts:
+        var val = ptr.load[width=nelts](i)
+        var capped = tanh(val * inv_cap) * cap
+        ptr.store[width=nelts](i, capped.cast[DType.float32]())
+        i += nelts
+    while i < size:
+        var val = ptr.load(i)
+        var capped = tanh(val * inv_cap) * cap
+        ptr.store(i, capped.cast[DType.float32]())
+        i += 1
+
+
 
 # ---------------------------------------------------------------------------
 # CPUBackend — delegates to the SIMD-vectorized free functions above
 # ---------------------------------------------------------------------------
+
+
+@always_inline
+def attention_scores_softcap(
+        scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+    scale: Float32,
+    cap: Float32,
+):
+    var heads_per_kv = num_heads // num_kv_heads
+    var inv_cap: Float32 = 1.0 / cap
+    for h in range(num_heads):
+        var kv_h = h // heads_per_kv
+        var q_head = q_ptr + h * head_dim
+        var head_scores = scores_ptr + h * valid_len
+        for t in range(valid_len):
+            var k_head = k_cache_ptr + t * kv_size + kv_h * head_dim
+            var score: Float32 = 0.0
+            for d in range(head_dim):
+                score += q_head.load(d) * k_head.load(d)
+            var scaled_score = score * scale
+            var capped_score = tanh(scaled_score * inv_cap) * cap
+            head_scores.store(t, capped_score)
 
 
 struct CPUBackend(ComputeBackend):
@@ -592,6 +743,76 @@ struct CPUBackend(ComputeBackend):
         out_dim: Int,
     ):
         vec_mat_mul(out_ptr, x_ptr, w_ptr, in_dim, out_dim)
+
+    def vec_mat_mul_softcap(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+        cap: Float32,
+    ):
+        vec_mat_mul_softcap(out_ptr, x_ptr, w_ptr, in_dim, out_dim, cap)
+
+    def vec_mat_mul_softcap(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+        cap: Float32,
+    ):
+        vec_mat_mul_softcap(out_ptr, x_ptr, w_ptr, in_dim, out_dim, cap)
+
+    def vec_mat_mul_i8_softcap(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+        scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+        cap: Float32,
+    ):
+        vec_mat_mul_i8_softcap(
+            out_ptr, x_ptr, w_ptr, scale_ptr, in_dim, out_dim, cap
+        )
+
+    def attention_scores_softcap(
+        mut self,
+        scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+        scale: Float32,
+        cap: Float32,
+    ):
+        attention_scores_softcap(
+            scores_ptr,
+            q_ptr,
+            k_cache_ptr,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            valid_len,
+            kv_size,
+            scale,
+            cap,
+        )
+
+    def apply_softcap(
+        mut self,
+        ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
+    ):
+        apply_softcap_cpu(ptr, size, cap)
 
     def vec_mat_mul_i8(
         mut self,
@@ -788,3 +1009,4 @@ struct CPUBackend(ComputeBackend):
                 var prob = head_probs.load(t)
                 for d in range(head_dim):
                     out_head.store(d, out_head.load(d) + prob * v_head.load(d))
+

@@ -11,7 +11,7 @@ from mogemma.hub import KNOWN_GCS_MODELS
 class TestGenerationConfigDefaults:
     def test_default_model_path(self) -> None:
         config = GenerationConfig()
-        assert str(config.model_path) == "google/gemma-4-E4B-it"
+        assert str(config.model_path) == "google/gemma-4-E2B-it"
 
     def test_default_model_path_in_catalog(self) -> None:
         """Default must resolve to a model currently published in gs://gemma-data.
@@ -42,7 +42,7 @@ class TestGenerationConfigDefaults:
 class TestEmbeddingConfigDefaults:
     def test_default_model_path(self) -> None:
         config = EmbeddingConfig()
-        assert str(config.model_path) == "google/gemma-4-E4B-it"
+        assert str(config.model_path) == "google/gemma-4-E2B-it"
 
     def test_default_model_path_in_catalog(self) -> None:
         """Default must resolve to a model currently published in gs://gemma-data.

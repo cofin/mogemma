@@ -32,7 +32,7 @@ from std.gpu.primitives.warp import (
 from std.gpu.primitives.block import sum as block_sum, max as block_max
 from std.gpu.memory import AddressSpace, external_memory
 from std.memory import UnsafePointer
-from std.math import sqrt, erf, exp
+from std.math import sqrt, erf, exp, tanh
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +80,22 @@ def gelu_kernel(
         var x = x_ptr[tid]
         var sqrt_2: Float32 = 1.4142135623730951
         out_ptr[tid] = 0.5 * x * (1.0 + erf(x / sqrt_2))
+
+
+def apply_softcap_kernel(
+    ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+    cap: Float32,
+    inv_cap: Float32,
+):
+    """GPU kernel: Apply logits softcapping.
+
+    Launch: grid_dim = ceildiv(size, BLOCK_1D), block_dim = BLOCK_1D
+    """
+    var tid = global_idx.x
+    if tid < size:
+        var val = ptr[tid]
+        ptr[tid] = tanh(val * inv_cap) * cap
 
 
 def geglu_kernel(
@@ -300,6 +316,24 @@ def vec_mat_mul_kernel(
     out_ptr[tid] = acc
 
 
+
+def vec_mat_mul_softcap_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    in_dim: Int,
+    out_dim: Int,
+    cap: Float32,
+):
+    var o_idx = block_idx.x * block_dim.x + thread_idx.x
+    if o_idx < out_dim:
+        var w_col = w_ptr + o_idx * in_dim
+        var acc: Float32 = 0.0
+        for i in range(in_dim):
+            acc += x_ptr[i] * w_col[i]
+        out_ptr[o_idx] = tanh(acc / cap) * cap
+
+
 def mat_mat_mul_kernel(
     out_ptr: UnsafePointer[Float32, MutAnyOrigin],
     x_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -412,6 +446,26 @@ def vec_mat_mul_i8_kernel(
 # ---------------------------------------------------------------------------
 # Phase 5: Specialized GPU kernels (Task 2.10, 2.11)
 # ---------------------------------------------------------------------------
+
+
+
+def vec_mat_mul_i8_softcap_kernel(
+    out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+    scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    in_dim: Int,
+    out_dim: Int,
+    cap: Float32,
+):
+    var o_idx = block_idx.x * block_dim.x + thread_idx.x
+    if o_idx < out_dim:
+        var w_col = w_ptr + o_idx * in_dim
+        var acc: Float32 = 0.0
+        for i in range(in_dim):
+            acc += x_ptr[i] * w_col[i].cast[DType.float32]()
+        var scaled = acc * scale_ptr[o_idx]
+        out_ptr[o_idx] = tanh(scaled / cap) * cap
 
 
 def average_pool_2d_kernel(
@@ -552,6 +606,91 @@ struct GPUBackend(ComputeBackend):
             )
         except e:
             abort(String("GPU vec_mat_mul launch failed: ", e))
+
+    def vec_mat_mul_softcap(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+        cap: Float32,
+    ):
+        try:
+            var grid = ceildiv(out_dim, BLOCK_1D)
+            self.ctx[].enqueue_function[vec_mat_mul_softcap_kernel, vec_mat_mul_softcap_kernel](
+                out_ptr, x_ptr, w_ptr, in_dim, out_dim, cap, grid_dim=grid, block_dim=BLOCK_1D
+            )
+        except e:
+            abort(String("GPU vec_mat_mul_softcap launch failed: ", e))
+
+    def vec_mat_mul_i8_softcap(
+        mut self,
+        out_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        x_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        w_ptr: UnsafePointer[Int8, MutAnyOrigin],
+        scale_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        in_dim: Int,
+        out_dim: Int,
+        cap: Float32,
+    ):
+        try:
+            var grid = ceildiv(out_dim, BLOCK_1D)
+            self.ctx[].enqueue_function[vec_mat_mul_i8_softcap_kernel, vec_mat_mul_i8_softcap_kernel](
+                out_ptr, x_ptr, w_ptr, scale_ptr, in_dim, out_dim, cap, grid_dim=grid, block_dim=BLOCK_1D
+            )
+        except e:
+            abort(String("GPU vec_mat_mul_i8_softcap launch failed: ", e))
+
+    def attention_scores_softcap(
+        mut self,
+        scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        num_heads: Int,
+        num_kv_heads: Int,
+        head_dim: Int,
+        valid_len: Int,
+        kv_size: Int,
+        scale: Float32,
+        cap: Float32,
+    ):
+        try:
+            self.ctx[].enqueue_function[attention_scores_softcap_kernel, attention_scores_softcap_kernel](
+                scores_ptr,
+                q_ptr,
+                k_cache_ptr,
+                num_heads,
+                num_kv_heads,
+                head_dim,
+                valid_len,
+                kv_size,
+                scale,
+                cap,
+                grid_dim=num_heads,
+                block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU attention_scores_softcap launch failed: ", e))
+
+    def apply_softcap(
+        mut self,
+        ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
+    ):
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[apply_softcap_kernel, apply_softcap_kernel](
+                ptr,
+                size,
+                cap,
+                1.0 / cap,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU apply_softcap launch failed: ", e))
 
     def vec_mat_mul_i8(
         mut self,
@@ -1037,6 +1176,38 @@ def _attention_scores_impl(
         t += block_dim_x
 
 
+
+@always_inline
+def _attention_scores_softcap_impl(
+    head: Int,
+    tid: Int,
+    block_dim_x: Int,
+    scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+    scale: Float32,
+    cap: Float32,
+):
+    var kv_h = head // (num_heads // num_kv_heads)
+    var q_head = q_ptr + head * head_dim
+    var inv_cap = 1.0 / cap
+
+    var t = tid
+    while t < valid_len:
+        var k_head = k_cache_ptr + t * kv_size + kv_h * head_dim
+        var dot: Float32 = 0.0
+        for d in range(head_dim):
+            dot += q_head[d] * k_head[d]
+        var scaled = dot * scale
+        scores_ptr[head * valid_len + t] = tanh(scaled * inv_cap) * cap
+        t += block_dim_x
+
+
 @always_inline
 def _attention_value_accum_impl(
     head: Int,
@@ -1123,6 +1294,36 @@ def attention_scores_kernel(
     )
 
 
+
+def attention_scores_softcap_kernel(
+    scores_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    q_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    k_cache_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    num_heads: Int,
+    num_kv_heads: Int,
+    head_dim: Int,
+    valid_len: Int,
+    kv_size: Int,
+    scale: Float32,
+    cap: Float32,
+):
+    _attention_scores_softcap_impl(
+        block_idx.x,
+        thread_idx.x,
+        block_dim.x,
+        scores_ptr,
+        q_ptr,
+        k_cache_ptr,
+        num_heads,
+        num_kv_heads,
+        head_dim,
+        valid_len,
+        kv_size,
+        scale,
+        cap,
+    )
+
+
 def kv_write_kernel(
     dst_ptr: UnsafePointer[Float32, MutAnyOrigin],
     src_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1147,3 +1348,4 @@ def kv_write_kernel(
         layer_offset,
         Bool(is_full_int),
     )
+

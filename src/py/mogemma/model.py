@@ -153,6 +153,13 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
     k_eq_v = config.get("attention_k_eq_v", False)
     overrides["k_eq_v"] = 1 if k_eq_v else 0
 
+    # Logit soft-capping
+    final_logit_softcapping = config.get("final_logit_softcapping", 30.0)
+    overrides["final_logit_softcapping"] = float(final_logit_softcapping)
+    
+    attn_logit_softcapping = config.get("attn_logit_softcapping", 50.0)
+    overrides["attn_logit_softcapping"] = float(attn_logit_softcapping)
+
     # Layer types: convert ["sliding", "full", ...] to [0, 1, ...]
     layer_types: list[int] = []
     layer_types_raw = config.get("layer_types", [])
@@ -318,6 +325,7 @@ def _initialize_llm(  # noqa: PLR0913
     if layer_types:
         mojo_overrides["layer_types"] = layer_types
 
+    print("Calling _invoke_init_model_with_options")
     try:
         llm = _invoke_init_model_with_options(_core, metadata, mojo_overrides, descriptor)
         if llm is None:

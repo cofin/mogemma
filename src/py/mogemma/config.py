@@ -16,13 +16,13 @@ _INVALID_ARCH_OVERRIDES_MSG = "architecture_overrides must be a dict[str, int | 
 class EmbeddingConfig:
     """Configuration for Gemma 4 Embedding generation."""
 
-    model_path: Path | str = "google/gemma-4-E4B-it"
+    model_path: Path | str = "google/gemma-4-E2B-it"
     """Path to the local Gemma 4 model weights or Google model ID.
 
-    Defaults to the instruction-tuned E4B variant. The pretrained (non-IT) E4B
+    Defaults to the instruction-tuned E2B variant. The pretrained (non-IT) E2B
     would be the ideal base for embeddings — IT fine-tuning is optimized for
     instruction-following rather than representation learning, so expect a
-    small retrieval-quality regression vs. pretrained — but pretrained E4B is
+    small retrieval-quality regression vs. pretrained — but pretrained E2B is
     not currently published to ``gs://gemma-data``. The default will be
     flipped back when pretrained variants are available.
     """
@@ -67,10 +67,10 @@ class EmbeddingConfig:
 class GenerationConfig:
     """Configuration for Gemma 4 Text generation."""
 
-    model_path: Path | str = "google/gemma-4-E4B-it"
+    model_path: Path | str = "google/gemma-4-E2B-it"
     """Path to the local Gemma 4 model weights or Google model ID.
 
-    Defaults to the instruction-tuned E4B variant — the latest small multimodal
+    Defaults to the instruction-tuned E2B variant — the latest smallest multimodal
     model (text + image + audio) suitable for chat-style generation out of the
     box. Use the 26B-A4B MoE or 31B dense for heavier reasoning workloads.
     """

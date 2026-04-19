@@ -712,6 +712,18 @@ def _init_model_impl_mojo(
         if builtins.bool(architecture_overrides_obj.get("image_token_id")):
             image_token_id = Int(py=architecture_overrides_obj["image_token_id"])
 
+    var fls = architecture_overrides_obj.get("final_logit_softcapping", 0.0)
+    if builtins.bool(fls):
+        py_dict["final_logit_softcapping"] = Float64(py=fls)
+    else:
+        py_dict["final_logit_softcapping"] = Float64(0.0)
+
+    var als = architecture_overrides_obj.get("attn_logit_softcapping", 0.0)
+    if builtins.bool(als):
+        py_dict["attn_logit_softcapping"] = Float64(py=als)
+    else:
+        py_dict["attn_logit_softcapping"] = Float64(0.0)
+
     # PLE config (E2B/E4B)
     var ple_dim = 0
     var has_ple = False
@@ -1090,6 +1102,7 @@ def _run_step[
     mut stage: S,
     mut ctx: C,
     persistent: P,
+    attn_soft_cap: Float32,
 ):
     if num_experts > 0:
         # MoE streaming not fully implemented in layers.mojo yet, using placeholder
@@ -1114,6 +1127,7 @@ def _run_step[
             stage,
             ctx,
             persistent,
+            attn_soft_cap,
         )
     elif has_ple_flag:
         # PLE streaming not fully implemented yet
@@ -1140,6 +1154,7 @@ def _run_step[
             stage,
             ctx,
             persistent,
+            attn_soft_cap,
         )
     else:
         forward_gemma4_step(
@@ -1162,6 +1177,7 @@ def _run_step[
             stage,
             ctx,
             persistent,
+            attn_soft_cap,
         )
 
 
@@ -1212,6 +1228,7 @@ def step_mojo(
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](
         unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0])
     )
+    var attn_soft_cap = Float32(Float64(py=llm["attn_logit_softcapping"]))
 
     var num_experts = Int(py=builtins.getattr(llm, "get")("num_experts", 0))
     var has_ple_flag = Int(py=builtins.getattr(llm, "get")("has_ple", 0)) != 0
@@ -1305,6 +1322,7 @@ def step_mojo(
                 stage_ptr[],
                 ctx_ptr[],
                 persistent_ptr[].get_ptrs(),
+                attn_soft_cap,
             )
         else:
             abort("GPU not available at compile time")
@@ -1341,7 +1359,12 @@ def step_mojo(
             dummy_stage,
             dummy_ctx,
             dummy_persistent,
+            attn_soft_cap,
         )
+        var soft_cap = Float32(Float64(py=llm["final_logit_softcapping"]))
+        var attn_soft_cap = Float32(Float64(py=llm["attn_logit_softcapping"]))
+        if soft_cap > 0.0:
+            backend.apply_softcap(out_logits_ptr, vocab_size, soft_cap)
 
     _ = kv_map_local
     llm["pos"] = pos + 1
@@ -1589,6 +1612,8 @@ def step_with_embedding_mojo(
     var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](
         unsafe_from_address=Int(py=out_logits.__array_interface__["data"][0])
     )
+    var soft_cap = Float32(30.0)
+    var attn_soft_cap = Float32(50.0)
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
@@ -1630,7 +1655,11 @@ def step_with_embedding_mojo(
                 stage_ptr[],
                 ctx_ptr[],
                 persistent_ptr[].get_ptrs(),
+                attn_soft_cap,
             )
+            if soft_cap > 0.0:
+                backend.apply_softcap(out_logits_ptr, vocab_size, soft_cap)
+                ctx_ptr[].sync()
         else:
             abort("GPU not available at compile time")
     else:
@@ -1658,7 +1687,12 @@ def step_with_embedding_mojo(
             dummy_stage,
             dummy_ctx,
             dummy_persistent,
+            attn_soft_cap,
         )
+        print("CPU BACKEND soft_cap=", soft_cap)
+        if soft_cap > 0.0:
+            print("CALLING APPLY SOFTCAP!")
+            backend.apply_softcap(out_logits_ptr, vocab_size, soft_cap)
 
     llm["pos"] = pos + 1
 
@@ -1691,6 +1725,8 @@ def generate_embeddings_mojo(
     var vocab_size = Int(py=llm["vocab_size"])
     var max_seq_len = Int(py=llm["max_seq_len"])
     var k_eq_v = Int(py=llm["k_eq_v"]) != 0
+
+    var attn_soft_cap = Float32(Float64(py=llm["attn_logit_softcapping"]))
 
     # Hydrate model weights
     var tensor_pointers_obj = llm["_tensor_pointers"]
@@ -1773,6 +1809,7 @@ def generate_embeddings_mojo(
                         stage_ptr[],
                         ctx_ptr[],
                         persistent_ptr[].get_ptrs(),
+                        attn_soft_cap,
                     )
 
                     # Download hidden state from GPU scratch for mean-pooling
@@ -1812,8 +1849,8 @@ def generate_embeddings_mojo(
                     dummy_stage,
                     dummy_ctx,
                     dummy_persistent,
+                    attn_soft_cap,
                 )
-
                 # The hidden state before LM head projection is at scratch + hidden_size
                 var norm_out_ptr = scratch_ptr + hidden_size
                 for i in range(hidden_size):

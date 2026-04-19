@@ -755,6 +755,7 @@ class TestGenerateConfigJson:
         assert config["num_key_value_heads"] == 1
         assert config["head_dim"] == 256
         assert config["intermediate_size"] == 6144
+        assert config["final_logit_softcapping"] == 30.0
 
     def test_base_variant_is_dense_text(self) -> None:
         shapes = {

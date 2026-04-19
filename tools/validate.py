@@ -14,12 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "py"))
 
 from mogemma import EmbeddingConfig, GenerationConfig, SyncEmbeddingModel, SyncGemmaModel
 
-TEXT_MODEL_ID = "google/gemma-4-E4B-it"
+TEXT_MODEL_ID = "google/gemma-4-E2B-it"
 """Default text-generation model for end-to-end validation."""
 
-EMBED_MODEL_ID = "google/gemma-4-E4B-it"
+EMBED_MODEL_ID = "google/gemma-4-E2B-it"
 """Default embedding model for end-to-end validation. Matches the
-``EmbeddingConfig`` default (pretrained E4B is not currently in
+``EmbeddingConfig`` default (pretrained E2B is not currently in
 ``gs://gemma-data``)."""
 
 NANO_MODEL_ID = "google/gemma-4-E2B-it"
@@ -56,6 +56,7 @@ def validate_llm_generation(model_id: str, device: str = "cpu") -> None:
         prompt = "What is the capital of France?"
         prompt_to_send = _format_instruction_prompt(prompt)
         sys.stdout.write(f"Prompt: '{prompt}'\n")
+        print('TOKENS:', model.tokenizer.encode(prompt_to_send))
         response = model.generate(prompt_to_send)
         sys.stdout.write(f"Response: {response}\n")
         _assert_semantic_quality(response)

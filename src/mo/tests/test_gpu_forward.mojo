@@ -307,7 +307,7 @@ def test_gpu_copy_state() raises:
 
         # Fill source with known pattern via host buffer
         var host = ctx.allocate_host_buffer[DType.float32](size)
-        var hp = host.unsafe_ptr().value()
+        var hp = host.unsafe_ptr()
         for i in range(size):
             hp.store(i, Float32(i) * 1.5)
         ctx.upload(src_buf, host)
@@ -322,7 +322,7 @@ def test_gpu_copy_state() raises:
         ctx.download(verify, dst_buf)
         ctx.sync()
 
-        var vp = verify.unsafe_ptr().value()
+        var vp = verify.unsafe_ptr()
         for i in range(size):
             var expected = Float32(i) * 1.5
             assert_almost_equal(vp.load(i), expected, atol=1e-5)

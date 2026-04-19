@@ -229,17 +229,27 @@ def _iter_ple(model_path: Path, num_layers: int) -> Iterator[tuple[str, np.ndarr
 # These are model-family facts (sliding windows, partial RoPE factor, top-k) that
 # can't be derived from tensor shapes alone.
 _VARIANT_CONSTANTS = {
-    "base": {"model_type": "gemma4_text", "sliding_window_size": 1024, "partial_rotary_factor": 0.5},
+    "base": {
+        "model_type": "gemma4_text",
+        "sliding_window_size": 1024,
+        "partial_rotary_factor": 0.5,
+        "final_logit_softcapping": 30.0,
+        "attn_logit_softcapping": 50.0,
+    },
     "ple": {
         "model_type": "gemma4_text",  # narrowed to _e2b/_e4b below via use_double_wide_mlp
         "sliding_window_size": 512,
         "partial_rotary_factor": 0.5,
+        "final_logit_softcapping": 30.0,
+        "attn_logit_softcapping": 50.0,
     },
     "moe": {
         "model_type": "gemma4_text",  # narrowed to _moe_26b below
         "sliding_window_size": 1024,
         "partial_rotary_factor": 0.5,
         "num_experts_per_tok": 8,
+        "final_logit_softcapping": 30.0,
+        "attn_logit_softcapping": 50.0,
     },
 }
 

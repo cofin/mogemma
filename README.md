@@ -4,7 +4,7 @@ Python/Mojo interface for Google Gemma 4.
 
 ## Features
 
-- **Embeddings** — Dense vector embeddings via a pure Mojo backend, using the pretrained E4B variant by default.
+- **Embeddings** — Dense vector embeddings via a pure Mojo backend, using the compact E2B variant by default. Supports both `SyncEmbeddingModel` and `AsyncEmbeddingModel`.
 - **Text generation** — Synchronous and async streaming with configurable sampling.
 - **Multimodal** — Native support for Gemma 4 vision (all variants) and audio (E2B/E4B) with zero-copy processing.
 - **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
@@ -49,14 +49,14 @@ print(model.generate("Write a haiku about a robot discovering coffee:"))
 
 ### Multimodal Vision
 
-All Gemma 4 variants support vision inputs; the default (`google/gemma-4-E4B-it`) additionally accepts audio.
+All Gemma 4 variants support vision inputs; the default (`google/gemma-4-E2B-it`) additionally accepts audio.
 
 - Install `mogemma[vision]` to pass image file paths or raw image bytes directly.
 
 ```python
 from mogemma import SyncGemmaModel
 
-# Default model is google/gemma-4-E4B-it — multimodal out of the box
+# Default model is google/gemma-4-E2B-it — multimodal out of the box
 model = SyncGemmaModel()
 
 response = model.generate("Describe this image in detail:", images=["input.jpg"])
@@ -95,11 +95,12 @@ Four Gemma 4 variants are supported (auto-detected from `config.json`):
 
 | Model ID | Description |
 |---|---|
-| `google/gemma-4-E2B-it` | Compact multimodal (text + image + audio), ~2B params |
-| `google/gemma-4-E4B-it` | **Default** for `SyncGemmaModel` / `AsyncGemmaModel` / `SyncEmbeddingModel` — latest small multimodal |
+| `google/gemma-4-E2B-it` | **Default** — Compact multimodal (text + image + audio), ~2B params |
+| `google/gemma-4-E4B-it` | Small multimodal (text + image + audio), ~4B params |
+| `google/gemma-4-31B-it` | Large dense multimodal, ~31B params |
 | `google/gemma-4-26B-A4B-it` | MoE (128 experts, top-8), 4B active — heavier reasoning |
 
-Pretrained (non-instruction-tuned) E2B / E4B are listed in the Gemma 4 family but are not currently published to `gs://gemma-data`; `SyncEmbeddingModel` therefore defaults to the `-it` variant until pretrained ships.
+Pretrained (non-instruction-tuned) E2B / E4B are listed in the Gemma 4 family but are not currently published to `gs://gemma-data`; `SyncEmbeddingModel` and `AsyncEmbeddingModel` therefore default to the `-it` variant until pretrained ships.
 
 Pass a model ID to override the default:
 
@@ -140,14 +141,14 @@ from mogemma import EmbeddingConfig, SyncEmbeddingModel, GenerationConfig, SyncG
 
 generation = SyncGemmaModel(
     GenerationConfig(
-        model_path="google/gemma-4-E4B-it",
+        model_path="google/gemma-4-E2B-it",
         device="cpu",
     )
 )
 
 embeddings = SyncEmbeddingModel(
     EmbeddingConfig(
-        model_path="google/gemma-4-E4B",
+        model_path="google/gemma-4-E2B-it",
         device="cpu",
     )
 )
