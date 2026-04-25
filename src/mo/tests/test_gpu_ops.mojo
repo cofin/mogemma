@@ -16,6 +16,7 @@ from mogemma.ops_gpu import (
     gelu_kernel,
     geglu_kernel,
     rope_rotate_kernel,
+    softcap_kernel,
     softmax_kernel,
     softmax_strided_kernel,
     rms_norm_kernel,
@@ -232,6 +233,46 @@ def test_rope_rotate_kernel_gpu() raises:
         print("  test_rope_rotate_kernel_gpu passed")
     else:
         print("  SKIP: test_rope_rotate_kernel_gpu (no GPU)")
+
+
+def test_softcap_kernel_gpu() raises:
+    """Test softcap_kernel produces correct in-place output on GPU."""
+    comptime if has_usable_gpu():
+        from std.gpu.host import DeviceContext
+
+        var ctx = DeviceContext()
+        var size = 5
+
+        var x_host = ctx.enqueue_create_host_buffer[DType.float32](size)
+        ctx.synchronize()
+        x_host[0] = -100.0
+        x_host[1] = -30.0
+        x_host[2] = 0.0
+        x_host[3] = 30.0
+        x_host[4] = 100.0
+
+        var x_dev = ctx.enqueue_create_buffer[DType.float32](size)
+        ctx.enqueue_copy(x_dev, x_host)
+
+        ctx.enqueue_function[softcap_kernel, softcap_kernel](
+            x_dev,
+            size,
+            Float32(30.0),
+            grid_dim=1,
+            block_dim=BLOCK_1D,
+        )
+
+        ctx.enqueue_copy(x_host, x_dev)
+        ctx.synchronize()
+
+        assert_almost_equal(x_host[0], Float32(-29.9237), atol=1e-3)
+        assert_almost_equal(x_host[1], Float32(-22.8478), atol=1e-3)
+        assert_almost_equal(x_host[2], Float32(0.0), atol=1e-6)
+        assert_almost_equal(x_host[3], Float32(22.8478), atol=1e-3)
+        assert_almost_equal(x_host[4], Float32(29.9237), atol=1e-3)
+        print("  test_softcap_kernel_gpu passed")
+    else:
+        print("  SKIP: test_softcap_kernel_gpu (no GPU)")
 
 
 def test_softmax_kernel_gpu() raises:
@@ -657,6 +698,7 @@ def main() raises:
     test_gelu_kernel_gpu()
     test_geglu_kernel_gpu()
     test_rope_rotate_kernel_gpu()
+    test_softcap_kernel_gpu()
     test_softmax_kernel_gpu()
     test_softmax_strided_kernel_gpu()
     test_rms_norm_kernel_gpu()

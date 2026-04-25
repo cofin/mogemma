@@ -1,4 +1,4 @@
-from std.math import sqrt, erf, exp
+from std.math import sqrt, erf, exp, tanh
 from std.memory import UnsafePointer
 
 
@@ -354,6 +354,26 @@ def softmax[nelts: Int = 16](vec_ptr: UnsafePointer[Float32, MutAnyOrigin], size
 
 
 @always_inline
+def softcap[
+    nelts: Int = 16
+](vec_ptr: UnsafePointer[Float32, MutAnyOrigin], size: Int, cap: Float32,):
+    """Applies cap * tanh(x / cap) to a vector in place when cap is positive."""
+    if cap <= 0.0:
+        return
+
+    var i = 0
+    while i <= size - nelts:
+        var values = vec_ptr.load[width=nelts](i)
+        vec_ptr.store(i, cap * tanh(values / cap))
+        i += nelts
+
+    while i < size:
+        var value = vec_ptr.load(i)
+        vec_ptr.store(i, cap * tanh(value / cap))
+        i += 1
+
+
+@always_inline
 def top_k(
     values_ptr: UnsafePointer[Float32, MutAnyOrigin],
     k: Int,
@@ -441,6 +461,14 @@ trait ComputeBackend:
         mut self,
         vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
         size: Int,
+    ):
+        ...
+
+    def softcap(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
     ):
         ...
 
@@ -631,6 +659,14 @@ struct CPUBackend(ComputeBackend):
         size: Int,
     ):
         softmax(vec_ptr, size)
+
+    def softcap(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
+    ):
+        softcap(vec_ptr, size, cap)
 
     def rope_rotate(
         mut self,

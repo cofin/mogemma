@@ -119,6 +119,7 @@ def test_forward_sliding_attention() raises:
         kv_cache,
         rope_tables,
         False,
+        0.0,
         get_ptr(scratch),
     )
 
@@ -186,6 +187,7 @@ def test_forward_full_attention() raises:
         rope_tables,
         False,
         max_context,
+        0.0,
         get_ptr(scratch),
     )
 

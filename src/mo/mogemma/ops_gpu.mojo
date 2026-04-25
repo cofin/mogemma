@@ -32,7 +32,7 @@ from std.gpu.primitives.warp import (
 from std.gpu.primitives.block import sum as block_sum, max as block_max
 from std.gpu.memory import AddressSpace, external_memory
 from std.memory import UnsafePointer
-from std.math import sqrt, erf, exp
+from std.math import sqrt, erf, exp, tanh
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +121,17 @@ def rope_rotate_kernel(
         var s = sin_ptr[tid]
         vec_ptr[tid] = x1 * c - x2 * s
         vec_ptr[tid + half_dim] = x2 * c + x1 * s
+
+
+def softcap_kernel(
+    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+    cap: Float32,
+):
+    """GPU kernel: in-place Gemma softcap, one thread per element."""
+    var tid = global_idx.x
+    if tid < size:
+        vec_ptr[tid] = cap * tanh(vec_ptr[tid] / cap)
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +660,26 @@ struct GPUBackend(ComputeBackend):
                 )
         except e:
             abort(String("GPU softmax launch failed: ", e))
+
+    def softcap(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
+    ):
+        if cap <= 0.0:
+            return
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[softcap_kernel, softcap_kernel](
+                vec_ptr,
+                size,
+                cap,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU softcap launch failed: ", e))
 
     def rope_rotate(
         mut self,

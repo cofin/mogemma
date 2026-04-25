@@ -80,6 +80,7 @@ def forward_sliding_attention[
     kv_cache: K,
     rope_tables: RoPETables,
     k_eq_v: Bool,
+    attn_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
 ):
     """Sliding-window attention for a single token (batch_size=1).
@@ -174,6 +175,8 @@ def forward_sliding_attention[
         kv_size,
         scale,
     )
+    if attn_logit_softcapping > 0.0:
+        backend.softcap(scores_ptr, num_heads * valid_len, attn_logit_softcapping)
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
@@ -211,6 +214,7 @@ def forward_full_attention[
     rope_tables: RoPETables,
     k_eq_v: Bool,
     max_seq_len: Int,  # for scores buffer sizing
+    attn_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
 ):
     """Full global attention for a single token (batch_size=1).
@@ -305,6 +309,8 @@ def forward_full_attention[
         kv_size,
         scale,
     )
+    if attn_logit_softcapping > 0.0:
+        backend.softcap(scores_ptr, num_heads * valid_len, attn_logit_softcapping)
 
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
@@ -851,6 +857,7 @@ def forward_gemma4_layer[
     rope_tables: RoPETables,
     k_eq_v: Bool,
     max_seq_len: Int,
+    attn_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
 ):
     """Executes a single Gemma 4 transformer layer with attention type dispatch.
@@ -880,6 +887,7 @@ def forward_gemma4_layer[
             kv_cache,
             rope_tables,
             k_eq_v,
+            attn_logit_softcapping,
             attn_scratch_ptr,
         )
     else:
@@ -898,6 +906,7 @@ def forward_gemma4_layer[
             rope_tables,
             k_eq_v,
             max_seq_len,
+            attn_logit_softcapping,
             attn_scratch_ptr,
         )
 
@@ -971,6 +980,8 @@ def forward_gemma4_step[
     rope_tables: RoPETables,
     k_eq_v: Bool,
     max_seq_len: Int,
+    attn_logit_softcapping: Float32,
+    final_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
@@ -1024,6 +1035,7 @@ def forward_gemma4_step[
             rope_tables,
             k_eq_v,
             max_seq_len,
+            attn_logit_softcapping,
             layer_scratch,
         )
         # Swap states
@@ -1042,6 +1054,8 @@ def forward_gemma4_step[
 
     backend.rms_norm(norm_out, current_state, norm_ptr, hidden_size, 1e-6)
     backend.vec_mat_mul(out_logits_ptr, norm_out, lm_head_ptr, hidden_size, vocab_size)
+    if final_logit_softcapping > 0.0:
+        backend.softcap(out_logits_ptr, vocab_size, final_logit_softcapping)
 
 
 @always_inline
@@ -1063,6 +1077,8 @@ def forward_gemma4_step_with_embedding[
     rope_tables: RoPETables,
     k_eq_v: Bool,
     max_seq_len: Int,
+    attn_logit_softcapping: Float32,
+    final_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
@@ -1107,6 +1123,7 @@ def forward_gemma4_step_with_embedding[
             rope_tables,
             k_eq_v,
             max_seq_len,
+            attn_logit_softcapping,
             layer_scratch,
         )
         backend.copy(current_state, next_state, hidden_size)
@@ -1124,6 +1141,8 @@ def forward_gemma4_step_with_embedding[
 
     backend.rms_norm(norm_out, current_state, norm_ptr, hidden_size, 1e-6)
     backend.vec_mat_mul(out_logits_ptr, norm_out, lm_head_ptr, hidden_size, vocab_size)
+    if final_logit_softcapping > 0.0:
+        backend.softcap(out_logits_ptr, vocab_size, final_logit_softcapping)
 
 
 # ── PLE (Per-Layer Embedding) for E2B/E4B ────────────────────────────────
@@ -1179,6 +1198,8 @@ def forward_gemma4_ple_step[
     rope_tables: RoPETables,
     k_eq_v: Bool,
     max_seq_len: Int,
+    attn_logit_softcapping: Float32,
+    final_logit_softcapping: Float32,
     kv_sharing_map_ptr: UnsafePointer[Int64, MutExternalOrigin],
     num_kv_sharing_layers: Int,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
@@ -1237,6 +1258,7 @@ def forward_gemma4_ple_step[
                 rope_tables,
                 k_eq_v,
                 max_seq_len,
+                attn_logit_softcapping,
                 layer_scratch,
             )
         else:
@@ -1256,12 +1278,15 @@ def forward_gemma4_ple_step[
                 rope_tables,
                 k_eq_v,
                 max_seq_len,
+                attn_logit_softcapping,
                 layer_scratch,
             )
         backend.copy(current_state, next_state, hidden_size)
     var norm_out_ple = next_state
     backend.rms_norm(norm_out_ple, current_state, model.norm.ptr, hidden_size, 1e-6)
     backend.vec_mat_mul(out_logits_ptr, norm_out_ple, model.lm_head.ptr, hidden_size, vocab_size)
+    if final_logit_softcapping > 0.0:
+        backend.softcap(out_logits_ptr, vocab_size, final_logit_softcapping)
 
 
 # ── MoE (Mixture of Experts) for 26B ─────────────────────────────────────
@@ -1425,6 +1450,7 @@ def forward_moe_layer[
     kv_cache: K,
     rope_tables: RoPETables,
     max_seq_len: Int,
+    attn_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
@@ -1523,6 +1549,8 @@ def forward_moe_layer[
         kv_size,
         scale,
     )
+    if attn_logit_softcapping > 0.0:
+        backend.softcap(scores_ptr, num_heads * valid_len, attn_logit_softcapping)
     for h in range(num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
     backend.attention_value_accum(
@@ -1687,6 +1715,8 @@ def forward_gemma4_moe_step[
     kv_cache: K,
     rope_tables: RoPETables,
     max_seq_len: Int,
+    attn_logit_softcapping: Float32,
+    final_logit_softcapping: Float32,
     scratch_ptr: UnsafePointer[Float32, MutAnyOrigin],
     mut stage: S,
     mut ctx: C,
@@ -1736,6 +1766,7 @@ def forward_gemma4_moe_step[
             kv_cache,
             rope_tables,
             max_seq_len,
+            attn_logit_softcapping,
             layer_scratch,
             stage,
             ctx,
@@ -1755,3 +1786,5 @@ def forward_gemma4_moe_step[
 
     backend.rms_norm(norm_out_moe, current_state, norm_ptr, hidden_size, 1e-6)
     backend.vec_mat_mul(out_logits_ptr, norm_out_moe, lm_head_ptr, hidden_size, vocab_size)
+    if final_logit_softcapping > 0.0:
+        backend.softcap(out_logits_ptr, vocab_size, final_logit_softcapping)
