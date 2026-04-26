@@ -265,6 +265,7 @@ Before marking any task complete, verify:
 
 ## Development Commands
 
+<!-- truth: start -->
 **Canonical entrypoints for mogemma.** Prefer these over raw `ruff` / `pytest` / `hatch` invocations; CI runs the same targets.
 
 ### Setup
@@ -294,6 +295,7 @@ make check-all               # lint + test + coverage — canonical pre-PR gate
 ```
 
 For release preflight: `make check-release` (adds benchmarks + release-only checks).
+<!-- truth: end -->
 
 ## Testing Requirements
 

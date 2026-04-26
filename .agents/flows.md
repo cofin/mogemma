@@ -52,3 +52,6 @@ Each flow has its own detailed spec and plan in its respective folder.
 
 ## [ ] Flow: Vision GPU Null-Ptr Fix
 *Queued. Fix the vision-encoder null-pointer rebind in the GPU upload path that was gated out in `657f8ed`. Prerequisite for re-enabling vision on GPU.*
+
+## [~] Flow: Gemma Softcapping
+*Link: [./specs/gemma-softcapping/](./specs/gemma-softcapping/)*

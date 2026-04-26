@@ -1,11 +1,13 @@
 # Product
 
+<!-- truth: start -->
 ## Vision
 
 `mogemma` is a high-performance Python library for running Google's **Gemma 4**
 models locally. It pairs a polished Pythonic API with pure-Mojo inference
 kernels compiled into a native extension, delivering near-native throughput
 without leaving the Python ecosystem.
+<!-- truth: end -->
 
 ## Target audience
 
