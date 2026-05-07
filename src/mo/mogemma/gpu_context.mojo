@@ -57,10 +57,9 @@ struct GPUContext(Movable):
         self.ctx = DeviceContext()
         self._alive = True
 
-    def __moveinit__(out self, ownedother: Self):
-        self.ctx = other.ctx^
-        self._alive = other._alive
-        other._alive = False
+    def __init__(out self, *, deinit take: Self):
+        self.ctx = take.ctx^
+        self._alive = take._alive
 
     def allocate_buffer[dtype: DType](mut self, size: Int) raises -> DeviceBuffer[dtype]:
         """Allocate a DeviceBuffer of `size` elements on the GPU.
@@ -149,11 +148,11 @@ struct WeightStage(Movable):
         self.capacity = capacity
         self._offset = 0
 
-    def __moveinit__(out self, ownedother: Self):
-        self.device_buf = other.device_buf^
-        self.host_buf = other.host_buf^
-        self.capacity = other.capacity
-        self._offset = other._offset
+    def __init__(out self, *, deinit take: Self):
+        self.device_buf = take.device_buf^
+        self.host_buf = take.host_buf^
+        self.capacity = take.capacity
+        self._offset = take._offset
 
     def reset(mut self):
         """Reset the packing offset to reuse the staging buffer for a new layer."""
@@ -216,7 +215,17 @@ struct WeightStage(Movable):
         var base = self.device_buf.unsafe_ptr()
         for i in range(len(offsets)):
             ptrs.append(base + offsets[i])
-        return ptrs
+        return ptrs^
+
+    def _pack_tensor_to_device(mut self, info: TensorInfo) -> TensorInfo:
+        if info.shape_0 * info.shape_1 == 0:
+            return info
+        var offset = self._pack_tensor(info)
+        return TensorInfo(
+            Int(self.device_buf.unsafe_ptr() + offset),
+            info.shape_0,
+            info.shape_1,
+        )
 
     def upload_layer_weights(mut self, mut ctx: GPUContext, weights: LayerWeights) raises -> LayerWeights:
         """Upload all tensors in a LayerWeights struct to the GPU staging buffer.
@@ -226,31 +235,19 @@ struct WeightStage(Movable):
         self.reset()
         var dev_weights = LayerWeights()
 
-        # Helper to pack one TensorInfo and update its pointer
-        @always_inline
-        def pack(info: TensorInfo) -> TensorInfo:
-            if info.shape_0 * info.shape_1 == 0:
-                return info
-            var offset = self._pack_tensor(info)
-            return TensorInfo(
-                Int(self.device_buf.unsafe_ptr() + offset),
-                info.shape_0,
-                info.shape_1,
-            )
-
-        dev_weights.q_proj = pack(weights.q_proj)
-        dev_weights.k_proj = pack(weights.k_proj)
-        dev_weights.v_proj = pack(weights.v_proj)
-        dev_weights.o_proj = pack(weights.o_proj)
-        dev_weights.gate_proj = pack(weights.gate_proj)
-        dev_weights.up_proj = pack(weights.up_proj)
-        dev_weights.down_proj = pack(weights.down_proj)
-        dev_weights.input_layernorm = pack(weights.input_layernorm)
-        dev_weights.post_attention_layernorm = pack(weights.post_attention_layernorm)
-        dev_weights.q_norm = pack(weights.q_norm)
-        dev_weights.k_norm = pack(weights.k_norm)
-        dev_weights.pre_feedforward_layernorm = pack(weights.pre_feedforward_layernorm)
-        dev_weights.post_feedforward_layernorm = pack(weights.post_feedforward_layernorm)
+        dev_weights.q_proj = self._pack_tensor_to_device(weights.q_proj)
+        dev_weights.k_proj = self._pack_tensor_to_device(weights.k_proj)
+        dev_weights.v_proj = self._pack_tensor_to_device(weights.v_proj)
+        dev_weights.o_proj = self._pack_tensor_to_device(weights.o_proj)
+        dev_weights.gate_proj = self._pack_tensor_to_device(weights.gate_proj)
+        dev_weights.up_proj = self._pack_tensor_to_device(weights.up_proj)
+        dev_weights.down_proj = self._pack_tensor_to_device(weights.down_proj)
+        dev_weights.input_layernorm = self._pack_tensor_to_device(weights.input_layernorm)
+        dev_weights.post_attention_layernorm = self._pack_tensor_to_device(weights.post_attention_layernorm)
+        dev_weights.q_norm = self._pack_tensor_to_device(weights.q_norm)
+        dev_weights.k_norm = self._pack_tensor_to_device(weights.k_norm)
+        dev_weights.pre_feedforward_layernorm = self._pack_tensor_to_device(weights.pre_feedforward_layernorm)
+        dev_weights.post_feedforward_layernorm = self._pack_tensor_to_device(weights.post_feedforward_layernorm)
 
         ctx.upload(self.device_buf, self.host_buf)
         return dev_weights
@@ -320,13 +317,13 @@ struct GPUPersistentBuffers(Movable):
         self.norm_buf = _upload_persistent(ctx, norm)
         ctx.sync()
 
-    def __moveinit__(out self, ownedother: Self):
-        self.embed_buf = other.embed_buf^
-        self.lm_head_buf = other.lm_head_buf^
-        self.norm_buf = other.norm_buf^
-        self.embed_elements = other.embed_elements
-        self.lm_head_elements = other.lm_head_elements
-        self.norm_elements = other.norm_elements
+    def __init__(out self, *, deinit take: Self):
+        self.embed_buf = take.embed_buf^
+        self.lm_head_buf = take.lm_head_buf^
+        self.norm_buf = take.norm_buf^
+        self.embed_elements = take.embed_elements
+        self.lm_head_elements = take.lm_head_elements
+        self.norm_elements = take.norm_elements
 
     def get_ptrs(self) -> PersistentBuffers:
         """Returns a backend-agnostic PersistentBuffers struct containing device pointers."""
@@ -383,7 +380,7 @@ def copy_state(
 
     var grid = _ceildiv(size, BLOCK)
     try:
-        ctx.ctx.enqueue_function[copy_state_kernel, copy_state_kernel](
+        ctx.ctx.enqueue_function[copy_state_kernel](
             dst_ptr,
             src_ptr,
             size,
@@ -508,19 +505,19 @@ struct GPUKVCache(KVCacheTrait, Movable):
         self.k_ptr = self.k_cache.unsafe_ptr()
         self.v_ptr = self.v_cache.unsafe_ptr()
 
-    def __moveinit__(out self, ownedother: Self):
-        self.num_layers = other.num_layers
-        self.num_kv_heads = other.num_kv_heads
-        self.head_dim = other.head_dim
-        self.window_size = other.window_size
-        self.max_context_len = other.max_context_len
-        self.layer_types = other.layer_types^
-        self.layer_cache_sizes = other.layer_cache_sizes^
-        self.layer_offsets = other.layer_offsets^
-        self.k_cache = other.k_cache^
-        self.v_cache = other.v_cache^
-        self.k_ptr = other.k_ptr
-        self.v_ptr = other.v_ptr
+    def __init__(out self, *, deinit take: Self):
+        self.num_layers = take.num_layers
+        self.num_kv_heads = take.num_kv_heads
+        self.head_dim = take.head_dim
+        self.window_size = take.window_size
+        self.max_context_len = take.max_context_len
+        self.layer_types = take.layer_types^
+        self.layer_cache_sizes = take.layer_cache_sizes^
+        self.layer_offsets = take.layer_offsets^
+        self.k_cache = take.k_cache^
+        self.v_cache = take.v_cache^
+        self.k_ptr = take.k_ptr
+        self.v_ptr = take.v_ptr
 
     @always_inline
     def get_kv_ptrs(self, layer: Int) -> PtrPair:
@@ -539,36 +536,19 @@ struct GPUKVCache(KVCacheTrait, Movable):
         return self.layer_offsets[last] + self.layer_cache_sizes[last] * kv_stride
 
     def reset(mut self, mut ctx: GPUContext):
-        """Zero all GPU KV cache buffers using a kernel launch."""
+        """Zero all GPU KV cache buffers."""
         var total = self.total_elements()
         if total == 0:
             return
 
-        def _zero_kernel(
-            ptr: UnsafePointer[Float32, MutAnyOrigin],
-            size: Int,
-        ):
-            from std.gpu import global_idx
-
-            var tid = global_idx.x
-            if tid < size:
-                ptr[tid] = 0.0
-
-        comptime BLOCK: Int = 256
-        var grid = (total + BLOCK - 1) // BLOCK
         try:
-            ctx.ctx.enqueue_function[_zero_kernel, _zero_kernel](
-                self.k_ptr,
-                total,
-                grid_dim=grid,
-                block_dim=BLOCK,
-            )
-            ctx.ctx.enqueue_function[_zero_kernel, _zero_kernel](
-                self.v_ptr,
-                total,
-                grid_dim=grid,
-                block_dim=BLOCK,
-            )
+            var zero_host = ctx.allocate_host_buffer[DType.float32](total)
+            var zero_ptr = zero_host.unsafe_ptr()
+            for i in range(total):
+                zero_ptr.store(i, 0.0)
+            ctx.upload(self.k_cache, zero_host)
+            ctx.upload(self.v_cache, zero_host)
+            ctx.sync()
         except e:
             abort(String("GPUKVCache.reset failed: ", e))
 
@@ -605,10 +585,10 @@ struct GPUScratch(Movable):
         self.buf = ctx.allocate_buffer[DType.float32](self.size)
         self.ptr = self.buf.unsafe_ptr()
 
-    def __moveinit__(out self, ownedother: Self):
-        self.buf = other.buf^
-        self.ptr = other.ptr
-        self.size = other.size
+    def __init__(out self, *, deinit take: Self):
+        self.buf = take.buf^
+        self.ptr = take.ptr
+        self.size = take.size
 
 
 # ── Layer Weight Upload Functions ─────────────────────────────────────────────

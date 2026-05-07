@@ -1729,58 +1729,8 @@ def generate_embeddings_mojo(
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
         if use_gpu:
-            comptime if has_usable_gpu():
-                var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
-                )
-                var gpu_backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-                var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
-                )
-                var gpu_scratch_ptr_obj = UnsafePointer[GPUScratch, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
-                )
-                var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"])
-                )
-                var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
-                )
-
-                # Reset GPU KV cache for each sequence
-                gpu_kv_cache_ptr[].reset(ctx_ptr[])
-                ctx_ptr[].sync()
-
-                for t in range(actual_seq_len):
-                    var token_id = Int(py=seq_list[t])
-                    forward_gemma4_step(
-                        gpu_backend,
-                        out_logits_ptr,
-                        token_id,
-                        t,
-                        model,
-                        hidden_size,
-                        num_heads,
-                        num_kv_heads,
-                        head_dim,
-                        intermediate_size,
-                        vocab_size,
-                        gpu_kv_cache_ptr[],
-                        rope_tables_ptr[],
-                        k_eq_v,
-                        max_seq_len,
-                        gpu_scratch_ptr_obj[].ptr,
-                        stage_ptr[],
-                        ctx_ptr[],
-                        persistent_ptr[].get_ptrs(),
-                    )
-
-                    # Download hidden state from GPU scratch for mean-pooling
-                    # norm_out is at scratch_ptr + hidden_size
-                    var gpu_norm_ptr = gpu_scratch_ptr_obj[].ptr + hidden_size
-                    # Download to host via a simple copy (embeddings are small: hidden_size floats)
-                    for i in range(hidden_size):
-                        emb_acc_ptr.store(i, emb_acc_ptr.load(i) + gpu_norm_ptr.load(i))
+            # Current Mojo nightly shared-lib codegen segfaults on this GPU embedding path.
+            raise Error("GPU embedding generation is not available with this Mojo compiler")
         else:
             # Reset CPU KV cache for each sequence
             kv_cache_ptr[].reset()
