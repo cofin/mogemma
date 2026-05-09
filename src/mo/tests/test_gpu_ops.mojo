@@ -118,7 +118,7 @@ def test_gelu_kernel_gpu() raises:
         var out_dev = ctx.enqueue_create_buffer[DType.float32](size)
         ctx.enqueue_copy(x_dev, x_host)
 
-        ctx.enqueue_function[gelu_kernel, gelu_kernel](
+        ctx.enqueue_function[gelu_kernel](
             out_dev,
             x_dev,
             size,
@@ -162,7 +162,7 @@ def test_geglu_kernel_gpu() raises:
         ctx.enqueue_copy(gate_dev, gate_host)
         ctx.enqueue_copy(up_dev, up_host)
 
-        ctx.enqueue_function[geglu_kernel, geglu_kernel](
+        ctx.enqueue_function[geglu_kernel](
             out_dev,
             gate_dev,
             up_dev,
@@ -213,7 +213,7 @@ def test_rope_rotate_kernel_gpu() raises:
         ctx.enqueue_copy(cos_dev, cos_host)
         ctx.enqueue_copy(sin_dev, sin_host)
 
-        ctx.enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
+        ctx.enqueue_function[rope_rotate_kernel](
             vec_dev,
             cos_dev,
             sin_dev,
@@ -254,7 +254,7 @@ def test_softcap_kernel_gpu() raises:
         var x_dev = ctx.enqueue_create_buffer[DType.float32](size)
         ctx.enqueue_copy(x_dev, x_host)
 
-        ctx.enqueue_function[softcap_kernel, softcap_kernel](
+        ctx.enqueue_function[softcap_kernel](
             x_dev,
             size,
             Float32(30.0),
@@ -293,7 +293,7 @@ def test_softmax_kernel_gpu() raises:
         ctx.enqueue_copy(x_dev, x_host)
 
         # Use BLOCK_SIZE=32 (smallest power-of-2 >= 3)
-        ctx.enqueue_function[softmax_kernel[32], softmax_kernel[32]](
+        ctx.enqueue_function[softmax_kernel[32]](
             x_dev,
             size,
             grid_dim=1,
@@ -330,7 +330,7 @@ def test_softmax_strided_kernel_gpu() raises:
         ctx.enqueue_copy(x_dev, x_host)
 
         # Use strided variant even for small size to test it
-        ctx.enqueue_function[softmax_strided_kernel[32], softmax_strided_kernel[32]](
+        ctx.enqueue_function[softmax_strided_kernel[32]](
             x_dev,
             size,
             grid_dim=1,
@@ -374,7 +374,7 @@ def test_rms_norm_kernel_gpu() raises:
         ctx.enqueue_copy(x_dev, x_host)
         ctx.enqueue_copy(w_dev, w_host)
 
-        ctx.enqueue_function[rms_norm_kernel[32], rms_norm_kernel[32]](
+        ctx.enqueue_function[rms_norm_kernel[32]](
             out_dev,
             x_dev,
             w_dev,
@@ -421,7 +421,7 @@ def test_vec_mat_mul_kernel_gpu() raises:
         ctx.enqueue_copy(w_dev, w_host)
 
         var grid = ceildiv(out_dim, BLOCK_1D)
-        ctx.enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
+        ctx.enqueue_function[vec_mat_mul_kernel](
             out_dev,
             x_dev,
             w_dev,
@@ -471,7 +471,7 @@ def test_mat_mat_mul_kernel_gpu() raises:
         var grid_x = ceildiv(out_dim, TILE_BN)
         var grid_y = ceildiv(batch, TILE_BM)
         var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
-        ctx.enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
+        ctx.enqueue_function[mat_mat_mul_kernel](
             out_dev,
             x_dev,
             w_dev,
@@ -524,7 +524,7 @@ def test_vec_mat_mul_i8_kernel_gpu() raises:
         ctx.enqueue_copy(scale_dev, scale_host)
 
         var grid = ceildiv(out_dim, BLOCK_1D)
-        ctx.enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
+        ctx.enqueue_function[vec_mat_mul_i8_kernel](
             out_dev,
             x_dev,
             w_dev,
@@ -574,7 +574,7 @@ def test_average_pool_2d_kernel_gpu() raises:
         var out_dev = ctx.enqueue_create_buffer[DType.float32](out_size)
         ctx.enqueue_copy(x_dev, x_host)
 
-        ctx.enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
+        ctx.enqueue_function[average_pool_2d_kernel](
             out_dev,
             x_dev,
             out_h,
@@ -625,7 +625,7 @@ def test_top_k_kernel_gpu() raises:
         var ov_dev = ctx.enqueue_create_buffer[DType.float32](k)
         ctx.enqueue_copy(vals_dev, vals_host)
 
-        ctx.enqueue_function[top_k_kernel, top_k_kernel](
+        ctx.enqueue_function[top_k_kernel](
             vals_dev,
             k,
             size,
@@ -666,7 +666,8 @@ def test_gpu_backend_launch_gelu() raises:
         var out_dev = ctx.enqueue_create_buffer[DType.float32](size)
         ctx.enqueue_copy(x_dev, x_host)
 
-        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](0))  # DUMMY for parsing
+        var ctx_ptr = UnsafePointer(to=ctx)
+        var backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
         backend.gelu(out_dev.unsafe_ptr(), x_dev.unsafe_ptr(), size)
 
         ctx.enqueue_copy(out_host, out_dev)
