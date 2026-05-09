@@ -40,6 +40,9 @@
 
 ## Gotchas & Warnings
 
+- **GCS Configs for E2B-it:** GCS does NOT ship `config.json` for E2B-it. Conversion MUST generate config.json.
+- **E2B-it Sizing:** E2B-it checkpoint is 17GB — disk planning for multi-variant workflows must budget accordingly.
+- **PLE Mapping Resolution:** When a contract is ambiguous from load-time code, read the forward-pass consumer. Tensor shapes used by operations pin the expected layout definitively.
 - **Mojo Pathing:** Ensure `MOJO_PATH` includes `src/mo`.
 - **Hatch/UV:** Use `uv run` to ensure virtualenv consistency.
 - **Model Rebuild Overhead:** Cache runtime descriptors at init; hot-path model rebuild per-call degrades performance.

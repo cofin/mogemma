@@ -23,6 +23,8 @@ def gemma4_31b_config(tmp_path: Path) -> Path:
         "sliding_window_size": 1024,
         "partial_rotary_factor": 0.5,
         "attention_k_eq_v": True,
+        "final_logit_softcapping": 30.0,
+        "attn_logit_softcapping": 50.0,
         "layer_types": ["sliding", "sliding", "full", "sliding"],
     }
     config_path = tmp_path / "config.json"
@@ -68,6 +70,14 @@ class TestParseGemma4Architecture:
         overrides, _ = _parse_gemma4_architecture(gemma4_e2b_config)
         assert overrides["k_eq_v"] == 0
 
+    def test_parses_final_logit_softcapping(self, gemma4_31b_config: Path) -> None:
+        overrides, _ = _parse_gemma4_architecture(gemma4_31b_config)
+        assert overrides["final_logit_softcapping"] == 30.0
+
+    def test_parses_attn_logit_softcapping(self, gemma4_31b_config: Path) -> None:
+        overrides, _ = _parse_gemma4_architecture(gemma4_31b_config)
+        assert overrides["attn_logit_softcapping"] == 50.0
+
     def test_parses_layer_types(self, gemma4_31b_config: Path) -> None:
         _, layer_types = _parse_gemma4_architecture(gemma4_31b_config)
         assert layer_types == [0, 0, 1, 0]  # sliding, sliding, full, sliding
@@ -93,6 +103,13 @@ class TestParseGemma4Architecture:
         assert overrides["partial_rotary_factor"] == 0.5
         assert overrides["k_eq_v"] == 0
         assert layer_types == []
+
+    def test_missing_softcap_fields_are_not_defaulted(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"model_type": "gemma4"}))
+        overrides, _ = _parse_gemma4_architecture(tmp_path)
+        assert "final_logit_softcapping" not in overrides
+        assert "attn_logit_softcapping" not in overrides
 
     def test_sliding_window_alias(self, tmp_path: Path) -> None:
         """Some configs use 'sliding_window' instead of 'sliding_window_size'."""

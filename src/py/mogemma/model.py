@@ -6,7 +6,7 @@ import json
 from collections.abc import AsyncIterator, Generator, Sequence
 from enum import Enum
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -126,6 +126,12 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
     return Gemma4Variant.DENSE_31B
 
 
+def _copy_optional_float_override(overrides: dict[str, int | float], config: dict[str, Any], key: str) -> None:
+    value = config.get(key)
+    if value is not None:
+        overrides[key] = float(value)
+
+
 def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float], list[int]]:
     """Extract Gemma 4 architecture fields from config.json for Mojo init.
 
@@ -152,6 +158,9 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
     # K=V weight sharing (1=enabled, 0=disabled)
     k_eq_v = config.get("attention_k_eq_v", False)
     overrides["k_eq_v"] = 1 if k_eq_v else 0
+
+    _copy_optional_float_override(overrides, config, "final_logit_softcapping")
+    _copy_optional_float_override(overrides, config, "attn_logit_softcapping")
 
     # Layer types: convert ["sliding", "full", ...] to [0, 1, ...]
     layer_types: list[int] = []

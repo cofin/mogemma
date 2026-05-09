@@ -1,0 +1,11 @@
+{
+  "permission": {
+    "edit": "ask",
+    "bash": "ask"
+  },
+  "instructions": [
+    ".agents/product.md",
+    ".agents/tech-stack.md",
+    "AGENTS.md"
+  ]
+}

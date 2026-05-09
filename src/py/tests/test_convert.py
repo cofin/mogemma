@@ -737,6 +737,10 @@ class TestGenerateConfigJson:
 
         return _oracle
 
+    def _assert_softcaps(self, config: dict[str, object]) -> None:
+        assert config["final_logit_softcapping"] == 30.0
+        assert config["attn_logit_softcapping"] == 50.0
+
     def test_base_variant_emits_required_fields(self) -> None:
         shapes = {
             "embedder.input_embedding": (262144, 1536),
@@ -755,6 +759,7 @@ class TestGenerateConfigJson:
         assert config["num_key_value_heads"] == 1
         assert config["head_dim"] == 256
         assert config["intermediate_size"] == 6144
+        self._assert_softcaps(config)
 
     def test_base_variant_is_dense_text(self) -> None:
         shapes = {
@@ -781,6 +786,7 @@ class TestGenerateConfigJson:
 
         assert config["hidden_size_per_layer_input"] == 256
         assert config["vocab_size_per_layer_input"] == 262144
+        self._assert_softcaps(config)
 
     def test_moe_variant_includes_expert_fields(self) -> None:
         shapes = {
@@ -795,6 +801,7 @@ class TestGenerateConfigJson:
 
         assert config["num_local_experts"] == 128
         assert config["moe_intermediate_size"] == 704
+        self._assert_softcaps(config)
 
     def test_passes_project_validate_config_json(self) -> None:
         """Generated config must satisfy `HubManager.validate_config_json`."""

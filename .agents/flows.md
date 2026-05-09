@@ -29,12 +29,12 @@ Each flow has its own detailed spec and plan in its respective folder.
 *Parent PRD for the chapters above. Active while orbax-safetensors-conversion finishes the MoE path.*
 *Link: [./specs/gcs-orbax-migration/prd.md](./specs/gcs-orbax-migration/prd.md)*
 
-## [~] Flow: Orbax→Safetensors Conversion (Chapter 2)
-*In progress. Base / PLE / Vision / MoE Python iterators + sharded writer + config.json synthesis + hub integration + round-trip test all shipped. Remaining: Mojo-side MoE runtime (split into sub-flow) and manual 26B verification.*
+## [!] Flow: Orbax→Safetensors Conversion (Chapter 2)
+*Automated gates passed. Base / PLE / Vision / MoE Python iterators + sharded writer + config.json synthesis + hub integration + round-trip test are shipped; optional E2B live manual verification is deferred until a suitable checkpoint/cache host is available.*
 *Link: [./specs/orbax-safetensors-conversion/spec.md](./specs/orbax-safetensors-conversion/spec.md)*
 
-## [ ] Flow: MoE Mojo Runtime (Chapter 2b)
-*Planning. Mojo-side rewrite to consume the two-branch MoE safetensors contract: struct layout, hydration, GPU packer, router + packed-expert kernels, two-branch forward pass. Blocks live 26B-A4B-it inference.*
+## [!] Flow: MoE Mojo Runtime (Chapter 2b)
+*Mojo-side rewrite is implemented and synthetic Mojo/runtime gates pass. Remaining live 26B-A4B-it end-to-end parity and advisory benchmark gates are blocked on an available converted checkpoint/HF reference run.*
 *Link: [./specs/moe-mojo-runtime/spec.md](./specs/moe-mojo-runtime/spec.md)*
 
 ## [~] Flow: Fix Stale Defaults
@@ -52,3 +52,6 @@ Each flow has its own detailed spec and plan in its respective folder.
 
 ## [ ] Flow: Vision GPU Null-Ptr Fix
 *Queued. Fix the vision-encoder null-pointer rebind in the GPU upload path that was gated out in `657f8ed`. Prerequisite for re-enabling vision on GPU.*
+
+## [~] Flow: Gemma Softcapping
+*Link: [./specs/gemma-softcapping/](./specs/gemma-softcapping/)*

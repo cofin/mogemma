@@ -32,7 +32,7 @@ from std.gpu.primitives.warp import (
 from std.gpu.primitives.block import sum as block_sum, max as block_max
 from std.gpu.memory import AddressSpace, external_memory
 from std.memory import UnsafePointer
-from std.math import sqrt, erf, exp
+from std.math import sqrt, erf, exp, tanh
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +121,17 @@ def rope_rotate_kernel(
         var s = sin_ptr[tid]
         vec_ptr[tid] = x1 * c - x2 * s
         vec_ptr[tid + half_dim] = x2 * c + x1 * s
+
+
+def softcap_kernel(
+    vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+    size: Int,
+    cap: Float32,
+):
+    """GPU kernel: in-place Gemma softcap, one thread per element."""
+    var tid = global_idx.x
+    if tid < size:
+        vec_ptr[tid] = cap * tanh(vec_ptr[tid] / cap)
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +551,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(out_dim, BLOCK_1D)
-            self.ctx[].enqueue_function[vec_mat_mul_kernel, vec_mat_mul_kernel](
+            self.ctx[].enqueue_function[vec_mat_mul_kernel](
                 out_ptr,
                 x_ptr,
                 w_ptr,
@@ -564,7 +575,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(out_dim, BLOCK_1D)
-            self.ctx[].enqueue_function[vec_mat_mul_i8_kernel, vec_mat_mul_i8_kernel](
+            self.ctx[].enqueue_function[vec_mat_mul_i8_kernel](
                 out_ptr,
                 x_ptr,
                 w_ptr,
@@ -591,7 +602,7 @@ struct GPUBackend(ComputeBackend):
             var grid_x = ceildiv(out_dim, TILE_BN)
             var grid_y = ceildiv(batch_size, TILE_BM)
             var shared_bytes = (TILE_BM * TILE_BK + TILE_BK * TILE_BN) * 4
-            self.ctx[].enqueue_function[mat_mat_mul_kernel, mat_mat_mul_kernel](
+            self.ctx[].enqueue_function[mat_mat_mul_kernel](
                 out_ptr,
                 x_ptr,
                 w_ptr,
@@ -622,7 +633,7 @@ struct GPUBackend(ComputeBackend):
             if block <= 1024:
                 # Need to handle different block sizes via templates if we want optimal perf
                 # For brevity in trait impl, we use 1024 and strided kernel.
-                self.ctx[].enqueue_function[rms_norm_kernel[1024], rms_norm_kernel[1024]](
+                self.ctx[].enqueue_function[rms_norm_kernel[1024]](
                     out_ptr,
                     x_ptr,
                     weight_ptr,
@@ -641,7 +652,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             if size <= 1024:
-                self.ctx[].enqueue_function[softmax_strided_kernel[1024], softmax_strided_kernel[1024]](
+                self.ctx[].enqueue_function[softmax_strided_kernel[1024]](
                     vec_ptr,
                     size,
                     grid_dim=1,
@@ -649,6 +660,26 @@ struct GPUBackend(ComputeBackend):
                 )
         except e:
             abort(String("GPU softmax launch failed: ", e))
+
+    def softcap(
+        mut self,
+        vec_ptr: UnsafePointer[Float32, MutAnyOrigin],
+        size: Int,
+        cap: Float32,
+    ):
+        if cap <= 0.0:
+            return
+        try:
+            var grid = ceildiv(size, BLOCK_1D)
+            self.ctx[].enqueue_function[softcap_kernel](
+                vec_ptr,
+                size,
+                cap,
+                grid_dim=grid,
+                block_dim=BLOCK_1D,
+            )
+        except e:
+            abort(String("GPU softcap launch failed: ", e))
 
     def rope_rotate(
         mut self,
@@ -659,7 +690,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var half_dim = head_dim // 2
-            self.ctx[].enqueue_function[rope_rotate_kernel, rope_rotate_kernel](
+            self.ctx[].enqueue_function[rope_rotate_kernel](
                 vec_ptr,
                 cos_ptr,
                 sin_ptr,
@@ -679,7 +710,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(size, BLOCK_1D)
-            self.ctx[].enqueue_function[geglu_kernel, geglu_kernel](
+            self.ctx[].enqueue_function[geglu_kernel](
                 out_ptr,
                 gate_ptr,
                 up_ptr,
@@ -698,7 +729,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(size, BLOCK_1D)
-            self.ctx[].enqueue_function[gelu_kernel, gelu_kernel](
+            self.ctx[].enqueue_function[gelu_kernel](
                 out_ptr,
                 x_ptr,
                 size,
@@ -716,7 +747,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(size, BLOCK_1D)
-            self.ctx[].enqueue_function[copy_kernel, copy_kernel](
+            self.ctx[].enqueue_function[copy_kernel](
                 dst_ptr,
                 src_ptr,
                 size,
@@ -736,7 +767,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var block = optimal_block_size(hidden_size)
-            self.ctx[].enqueue_function[embed_lookup_kernel, embed_lookup_kernel](
+            self.ctx[].enqueue_function[embed_lookup_kernel](
                 out_ptr,
                 embed_table_ptr,
                 token_id,
@@ -757,7 +788,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(size, BLOCK_1D)
-            self.ctx[].enqueue_function[vector_add_kernel, vector_add_kernel](
+            self.ctx[].enqueue_function[vector_add_kernel](
                 out_ptr,
                 a_ptr,
                 b_ptr,
@@ -778,7 +809,7 @@ struct GPUBackend(ComputeBackend):
     ):
         try:
             var grid = ceildiv(size, BLOCK_1D)
-            self.ctx[].enqueue_function[vector_add_scaled_kernel, vector_add_scaled_kernel](
+            self.ctx[].enqueue_function[vector_add_scaled_kernel](
                 out_ptr,
                 a_ptr,
                 b_ptr,
@@ -803,7 +834,7 @@ struct GPUBackend(ComputeBackend):
             var out_h = grid_h // kernel
             var out_w = grid_w // kernel
             var block = optimal_block_size(hidden_size)
-            self.ctx[].enqueue_function[average_pool_2d_kernel, average_pool_2d_kernel](
+            self.ctx[].enqueue_function[average_pool_2d_kernel](
                 out_ptr,
                 x_ptr,
                 out_h,
@@ -826,7 +857,7 @@ struct GPUBackend(ComputeBackend):
         out_values_ptr: UnsafePointer[Float32, MutAnyOrigin],
     ):
         try:
-            self.ctx[].enqueue_function[top_k_kernel, top_k_kernel](
+            self.ctx[].enqueue_function[top_k_kernel](
                 values_ptr,
                 k,
                 size,
@@ -852,7 +883,7 @@ struct GPUBackend(ComputeBackend):
             var block = ceildiv(kv_size, 32) * 32
             if block > 1024:
                 block = 1024
-            self.ctx[].enqueue_function[kv_write_kernel, kv_write_kernel](
+            self.ctx[].enqueue_function[kv_write_kernel](
                 dst_ptr,
                 src_ptr,
                 kv_size,
@@ -882,7 +913,7 @@ struct GPUBackend(ComputeBackend):
             var block = ceildiv(valid_len, 32) * 32
             if block > 256:
                 block = 256
-            self.ctx[].enqueue_function[attention_scores_kernel, attention_scores_kernel](
+            self.ctx[].enqueue_function[attention_scores_kernel](
                 scores_ptr,
                 q_ptr,
                 k_cache_ptr,
@@ -913,7 +944,7 @@ struct GPUBackend(ComputeBackend):
             var block = ceildiv(head_dim, 32) * 32
             if block > 256:
                 block = 256
-            self.ctx[].enqueue_function[attention_value_accum_kernel, attention_value_accum_kernel](
+            self.ctx[].enqueue_function[attention_value_accum_kernel](
                 out_ptr,
                 scores_ptr,
                 v_cache_ptr,

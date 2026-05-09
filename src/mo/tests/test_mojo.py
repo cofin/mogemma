@@ -24,6 +24,7 @@ UNSTABLE_MOJO_TESTS = {"test_layers.mojo"}
         "test_moe_hydration.mojo",
         "test_moe_layers.mojo",
         "test_moe_forward.mojo",
+        "test_softcap.mojo",
         "test_ops.mojo",
         "test_arena.mojo",
         "test_arena_init.mojo",

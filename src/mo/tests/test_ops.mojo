@@ -6,9 +6,12 @@ from mogemma.ops import (
     vec_mat_mul,
     mat_mat_mul,
     softmax,
+    softcap,
     gelu,
     average_pool_2d,
     top_k,
+    CPUBackend,
+    ComputeBackend,
 )
 from std.memory import UnsafePointer
 from std.testing import assert_almost_equal
@@ -168,6 +171,51 @@ def test_softmax() raises:
     _ = x[0]
 
 
+def test_softcap() raises:
+    var x = List[Float32](length=5, fill=0.0)
+    x[0] = -100.0
+    x[1] = -30.0
+    x[2] = 0.0
+    x[3] = 30.0
+    x[4] = 100.0
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    softcap[1](x_ptr, 5, 30.0)
+
+    assert_almost_equal(x[0], -29.9237, atol=1e-3)
+    assert_almost_equal(x[1], -22.8478, atol=1e-3)
+    assert_almost_equal(x[2], 0.0, atol=1e-6)
+    assert_almost_equal(x[3], 22.8478, atol=1e-3)
+    assert_almost_equal(x[4], 29.9237, atol=1e-3)
+
+
+def test_softcap_zero_cap_is_noop() raises:
+    var x = List[Float32](length=2, fill=0.0)
+    x[0] = -100.0
+    x[1] = 100.0
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    softcap[1](x_ptr, 2, 0.0)
+
+    assert_almost_equal(x[0], -100.0, atol=1e-6)
+    assert_almost_equal(x[1], 100.0, atol=1e-6)
+
+
+def test_softcap_default_width_with_tail() raises:
+    var size = 17
+    var x = List[Float32](length=size, fill=1.0)
+    x[0] = -100.0
+    x[15] = 30.0
+    x[16] = 100.0
+
+    var x_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(x.unsafe_ptr()))
+    softcap(x_ptr, size, 30.0)
+
+    assert_almost_equal(x[0], -29.9237, atol=1e-3)
+    assert_almost_equal(x[15], 22.8478, atol=1e-3)
+    assert_almost_equal(x[16], 29.9237, atol=1e-3)
+
+
 def test_gelu() raises:
     # gelu(1.0) = 0.5 * 1.0 * (1 + erf(1/sqrt(2))) ≈ 0.8413
     var x = List[Float32](length=4, fill=1.0)
@@ -280,9 +328,6 @@ def test_top_k() raises:
     _ = vals[0]
 
 
-from mogemma.ops import CPUBackend
-
-
 def test_cpu_backend_rms_norm() raises:
     """CPUBackend.rms_norm matches free function rms_norm."""
     var x = List[Float32](length=4, fill=1.0)
@@ -342,6 +387,15 @@ def test_cpu_backend_geglu() raises:
     _ = up[0]
 
 
+def test_cpu_backend_softcap() raises:
+    var x = List[Float32](length=1, fill=100.0)
+
+    var B = CPUBackend()
+    B.softcap(x.unsafe_ptr(), 1, 30.0)
+
+    assert_almost_equal(x[0], 29.9237, atol=1e-3)
+
+
 def test_cpu_backend_trait_dispatch[B: ComputeBackend](mut backend: B) raises:
     """Verify compile-time trait dispatch with parameterized function."""
     var x = List[Float32](length=4, fill=1.0)
@@ -356,9 +410,6 @@ def test_cpu_backend_trait_dispatch[B: ComputeBackend](mut backend: B) raises:
     _ = w[0]
 
 
-from mogemma.ops import ComputeBackend
-
-
 def main() raises:
     test_rms_norm()
     test_geglu()
@@ -367,6 +418,9 @@ def main() raises:
     test_mat_mat_mul()
     test_mat_mat_mul_i8()
     test_softmax()
+    test_softcap()
+    test_softcap_zero_cap_is_noop()
+    test_softcap_default_width_with_tail()
     test_gelu()
     test_average_pool_2d()
     test_top_k()
@@ -374,6 +428,7 @@ def main() raises:
     test_cpu_backend_vec_mat_mul()
     test_cpu_backend_softmax()
     test_cpu_backend_geglu()
+    test_cpu_backend_softcap()
     var B = CPUBackend()
     test_cpu_backend_trait_dispatch(B)
     print("Mojo math primitive tests passed!")

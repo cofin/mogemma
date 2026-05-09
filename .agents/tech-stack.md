@@ -4,6 +4,7 @@ Authoritative list of tech choices. Changes here must precede
 implementation changes. Cross-reference: `pyproject.toml` is the machine-
 readable source of truth for pins; this doc explains the why.
 
+<!-- truth: start -->
 ## Core languages & runtimes
 
 - **Mojo:** `>=0.26.1a1` (build-time pin in `pyproject.toml`; nightly like
@@ -12,6 +13,7 @@ readable source of truth for pins; this doc explains the why.
   critical kernels and forward-pass code.
 - **Python:** 3.10 target, supported 3.10–3.14, CI-tested 3.10–3.13. Primary
   user-facing interface.
+<!-- truth: end -->
 
 ## Python tooling & quality
 

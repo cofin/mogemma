@@ -691,6 +691,8 @@ def _init_model_impl_mojo(
     var vision_num_heads = 0
     var vision_intermediate_size = 0
     var image_token_id = 0
+    var final_logit_softcapping: Float32 = 0.0
+    var attn_logit_softcapping: Float32 = 0.0
 
     if Int(py=builtins.len(architecture_overrides_obj)) > 0:
         if builtins.bool(architecture_overrides_obj.get("max_seq_len")):
@@ -711,6 +713,8 @@ def _init_model_impl_mojo(
             vision_intermediate_size = Int(py=architecture_overrides_obj["vision_intermediate_size"])
         if builtins.bool(architecture_overrides_obj.get("image_token_id")):
             image_token_id = Int(py=architecture_overrides_obj["image_token_id"])
+        final_logit_softcapping = Float32(py=architecture_overrides_obj.get("final_logit_softcapping", 0.0))
+        attn_logit_softcapping = Float32(py=architecture_overrides_obj.get("attn_logit_softcapping", 0.0))
 
     # PLE config (E2B/E4B)
     var ple_dim = 0
@@ -898,6 +902,8 @@ def _init_model_impl_mojo(
     py_dict["vocab_size"] = vocab_size
     py_dict["window_size"] = window_size
     py_dict["k_eq_v"] = 1 if k_eq_v else 0
+    py_dict["final_logit_softcapping"] = final_logit_softcapping
+    py_dict["attn_logit_softcapping"] = attn_logit_softcapping
     py_dict["step_scratch_len"] = step_scratch_len
     py_dict["embedding_scratch_len"] = emb_scratch_len
     py_dict["runtime"] = std_model
@@ -1087,6 +1093,8 @@ def _run_step[
     moe_model: MoEModelWeights,
     moe_top_k: Int,
     moe_intermediate_size: Int,
+    attn_logit_softcapping: Float32,
+    final_logit_softcapping: Float32,
     mut stage: S,
     mut ctx: C,
     persistent: P,
@@ -1110,6 +1118,8 @@ def _run_step[
             kv_cache,
             rope_tables,
             max_seq_len,
+            attn_logit_softcapping,
+            final_logit_softcapping,
             scratch_ptr,
             stage,
             ctx,
@@ -1134,6 +1144,8 @@ def _run_step[
             rope_tables,
             k_eq_v,
             max_seq_len,
+            attn_logit_softcapping,
+            final_logit_softcapping,
             kv_map_ptr,
             num_kv_sharing,
             scratch_ptr,
@@ -1158,6 +1170,8 @@ def _run_step[
             rope_tables,
             k_eq_v,
             max_seq_len,
+            attn_logit_softcapping,
+            final_logit_softcapping,
             scratch_ptr,
             stage,
             ctx,
@@ -1199,6 +1213,8 @@ def step_mojo(
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     var k_eq_v = Int(py=llm["k_eq_v"]) != 0
+    var final_logit_softcapping = Float32(py=builtins.getattr(llm, "get")("final_logit_softcapping", 0.0))
+    var attn_logit_softcapping = Float32(py=builtins.getattr(llm, "get")("attn_logit_softcapping", 0.0))
 
     # Retrieve KVCache and RoPETables from heap pointers
     var kv_cache_ptr_int = Int(py=llm["_kv_cache_ptr"])
@@ -1302,6 +1318,8 @@ def step_mojo(
                 moe_model,
                 moe_top_k_val,
                 moe_intermediate_size_val,
+                attn_logit_softcapping,
+                final_logit_softcapping,
                 stage_ptr[],
                 ctx_ptr[],
                 persistent_ptr[].get_ptrs(),
@@ -1338,6 +1356,8 @@ def step_mojo(
             moe_model,
             moe_top_k_val,
             moe_intermediate_size_val,
+            attn_logit_softcapping,
+            final_logit_softcapping,
             dummy_stage,
             dummy_ctx,
             dummy_persistent,
@@ -1553,6 +1573,7 @@ def step_with_embedding_mojo(
     Used for injecting vision tokens during prefill.
     """
     var np = Python.import_module("numpy")
+    var builtins = Python.import_module("builtins")
 
     var pos = Int(py=llm["pos"])
     var max_seq_len = Int(py=llm["max_seq_len"])
@@ -1578,6 +1599,8 @@ def step_with_embedding_mojo(
     var num_kv_heads = Int(py=llm["num_kv_heads"])
     var intermediate_size = Int(py=llm["intermediate_size"])
     var k_eq_v = Int(py=llm["k_eq_v"]) != 0
+    var final_logit_softcapping = Float32(py=builtins.getattr(llm, "get")("final_logit_softcapping", 0.0))
+    var attn_logit_softcapping = Float32(py=builtins.getattr(llm, "get")("attn_logit_softcapping", 0.0))
 
     var kv_cache_ptr = UnsafePointer[KVCache, MutExternalOrigin](unsafe_from_address=Int(py=llm["_kv_cache_ptr"]))
     var rope_tables_ptr = UnsafePointer[RoPETables, MutExternalOrigin](
@@ -1626,6 +1649,8 @@ def step_with_embedding_mojo(
                 rope_tables_ptr[],
                 k_eq_v,
                 max_seq_len,
+                attn_logit_softcapping,
+                final_logit_softcapping,
                 gpu_scratch_ptr[].ptr,
                 stage_ptr[],
                 ctx_ptr[],
@@ -1654,6 +1679,8 @@ def step_with_embedding_mojo(
             rope_tables_ptr[],
             k_eq_v,
             max_seq_len,
+            attn_logit_softcapping,
+            final_logit_softcapping,
             scratch_ptr,
             dummy_stage,
             dummy_ctx,
@@ -1691,6 +1718,8 @@ def generate_embeddings_mojo(
     var vocab_size = Int(py=llm["vocab_size"])
     var max_seq_len = Int(py=llm["max_seq_len"])
     var k_eq_v = Int(py=llm["k_eq_v"]) != 0
+    var final_logit_softcapping = Float32(py=builtins.getattr(llm, "get")("final_logit_softcapping", 0.0))
+    var attn_logit_softcapping = Float32(py=builtins.getattr(llm, "get")("attn_logit_softcapping", 0.0))
 
     # Hydrate model weights
     var tensor_pointers_obj = llm["_tensor_pointers"]
@@ -1729,58 +1758,8 @@ def generate_embeddings_mojo(
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
         if use_gpu:
-            comptime if has_usable_gpu():
-                var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
-                )
-                var gpu_backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-                var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
-                )
-                var gpu_scratch_ptr_obj = UnsafePointer[GPUScratch, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
-                )
-                var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"])
-                )
-                var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
-                )
-
-                # Reset GPU KV cache for each sequence
-                gpu_kv_cache_ptr[].reset(ctx_ptr[])
-                ctx_ptr[].sync()
-
-                for t in range(actual_seq_len):
-                    var token_id = Int(py=seq_list[t])
-                    forward_gemma4_step(
-                        gpu_backend,
-                        out_logits_ptr,
-                        token_id,
-                        t,
-                        model,
-                        hidden_size,
-                        num_heads,
-                        num_kv_heads,
-                        head_dim,
-                        intermediate_size,
-                        vocab_size,
-                        gpu_kv_cache_ptr[],
-                        rope_tables_ptr[],
-                        k_eq_v,
-                        max_seq_len,
-                        gpu_scratch_ptr_obj[].ptr,
-                        stage_ptr[],
-                        ctx_ptr[],
-                        persistent_ptr[].get_ptrs(),
-                    )
-
-                    # Download hidden state from GPU scratch for mean-pooling
-                    # norm_out is at scratch_ptr + hidden_size
-                    var gpu_norm_ptr = gpu_scratch_ptr_obj[].ptr + hidden_size
-                    # Download to host via a simple copy (embeddings are small: hidden_size floats)
-                    for i in range(hidden_size):
-                        emb_acc_ptr.store(i, emb_acc_ptr.load(i) + gpu_norm_ptr.load(i))
+            # Current Mojo nightly shared-lib codegen segfaults on this GPU embedding path.
+            raise Error("GPU embedding generation is not available with this Mojo compiler")
         else:
             # Reset CPU KV cache for each sequence
             kv_cache_ptr[].reset()
@@ -1808,6 +1787,8 @@ def generate_embeddings_mojo(
                     rope_tables_ptr[],
                     k_eq_v,
                     max_seq_len,
+                    attn_logit_softcapping,
+                    final_logit_softcapping,
                     scratch_ptr,
                     dummy_stage,
                     dummy_ctx,

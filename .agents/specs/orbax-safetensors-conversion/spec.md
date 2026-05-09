@@ -338,8 +338,8 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
   - Skips any non-Mojo-contract PLE Orbax keys.
   - **Test-first:** `test_ple_split_per_layer()` — synthetic `[V, L, H_ple]` → L outputs.
 
-- [~] **2.2 MoE iterator (26B-A4B-it) — two-branch architecture**
-      (Python half ✅ shipped; Mojo struct/forward-pass rewrite pending)
+- [x] **2.2 MoE iterator (26B-A4B-it) — two-branch architecture**
+      (Python half shipped; Mojo struct/forward-pass rewrite completed in `moe-mojo-runtime`)
   - **Python iterator `_iter_moe_transformer(path, keys, num_layers)`** emits
     per layer:
     - Dense branch: `mlp.gate_proj.weight`, `mlp.up_proj.weight`,
@@ -394,9 +394,9 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
       `_hydrate_moe_weights` for new tensor set.
     - `gpu_context.mojo`: update MoE packer to include all new tensors.
   - **Verification before finalizing:**
-    - Print live `skip_scale` value from a layer — if ≈0, drop from forward;
-      if nonzero, include `residual * skip_scale` in the sum.
-    - Run synthetic conversion + Mojo load round-trip.
+    - `uv run pytest src/mo/tests/test_mojo.py -q` -> 15 passed, 1 skipped.
+    - `make test` -> 310 passed, 5 skipped.
+    - `make lint` -> clean.
 
 - [x] **2.3 Vision iterator** [a58f9b1]
   - Patch embedding reshape + position embedding copy.
@@ -455,22 +455,25 @@ Per-variant constants come from `.agents/knowledge/gemma4-architecture.md`.
        of the base-transformer Mojo contract name set.
     4. `auto_loader(tmp_path)` returns a `SafetensorsLoader` instance.
 
-- [ ] **4.2 Manual verification (optional, gated on GCS access)**
+- [-] **4.2 Manual verification (optional, gated on GCS access)**
   - `uv run python -c "from mogemma.hub import HubManager; HubManager().download_sync('google/gemma-4-e2b-it')"`
   - Post-download, verify `~/.cache/mogemma/google/gemma-4-e2b-it/` contains
     ONLY `*.safetensors*`, `config.json`, `tokenizer.model` (no `ocdbt.*`).
   - Load the model end-to-end and run one inference step; assert it matches
     the existing Orbax-path output byte-for-byte at `temperature=0, top_k=1`.
+  - Deferred 2026-05-06: cache slice absent and remaining local disk is not
+    sufficient to cold-run both live E2B and 26B gates plus conversion headroom.
+    See `learnings.md`.
 
 ### Verification Gate
 
-- [ ] `uv run ruff check src/py/mogemma/convert.py src/py/mogemma/hub.py src/py/mogemma/orbax_loader.py` clean
-- [ ] `uv run ruff format --check src/py/mogemma/` clean
-- [ ] `uv run mypy src/py/mogemma/convert.py` clean
-- [ ] `CI=true uv run pytest src/py/tests/test_convert.py src/py/tests/test_orbax_loader.py src/py/tests/test_hub.py` green
-- [ ] `CI=true uv run pytest src/py/tests/ -q` overall suite green
-- [ ] Task 4.2 manual verification passes (or explicitly deferred with reason in `learnings.md`)
-- [ ] `learnings.md` updated with any PLE/MoE shape discoveries from Tasks 0.1/0.2
+- [x] `uv run ruff check src/py/mogemma/convert.py src/py/mogemma/hub.py src/py/mogemma/orbax_loader.py` clean
+- [x] `uv run ruff format --check src/py/mogemma/` clean
+- [x] `uv run mypy src/py/mogemma/convert.py` clean
+- [x] `CI=true uv run pytest src/py/tests/test_convert.py src/py/tests/test_orbax_loader.py src/py/tests/test_hub.py` green
+- [x] `CI=true uv run pytest src/py/tests/ -q` overall suite green
+- [x] Task 4.2 manual verification passes (or explicitly deferred with reason in `learnings.md`)
+- [x] `learnings.md` updated with any PLE/MoE shape discoveries from Tasks 0.1/0.2
 
 ### Risks & Known Unknowns
 

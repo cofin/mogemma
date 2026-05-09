@@ -556,15 +556,18 @@ branch based on the knowledge-file decisions.
     deterministic-seed random weights, compare Mojo output to
     numpy reference with `||diff||_inf < 1e-5` gate.
 
-- [~] **4.3 Refresh 26B-A4B-it parity after Phase 4.1 + 4.2**
+- [!] **4.3 Refresh 26B-A4B-it parity after Phase 4.1 + 4.2**
   - Layer-0 numpy parity passes [d433fbd]. Full greedy parity pending
     safetensors conversion (Orbax cached, `.part` cleaned).
+  - Blocked 2026-05-06: the real 26B checkpoint cache is absent on this host,
+    so Gate A/Gate B parity still requires a machine with the checkpoint
+    available or enough storage to run the live conversion.
   - Re-run Phase 3.2 Gate B. Must pass before calling the flow done.
 
 ### Verification Gate
 
-- [x] `make test` green (294 passed). [d433fbd]
-- [x] `make lint` clean. [d433fbd]
+- [x] `make test` green (310 passed, 5 skipped). [2026-05-06]
+- [x] `make lint` clean. [2026-05-06]
 - [x] Phase 0.1a result recorded in `.agents/knowledge/gemma4-models.md`. [708d8e0]
 - [x] Phase 0.1b result recorded in `.agents/knowledge/gemma4-models.md`. [708d8e0]
 - [x] Phase 0.1c hypothesis pinned (H-A confirmed from HF source). [708d8e0]
