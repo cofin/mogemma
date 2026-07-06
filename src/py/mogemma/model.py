@@ -92,6 +92,7 @@ class Gemma4Variant(str, Enum):
 
 _GEMMA4_12B_UNSUPPORTED_RUNTIME_MESSAGE = "Gemma 4 12B unified multimodal runtime is recognized but not implemented."
 _AUDIO_UNSUPPORTED_RUNTIME_MESSAGE = "Audio input is recognized but not implemented for this Gemma 4 runtime."
+_ConfigScalar = int | float | str
 
 
 def _resolve_model_path(raw_model_path: str | Path, cache_path: str | Path | None = None) -> Path:
@@ -150,6 +151,71 @@ def _raise_for_unsupported_gemma4_runtime(model_path: Path | None) -> None:
         raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_RUNTIME_MESSAGE)
 
 
+def _gemma4_text_config(config: dict[str, object]) -> dict[str, object]:
+    text_config = config.get("text_config")
+    if isinstance(text_config, dict):
+        return cast("dict[str, object]", text_config)
+    return config
+
+
+def _config_int(value: object) -> int:
+    return int(cast("_ConfigScalar", value))
+
+
+def _config_float(value: object) -> float:
+    return float(cast("_ConfigScalar", value))
+
+
+def _gemma4_full_rope_config(text_config: dict[str, object]) -> dict[str, object]:
+    rope_params = text_config.get("rope_parameters")
+    if not isinstance(rope_params, dict):
+        return {}
+    full_rope = rope_params.get("full_attention")
+    if isinstance(full_rope, dict):
+        return cast("dict[str, object]", full_rope)
+    return {}
+
+
+def _layer_type_to_int(layer_type: object) -> int:
+    return 1 if layer_type in {"full", "full_attention"} else 0
+
+
+def _gemma4_text_overrides(text_config: dict[str, object]) -> dict[str, int]:
+    text_overrides = {
+        "hidden_size": "hidden_size",
+        "intermediate_size": "intermediate_size",
+        "num_hidden_layers": "num_layers",
+        "num_attention_heads": "num_heads",
+        "num_key_value_heads": "num_kv_heads",
+        "num_global_key_value_heads": "num_global_key_value_heads",
+        "head_dim": "head_dim",
+        "global_head_dim": "global_head_dim",
+        "max_position_embeddings": "max_seq_len",
+    }
+    overrides: dict[str, int] = {}
+    for config_key, override_key in text_overrides.items():
+        value = text_config.get(config_key)
+        if value is not None:
+            overrides[override_key] = _config_int(value)
+    return overrides
+
+
+def _gemma4_layer_types(text_config: dict[str, object]) -> list[int]:
+    layer_types_raw = text_config.get("layer_types", [])
+    if not isinstance(layer_types_raw, list):
+        return []
+    return [_layer_type_to_int(layer_type) for layer_type in layer_types_raw]
+
+
+def _token_id_override(config: dict[str, object], canonical_key: str, legacy_key: str) -> int | None:
+    token_id = config.get(canonical_key)
+    if token_id is None:
+        token_id = config.get(legacy_key)
+    if token_id is None:
+        return None
+    return _config_int(token_id)
+
+
 def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float], list[int]]:
     """Extract Gemma 4 architecture fields from config.json for Mojo init.
 
@@ -162,26 +228,27 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
         return {}, []
 
     config = json.loads(config_path.read_text())
+    text_config = _gemma4_text_config(config)
 
     overrides: dict[str, int | float] = {}
 
     # Sliding window size
-    window_size = config.get("sliding_window_size", config.get("sliding_window", 1024))
-    overrides["window_size"] = int(window_size)
+    window_size = text_config.get("sliding_window_size", text_config.get("sliding_window", 1024))
+    overrides["window_size"] = _config_int(window_size)
 
     # Partial rotary factor for full attention layers
-    partial_rotary_factor = config.get("partial_rotary_factor", 0.5)
-    overrides["partial_rotary_factor"] = float(partial_rotary_factor)
+    full_rope = _gemma4_full_rope_config(text_config)
+    partial_rotary_factor = full_rope.get("partial_rotary_factor", text_config.get("partial_rotary_factor", 0.5))
+    overrides["partial_rotary_factor"] = _config_float(partial_rotary_factor)
 
     # K=V weight sharing (1=enabled, 0=disabled)
-    k_eq_v = config.get("attention_k_eq_v", False)
+    k_eq_v = text_config.get("attention_k_eq_v", False)
     overrides["k_eq_v"] = 1 if k_eq_v else 0
 
+    overrides.update(_gemma4_text_overrides(text_config))
+
     # Layer types: convert ["sliding", "full", ...] to [0, 1, ...]
-    layer_types: list[int] = []
-    layer_types_raw = config.get("layer_types", [])
-    if isinstance(layer_types_raw, list):
-        layer_types = [1 if lt == "full" else 0 for lt in layer_types_raw]
+    layer_types = _gemma4_layer_types(text_config)
 
     # Vision config (if present)
     vision_config = config.get("vision_config")
@@ -192,9 +259,9 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
         overrides["vision_intermediate_size"] = int(vision_config.get("intermediate_size", 0))
 
     # Image token ID
-    image_token_index = config.get("image_token_index")
-    if image_token_index is not None:
-        overrides["image_token_id"] = int(image_token_index)
+    image_token_id = _token_id_override(config, "image_token_id", "image_token_index")
+    if image_token_id is not None:
+        overrides["image_token_id"] = image_token_id
 
     # PLE (E2B/E4B)  # noqa: ERA001
     ple_dim = config.get("hidden_size_per_layer_input")
@@ -212,9 +279,9 @@ def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float],
         overrides["kv_sharing_layer_count"] = len(kv_sharing_map)
 
     # Audio token ID
-    audio_token_index = config.get("audio_token_index")
-    if audio_token_index is not None:
-        overrides["audio_token_id"] = int(audio_token_index)
+    audio_token_id = _token_id_override(config, "audio_token_id", "audio_token_index")
+    if audio_token_id is not None:
+        overrides["audio_token_id"] = audio_token_id
 
     # MoE
     num_experts = config.get("num_local_experts", config.get("num_experts", 0))

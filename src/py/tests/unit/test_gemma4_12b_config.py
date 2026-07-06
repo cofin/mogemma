@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mogemma.model import Gemma4Variant, _detect_gemma4_variant, _parse_gemma4_architecture
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 GEMMA4_12B_CONFIG = {
