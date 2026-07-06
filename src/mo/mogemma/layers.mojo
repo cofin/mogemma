@@ -87,8 +87,15 @@ def forward_sliding_attention[
     Uses ring buffer KV cache, theta=10K RoPE with full head_dim rotation,
     and attends only within the sliding window.
     """
-    var q_size = num_heads * head_dim
-    var kv_size = num_kv_heads * head_dim
+    var layer_head_dim = kv_cache.get_layer_head_dim(layer_idx)
+    var q_size = weights.q_proj.shape_0
+    if q_size == 0:
+        q_size = num_heads * layer_head_dim
+    var kv_size = kv_cache.get_layer_kv_stride(layer_idx)
+    if kv_size == 0:
+        kv_size = num_kv_heads * layer_head_dim
+    var layer_num_heads = q_size // layer_head_dim
+    var layer_num_kv_heads = kv_size // layer_head_dim
     var q_ptr = scratch_ptr
     var k_ptr = scratch_ptr + q_size
     var v_ptr = scratch_ptr + q_size + kv_size
@@ -104,21 +111,21 @@ def forward_sliding_attention[
 
     # 1b. Per-head QK norms
     if weights.q_norm.ptr != 0:
-        for h in range(num_heads):
+        for h in range(layer_num_heads):
             backend.rms_norm(
-                q_ptr + h * head_dim,
-                q_ptr + h * head_dim,
+                q_ptr + h * layer_head_dim,
+                q_ptr + h * layer_head_dim,
                 weights.q_norm.data_ptr(),
-                head_dim,
+                layer_head_dim,
                 1e-6,
             )
     if weights.k_norm.ptr != 0:
-        for h in range(num_kv_heads):
+        for h in range(layer_num_kv_heads):
             backend.rms_norm(
-                k_ptr + h * head_dim,
-                k_ptr + h * head_dim,
+                k_ptr + h * layer_head_dim,
+                k_ptr + h * layer_head_dim,
                 weights.k_norm.data_ptr(),
-                head_dim,
+                layer_head_dim,
                 1e-6,
             )
 
@@ -126,10 +133,10 @@ def forward_sliding_attention[
     var sliding_freqs = rope_tables.get_sliding_freqs(pos)
     var cos_ptr = sliding_freqs.first
     var sin_ptr = sliding_freqs.second
-    for h in range(num_heads):
-        backend.rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
-    for h in range(num_kv_heads):
-        backend.rope_rotate(k_ptr + h * head_dim, cos_ptr, sin_ptr, head_dim)
+    for h in range(layer_num_heads):
+        backend.rope_rotate(q_ptr + h * layer_head_dim, cos_ptr, sin_ptr, layer_head_dim)
+    for h in range(layer_num_kv_heads):
+        backend.rope_rotate(k_ptr + h * layer_head_dim, cos_ptr, sin_ptr, layer_head_dim)
 
     # 3. Write K, V to ring buffer
     var layer_offset = kv_cache.get_layer_offset(layer_idx)
@@ -159,7 +166,7 @@ def forward_sliding_attention[
     var layer_k_ptr = kv_cache.get_k_ptr() + layer_offset
     var layer_v_ptr = kv_cache.get_v_ptr() + layer_offset
 
-    var scale = 1.0 / sqrt(Float32(head_dim))
+    var scale = 1.0 / sqrt(Float32(layer_head_dim))
     var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
     var scores_ptr = attn_out_ptr + q_size
 
@@ -167,24 +174,24 @@ def forward_sliding_attention[
         scores_ptr,
         q_ptr,
         layer_k_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
+        layer_num_heads,
+        layer_num_kv_heads,
+        layer_head_dim,
         valid_len,
         kv_size,
         scale,
     )
 
-    for h in range(num_heads):
+    for h in range(layer_num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
 
     backend.attention_value_accum(
         attn_out_ptr,
         scores_ptr,
         layer_v_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
+        layer_num_heads,
+        layer_num_kv_heads,
+        layer_head_dim,
         valid_len,
         kv_size,
     )
@@ -218,8 +225,15 @@ def forward_full_attention[
     Uses linear KV cache, theta=1M RoPE with partial head_dim rotation,
     and attends to all past positions (standard causal).
     """
-    var q_size = num_heads * head_dim
-    var kv_size = num_kv_heads * head_dim
+    var layer_head_dim = kv_cache.get_layer_head_dim(layer_idx)
+    var q_size = weights.q_proj.shape_0
+    if q_size == 0:
+        q_size = num_heads * layer_head_dim
+    var kv_size = kv_cache.get_layer_kv_stride(layer_idx)
+    if kv_size == 0:
+        kv_size = num_kv_heads * layer_head_dim
+    var layer_num_heads = q_size // layer_head_dim
+    var layer_num_kv_heads = kv_size // layer_head_dim
     var q_ptr = scratch_ptr
     var k_ptr = scratch_ptr + q_size
     var v_ptr = scratch_ptr + q_size + kv_size
@@ -234,34 +248,34 @@ def forward_full_attention[
 
     # 1b. Per-head QK norms
     if weights.q_norm.ptr != 0:
-        for h in range(num_heads):
+        for h in range(layer_num_heads):
             backend.rms_norm(
-                q_ptr + h * head_dim,
-                q_ptr + h * head_dim,
+                q_ptr + h * layer_head_dim,
+                q_ptr + h * layer_head_dim,
                 weights.q_norm.data_ptr(),
-                head_dim,
+                layer_head_dim,
                 1e-6,
             )
     if weights.k_norm.ptr != 0:
-        for h in range(num_kv_heads):
+        for h in range(layer_num_kv_heads):
             backend.rms_norm(
-                k_ptr + h * head_dim,
-                k_ptr + h * head_dim,
+                k_ptr + h * layer_head_dim,
+                k_ptr + h * layer_head_dim,
                 weights.k_norm.data_ptr(),
-                head_dim,
+                layer_head_dim,
                 1e-6,
             )
 
     # 2. Apply RoPE (full: theta=1M, partial rotation on first rotary_dim dims)
-    var rotary_dim = rope_tables.rotary_dim
+    var rotary_dim = rope_tables.full_rotary_dim
     var full_freqs = rope_tables.get_full_freqs(pos)
     var cos_ptr = full_freqs.first
     var sin_ptr = full_freqs.second
-    for h in range(num_heads):
+    for h in range(layer_num_heads):
         # Only rotate first rotary_dim dimensions of each head
-        backend.rope_rotate(q_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
-    for h in range(num_kv_heads):
-        backend.rope_rotate(k_ptr + h * head_dim, cos_ptr, sin_ptr, rotary_dim)
+        backend.rope_rotate(q_ptr + h * layer_head_dim, cos_ptr, sin_ptr, rotary_dim)
+    for h in range(layer_num_kv_heads):
+        backend.rope_rotate(k_ptr + h * layer_head_dim, cos_ptr, sin_ptr, rotary_dim)
 
     # 3. Write K, V to linear cache
     var layer_offset = kv_cache.get_layer_offset(layer_idx)
@@ -290,7 +304,7 @@ def forward_full_attention[
     var layer_k_ptr = kv_cache.get_k_ptr() + layer_offset
     var layer_v_ptr = kv_cache.get_v_ptr() + layer_offset
 
-    var scale = 1.0 / sqrt(Float32(head_dim))
+    var scale = 1.0 / sqrt(Float32(layer_head_dim))
     var attn_out_ptr = scratch_ptr + q_size + kv_size + kv_size
     var scores_ptr = attn_out_ptr + q_size
 
@@ -298,24 +312,24 @@ def forward_full_attention[
         scores_ptr,
         q_ptr,
         layer_k_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
+        layer_num_heads,
+        layer_num_kv_heads,
+        layer_head_dim,
         valid_len,
         kv_size,
         scale,
     )
 
-    for h in range(num_heads):
+    for h in range(layer_num_heads):
         backend.softmax(scores_ptr + h * valid_len, valid_len)
 
     backend.attention_value_accum(
         attn_out_ptr,
         scores_ptr,
         layer_v_ptr,
-        num_heads,
-        num_kv_heads,
-        head_dim,
+        layer_num_heads,
+        layer_num_kv_heads,
+        layer_head_dim,
         valid_len,
         kv_size,
     )

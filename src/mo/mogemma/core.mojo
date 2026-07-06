@@ -690,12 +690,21 @@ def _init_model_impl_mojo(
     var vision_num_heads = 0
     var vision_intermediate_size = 0
     var image_token_id = 0
+    var global_head_dim = head_dim
+    var num_global_kv_heads = num_kv_heads
 
     if Int(py=builtins.len(architecture_overrides_obj)) > 0:
+        if builtins.bool(architecture_overrides_obj.get("head_dim")):
+            head_dim = Int(py=architecture_overrides_obj["head_dim"])
+            global_head_dim = head_dim
         if builtins.bool(architecture_overrides_obj.get("max_seq_len")):
             max_seq_len = Int(py=architecture_overrides_obj["max_seq_len"])
         if builtins.bool(architecture_overrides_obj.get("window_size")):
             window_size = Int(py=architecture_overrides_obj["window_size"])
+        if builtins.bool(architecture_overrides_obj.get("global_head_dim")):
+            global_head_dim = Int(py=architecture_overrides_obj["global_head_dim"])
+        if builtins.bool(architecture_overrides_obj.get("num_global_key_value_heads")):
+            num_global_kv_heads = Int(py=architecture_overrides_obj["num_global_key_value_heads"])
         if builtins.bool(architecture_overrides_obj.get("partial_rotary_factor")):
             partial_rotary_factor = Float32(py=architecture_overrides_obj["partial_rotary_factor"])
         if builtins.bool(architecture_overrides_obj.get("k_eq_v")):
@@ -756,9 +765,31 @@ def _init_model_impl_mojo(
             for i in range(num_layers):
                 layer_types_list[i] = UInt8(Int(py=lt_obj[i]))
 
+    var layer_head_dims_np = np.zeros(num_layers, dtype=np.int64)
+    var layer_kv_heads_np = np.zeros(num_layers, dtype=np.int64)
+    var layer_kv_strides_np = np.zeros(num_layers, dtype=np.int64)
+    var has_variable_head_dims = False
+    for i in range(num_layers):
+        var layer_head_dim = head_dim
+        var layer_kv_heads = num_kv_heads
+        if layer_types_list[i] == LAYER_TYPE_FULL:
+            layer_head_dim = global_head_dim
+            layer_kv_heads = num_global_kv_heads
+        if layer_head_dim != head_dim or layer_kv_heads != num_kv_heads:
+            has_variable_head_dims = True
+        layer_head_dims_np[i] = layer_head_dim
+        layer_kv_heads_np[i] = layer_kv_heads
+        layer_kv_strides_np[i] = layer_head_dim * layer_kv_heads
+
     # Create KVCache
     var layer_types_ptr = UnsafePointer[UInt8, MutExternalOrigin](
         unsafe_from_address=Int(layer_types_list.unsafe_ptr())
+    )
+    var layer_head_dims_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(py=layer_head_dims_np.__array_interface__["data"][0])
+    )
+    var layer_kv_heads_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(py=layer_kv_heads_np.__array_interface__["data"][0])
     )
     var kv_cache = KVCache(
         num_layers,
@@ -767,11 +798,14 @@ def _init_model_impl_mojo(
         window_size,
         max_seq_len,
         layer_types_ptr,
+        layer_head_dims_ptr,
+        layer_kv_heads_ptr,
     )
 
     # Create RoPETables
     var rope_tables = RoPETables(
         head_dim,
+        global_head_dim,
         partial_rotary_factor,
         window_size,
         max_seq_len,
@@ -787,6 +821,12 @@ def _init_model_impl_mojo(
     py_dict["_rope_tables_ptr"] = Int(rope_tables_ptr)
 
     _ = layer_types_list
+    py_dict["global_head_dim"] = global_head_dim
+    py_dict["num_global_kv_heads"] = num_global_kv_heads
+    py_dict["layer_head_dims"] = layer_head_dims_np
+    py_dict["layer_kv_strides"] = layer_kv_strides_np
+    py_dict["_layer_kv_heads"] = layer_kv_heads_np
+    py_dict["has_variable_head_dims"] = 1 if has_variable_head_dims else 0
 
     # Build vision weights if vision layers are present
     py_dict["num_vision_layers"] = num_vision_layers
@@ -1051,6 +1091,8 @@ def init_model_with_options_mojo(
     var builtins = Python.import_module("builtins")
     var backend = device_selection_obj.get("backend")
     if builtins.bool(backend) and String(py=backend) == "gpu":
+        if Int(py=llm.get("has_variable_head_dims", 0)) != 0:
+            raise Error("GPU runtime for Gemma 4 12B variable-head attention is not implemented")
         _init_gpu_resources(llm)
     else:
         llm["_gpu_initialized"] = 0

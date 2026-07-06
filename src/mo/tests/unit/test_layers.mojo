@@ -95,10 +95,27 @@ def test_forward_sliding_attention() raises:
     # Create a 1-layer KVCache (all sliding)
     var layer_types = List[UInt8](length=1, fill=UInt8(LAYER_TYPE_SLIDING))
     var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types.unsafe_ptr()))
-    var kv_cache = KVCache(1, num_kv_heads, head_dim, window_size, max_context, lt_ptr)
+    var layer_head_dims = List[Int64](length=1, fill=Int64(head_dim))
+    var layer_kv_heads = List[Int64](length=1, fill=Int64(num_kv_heads))
+    var layer_head_dims_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(layer_head_dims.unsafe_ptr())
+    )
+    var layer_kv_heads_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(layer_kv_heads.unsafe_ptr())
+    )
+    var kv_cache = KVCache(
+        1,
+        num_kv_heads,
+        head_dim,
+        window_size,
+        max_context,
+        lt_ptr,
+        layer_head_dims_ptr,
+        layer_kv_heads_ptr,
+    )
 
     # Create RoPETables
-    var rope_tables = RoPETables(head_dim, 1.0, window_size, max_context)
+    var rope_tables = RoPETables(head_dim, head_dim, 1.0, window_size, max_context)
 
     var x = alloc_ones(hidden_size)
     var out = alloc_zeros(hidden_size)
@@ -137,6 +154,8 @@ def test_forward_sliding_attention() raises:
     _ = out[0]
     _ = scratch[0]
     _ = layer_types
+    _ = layer_head_dims
+    _ = layer_kv_heads
 
 
 def test_forward_full_attention() raises:
@@ -161,10 +180,27 @@ def test_forward_full_attention() raises:
     # Create a 1-layer KVCache (all full)
     var layer_types = List[UInt8](length=1, fill=UInt8(LAYER_TYPE_FULL))
     var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types.unsafe_ptr()))
-    var kv_cache = KVCache(1, num_kv_heads, head_dim, window_size, max_context, lt_ptr)
+    var layer_head_dims = List[Int64](length=1, fill=Int64(head_dim))
+    var layer_kv_heads = List[Int64](length=1, fill=Int64(num_kv_heads))
+    var layer_head_dims_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(layer_head_dims.unsafe_ptr())
+    )
+    var layer_kv_heads_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(layer_kv_heads.unsafe_ptr())
+    )
+    var kv_cache = KVCache(
+        1,
+        num_kv_heads,
+        head_dim,
+        window_size,
+        max_context,
+        lt_ptr,
+        layer_head_dims_ptr,
+        layer_kv_heads_ptr,
+    )
 
     # Create RoPETables with partial rotation
-    var rope_tables = RoPETables(head_dim, 0.5, window_size, max_context)
+    var rope_tables = RoPETables(head_dim, head_dim, 0.5, window_size, max_context)
 
     var x = alloc_ones(hidden_size)
     var out = alloc_zeros(hidden_size)
@@ -204,6 +240,8 @@ def test_forward_full_attention() raises:
     _ = out[0]
     _ = scratch[0]
     _ = layer_types
+    _ = layer_head_dims
+    _ = layer_kv_heads
 
 
 def main() raises:

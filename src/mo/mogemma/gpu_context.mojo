@@ -430,6 +430,14 @@ struct GPUKVCache(KVCacheTrait, Movable):
         return self.layer_offsets[layer]
 
     @always_inline
+    def get_layer_head_dim(self, layer: Int) -> Int:
+        return self.head_dim
+
+    @always_inline
+    def get_layer_kv_stride(self, layer: Int) -> Int:
+        return self.num_kv_heads * self.head_dim
+
+    @always_inline
     def get_window_size(self) -> Int:
         return self.window_size
 

@@ -34,6 +34,12 @@ trait KVCacheTrait:
     def get_layer_offset(self, layer: Int) -> Int:
         ...
 
+    def get_layer_head_dim(self, layer: Int) -> Int:
+        ...
+
+    def get_layer_kv_stride(self, layer: Int) -> Int:
+        ...
+
     def get_window_size(self) -> Int:
         ...
 
@@ -422,6 +428,9 @@ struct KVCache(KVCacheTrait, Movable):
     var layer_types: List[UInt8]  # LAYER_TYPE_SLIDING or LAYER_TYPE_FULL per layer
     var layer_cache_sizes: List[Int]  # cache slot count per layer
     var layer_offsets: List[Int]  # byte offset (in Float32 elements) into arena per layer
+    var layer_head_dims: List[Int]
+    var layer_kv_strides: List[Int]
+    var max_head_dim: Int
 
     # Contiguous arena storage
     var k_cache: List[Float32]
@@ -440,6 +449,14 @@ struct KVCache(KVCacheTrait, Movable):
     @always_inline
     def get_layer_offset(self, layer: Int) -> Int:
         return self.layer_offsets[layer]
+
+    @always_inline
+    def get_layer_head_dim(self, layer: Int) -> Int:
+        return self.layer_head_dims[layer]
+
+    @always_inline
+    def get_layer_kv_stride(self, layer: Int) -> Int:
+        return self.layer_kv_strides[layer]
 
     @always_inline
     def get_window_size(self) -> Int:
@@ -461,23 +478,34 @@ struct KVCache(KVCacheTrait, Movable):
         window_size: Int,
         max_context_len: Int,
         layer_types_ptr: UnsafePointer[UInt8, MutExternalOrigin],
+        layer_head_dims_ptr: UnsafePointer[Int64, MutExternalOrigin],
+        layer_kv_heads_ptr: UnsafePointer[Int64, MutExternalOrigin],
     ):
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
         self.head_dim = head_dim
         self.window_size = window_size
         self.max_context_len = max_context_len
+        self.max_head_dim = head_dim
 
         # Build per-layer metadata and compute offsets
         self.layer_types = List[UInt8](length=num_layers, fill=0)
         self.layer_cache_sizes = List[Int](length=num_layers, fill=0)
         self.layer_offsets = List[Int](length=num_layers, fill=0)
+        self.layer_head_dims = List[Int](length=num_layers, fill=head_dim)
+        self.layer_kv_strides = List[Int](length=num_layers, fill=num_kv_heads * head_dim)
 
-        var kv_stride = num_kv_heads * head_dim
         var total_elements: Int = 0
         for i in range(num_layers):
             var lt = layer_types_ptr.load(i)
+            var layer_head_dim = Int(layer_head_dims_ptr.load(i))
+            var layer_kv_heads = Int(layer_kv_heads_ptr.load(i))
+            var kv_stride = layer_kv_heads * layer_head_dim
             self.layer_types[i] = lt
+            self.layer_head_dims[i] = layer_head_dim
+            self.layer_kv_strides[i] = kv_stride
+            if layer_head_dim > self.max_head_dim:
+                self.max_head_dim = layer_head_dim
             var cache_size: Int
             if lt == LAYER_TYPE_FULL:
                 cache_size = max_context_len
@@ -506,7 +534,7 @@ struct KVCache(KVCacheTrait, Movable):
         For sliding layers, writes at `pos % window_size` (ring buffer).
         For full layers, writes at the linear position.
         """
-        var kv_stride = self.num_kv_heads * self.head_dim
+        var kv_stride = self.layer_kv_strides[layer]
         var cache_size = self.layer_cache_sizes[layer]
         var write_pos: Int
         if self.layer_types[layer] == LAYER_TYPE_FULL:
@@ -557,7 +585,7 @@ struct KVCache(KVCacheTrait, Movable):
         if self.num_layers == 0:
             return 0
         var last = self.num_layers - 1
-        var kv_stride = self.num_kv_heads * self.head_dim
+        var kv_stride = self.layer_kv_strides[last]
         return self.layer_offsets[last] + self.layer_cache_sizes[last] * kv_stride
 
 
@@ -570,15 +598,18 @@ struct RoPETables(Movable):
     """
 
     var head_dim: Int
-    var rotary_dim: Int  # dimensions that get RoPE on full layers (head_dim * partial_rotary_factor)
+    var rotary_dim: Int  # backwards-compatible alias for full_rotary_dim
+    var sliding_head_dim: Int
+    var full_head_dim: Int
+    var full_rotary_dim: Int
 
-    # Sliding: [window_size, head_dim] — full rotation, theta=10K
+    # Sliding: [window_size, sliding_head_dim] — full rotation, theta=10K
     var sliding_cos: List[Float32]
     var sliding_sin: List[Float32]
     var sliding_cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
     var sliding_sin_ptr: UnsafePointer[Float32, MutExternalOrigin]
 
-    # Full: [max_context_len, rotary_dim] — partial rotation, theta=1M
+    # Full: [max_context_len, full_rotary_dim] — partial rotation, theta=1M
     var full_cos: List[Float32]
     var full_sin: List[Float32]
     var full_cos_ptr: UnsafePointer[Float32, MutExternalOrigin]
@@ -586,26 +617,30 @@ struct RoPETables(Movable):
 
     def __init__(
         out self,
-        head_dim: Int,
+        sliding_head_dim: Int,
+        full_head_dim: Int,
         partial_rotary_factor: Float32,
         window_size: Int,
         max_context_len: Int,
         theta_sliding: Float32 = 10000.0,
         theta_full: Float32 = 1000000.0,
     ):
-        self.head_dim = head_dim
+        self.head_dim = sliding_head_dim
+        self.sliding_head_dim = sliding_head_dim
+        self.full_head_dim = full_head_dim
         # Round rotary_dim to nearest even number
-        var raw_rotary = Int(Float32(head_dim) * partial_rotary_factor)
-        self.rotary_dim = (raw_rotary // 2) * 2  # ensure even
+        var raw_rotary = Int(Float32(full_head_dim) * partial_rotary_factor)
+        self.full_rotary_dim = (raw_rotary // 2) * 2  # ensure even
+        self.rotary_dim = self.full_rotary_dim
 
         # --- Sliding tables: theta=10K, full head_dim rotation ---
-        var sliding_half = head_dim // 2
+        var sliding_half = sliding_head_dim // 2
         var sliding_len = window_size * sliding_half
         self.sliding_cos = List[Float32](length=sliding_len, fill=0.0)
         self.sliding_sin = List[Float32](length=sliding_len, fill=0.0)
         for t in range(window_size):
             for d in range(sliding_half):
-                var exp = Float32(d * 2) / Float32(head_dim)
+                var exp = Float32(d * 2) / Float32(sliding_head_dim)
                 var inv_freq = 1.0 / (theta_sliding**exp)
                 var freq = Float32(t) * inv_freq
                 self.sliding_cos[t * sliding_half + d] = cos(freq)
@@ -618,13 +653,13 @@ struct RoPETables(Movable):
         )
 
         # --- Full tables: theta=1M, rotary_dim rotation ---
-        var full_half = self.rotary_dim // 2
+        var full_half = self.full_rotary_dim // 2
         var full_len = max_context_len * full_half
         self.full_cos = List[Float32](length=full_len, fill=0.0)
         self.full_sin = List[Float32](length=full_len, fill=0.0)
         for t in range(max_context_len):
             for d in range(full_half):
-                var exp = Float32(d * 2) / Float32(self.rotary_dim)
+                var exp = Float32(d * 2) / Float32(self.full_rotary_dim)
                 var inv_freq = 1.0 / (theta_full**exp)
                 var freq = Float32(t) * inv_freq
                 self.full_cos[t * full_half + d] = cos(freq)
@@ -642,7 +677,7 @@ struct RoPETables(Movable):
 
         Position is taken mod the table size for ring buffer compatibility.
         """
-        var half = self.head_dim // 2
+        var half = self.sliding_head_dim // 2
         var table_pos = pos % (len(self.sliding_cos) // half)
         var offset = table_pos * half
         return PtrPair(self.sliding_cos_ptr + offset, self.sliding_sin_ptr + offset)
@@ -650,6 +685,6 @@ struct RoPETables(Movable):
     @always_inline
     def get_full_freqs(self, pos: Int) -> PtrPair:
         """Returns (cos_ptr, sin_ptr) for full-layer RoPE at given position."""
-        var half = self.rotary_dim // 2
+        var half = self.full_rotary_dim // 2
         var offset = pos * half
         return PtrPair(self.full_cos_ptr + offset, self.full_sin_ptr + offset)

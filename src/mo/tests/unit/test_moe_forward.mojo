@@ -123,6 +123,8 @@ def test_forward_moe_layer_matches_reference() raises:
     weights.moe_skip_scale = TensorInfo(Int(layer_scalar_buf.unsafe_ptr()), 1, 1)
 
     var layer_types = List[UInt8](length=1, fill=UInt8(LAYER_TYPE_SLIDING))
+    var layer_head_dims = List[Int64](length=1, fill=2)
+    var layer_kv_heads = List[Int64](length=1, fill=1)
     var kv_cache = KVCache(
         1,
         1,
@@ -130,8 +132,10 @@ def test_forward_moe_layer_matches_reference() raises:
         4,
         4,
         UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types.unsafe_ptr())),
+        UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(layer_head_dims.unsafe_ptr())),
+        UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(layer_kv_heads.unsafe_ptr())),
     )
-    var rope_tables = RoPETables(2, 1.0, 4, 4)
+    var rope_tables = RoPETables(2, 2, 1.0, 4, 4)
     var backend = CPUBackend()
     var dummy_stage = 0
     var dummy_ctx = 0
@@ -256,6 +260,8 @@ def test_run_step_dispatches_to_moe_model() raises:
     var logits = _zeros(2)
     var scratch = _zeros(16)
     var layer_types = List[UInt8](length=1, fill=UInt8(LAYER_TYPE_SLIDING))
+    var layer_head_dims = List[Int64](length=1, fill=2)
+    var layer_kv_heads = List[Int64](length=1, fill=1)
     var kv_cache = KVCache(
         0,
         1,
@@ -263,8 +269,10 @@ def test_run_step_dispatches_to_moe_model() raises:
         4,
         4,
         UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types.unsafe_ptr())),
+        UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(layer_head_dims.unsafe_ptr())),
+        UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(layer_kv_heads.unsafe_ptr())),
     )
-    var rope_tables = RoPETables(2, 1.0, 4, 4)
+    var rope_tables = RoPETables(2, 2, 1.0, 4, 4)
     var kv_map = List[Int64](length=1, fill=0)
     var backend = CPUBackend()
     var dummy_stage = 0

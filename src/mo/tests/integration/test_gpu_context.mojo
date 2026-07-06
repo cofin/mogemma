@@ -229,9 +229,17 @@ def test_gpu_kv_cache() raises:
         layer_types[0] = LAYER_TYPE_SLIDING
         layer_types[1] = LAYER_TYPE_FULL
         var lt_ptr = UnsafePointer[UInt8, MutExternalOrigin](unsafe_from_address=Int(layer_types.unsafe_ptr()))
+        var layer_head_dims = List[Int64](length=2, fill=32)
+        var layer_kv_heads = List[Int64](length=2, fill=4)
+        var layer_head_dims_ptr = UnsafePointer[Int64, MutExternalOrigin](
+            unsafe_from_address=Int(layer_head_dims.unsafe_ptr())
+        )
+        var layer_kv_heads_ptr = UnsafePointer[Int64, MutExternalOrigin](
+            unsafe_from_address=Int(layer_kv_heads.unsafe_ptr())
+        )
 
         # Build CPU KVCache for reference
-        var cpu_cache = KVCache(2, 4, 32, 512, 4096, lt_ptr)
+        var cpu_cache = KVCache(2, 4, 32, 512, 4096, lt_ptr, layer_head_dims_ptr, layer_kv_heads_ptr)
         var expected_total = cpu_cache.total_elements()
 
         # Build GPUKVCache
