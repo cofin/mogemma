@@ -1,6 +1,6 @@
 # Gemma 4 model architectures
 
-Reference for the four supported variants and their architectural differences.
+Reference for the official Gemma 4 variants and their architectural differences.
 Tensor-name details and shape contracts live in component files; this doc is
 the conceptual map.
 
@@ -10,8 +10,14 @@ the conceptual map.
 |---|---|---|---|---|---|
 | **E2B** (`DENSE_E2B`) | ~2B | 2B | 128K | text + image + audio | Dense, PLE, double-wide MLP (4x) |
 | **E4B** (`DENSE_E4B`) | ~4B | 4B | 128K | text + image + audio | Dense, PLE, standard MLP (8x) |
+| **12B** (`DENSE_12B_UNIFIED`) | 12B | 12B | 256K | text + image + audio | Dense unified encoder-free multimodal architecture; local CPU text runtime supported, unified image/audio gated |
 | **31B** (`DENSE_31B`) | 31B | 31B | 256K | text + image | Dense, no PLE |
 | **26B-A4B** (`MOE_26B_A4B`) | 26B | ~4B | 256K | text + image | MoE (128 experts, top-8) + dense branch |
+
+Runtime support is tracked separately from official model status in
+`src/py/mogemma/model_support.py`. A model appearing in this table means it is
+an official Gemma 4 architecture, not that every modality is implemented in the
+local Mojo runtime.
 
 ## Core architecture (all variants)
 
@@ -108,6 +114,27 @@ Inspect live checkpoint value before wiring into Mojo forward.
 - Reuses vision transformer structure.
 - Mel spectrograms computed in Python (`audio.py`), passed into FFI as float32 tensors.
 - Audio/image/video special tokens: IDs 258880–258884.
+- Current runtime status: audio input is recognized but deliberately rejected.
+  `process_audio_mojo()` raises a clear unsupported-runtime error instead of
+  appending zero embeddings.
+
+## 12B unified multimodal architecture
+
+- The official 12B release uses `model_type = "gemma4_unified"` with
+  `architectures = ["Gemma4UnifiedForConditionalGeneration"]` and nested
+  `text_config.model_type = "gemma4_unified_text"`.
+- It is not the same shape as the existing E2B/E4B/31B split-encoder runtime.
+  Image patches and audio frames are fed through a unified encoder-free model
+  path, so the existing `vision_config`/`audio` side-tower assumptions cannot
+  simply be reused.
+- Mogemma recognizes this architecture in `_detect_gemma4_variant()` and
+  supports local-safetensors CPU text initialization after the dedicated 12B
+  config and variable-head runtime contracts pass.
+- `google/gemma-4-12B-it` is not listed in `KNOWN_GCS_MODELS` until a live GCS
+  probe proves checkpoint availability. Remote download and Orbax conversion
+  remain gated without a validated 12B tensor inventory.
+- Unified image/audio inputs and GPU variable-head attention are explicitly
+  rejected until follow-up runtime work lands.
 
 ## KV cache
 

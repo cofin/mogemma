@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 Variant = Literal["base", "ple", "moe"]
 
 _LAYER_KEY_RE = re.compile(r"^layer_(\d+)\.")
+_UNIFIED_12B_ORBAX_PREFIXES = ("unified_encoder.",)
+_UNIFIED_12B_ORBAX_MESSAGE = "Gemma 4 12B unified Orbax conversion requires a validated tensor inventory"
 
 
 def _variant_from_keys(keys: list[str]) -> Variant:
@@ -42,8 +44,12 @@ def _variant_from_keys(keys: list[str]) -> Variant:
     Detection rules:
     - ``moe`` if any ``router_logits`` tensor is present (takes priority).
     - ``ple`` if ``embedder.per_layer_embeddings`` is present.
+    - raise if keys look like the unknown Gemma 4 12B unified Orbax family.
     - ``base`` otherwise.
     """
+    has_unified_12b = any(key.startswith(_UNIFIED_12B_ORBAX_PREFIXES) for key in keys)
+    if has_unified_12b:
+        raise ValueError(_UNIFIED_12B_ORBAX_MESSAGE)
     has_router = any("router_logits" in k for k in keys)
     if has_router:
         return "moe"
@@ -521,7 +527,7 @@ def _write_sharded(
     # Streaming pass: buffer tensors per-shard, flush to a temp filename when the
     # buffer would otherwise exceed *shard_size_bytes*. A single tensor that is
     # already larger than the threshold is allowed to occupy its own shard.
-    temp_shards: list[tuple[Path, dict[str, np.ndarray], int]] = []
+    temp_shards: list[tuple[Path, list[str], int]] = []
     current: dict[str, np.ndarray] = {}
     current_bytes = 0
 
@@ -530,8 +536,9 @@ def _write_sharded(
         if not current:
             return
         temp_path = output_dir / _TEMP_SHARD_FMT.format(index=len(temp_shards) + 1)
+        tensor_names = list(current)
         save_file(current, str(temp_path))
-        temp_shards.append((temp_path, dict(current), current_bytes))
+        temp_shards.append((temp_path, tensor_names, current_bytes))
         current = {}
         current_bytes = 0
 
@@ -558,11 +565,11 @@ def _write_sharded(
     weight_map: dict[str, str] = {}
     total_size = 0
     final_paths: list[Path] = []
-    for i, (temp_path, tensors, shard_bytes) in enumerate(temp_shards, start=1):
+    for i, (temp_path, tensor_names, shard_bytes) in enumerate(temp_shards, start=1):
         final_name = _FINAL_SHARD_FMT.format(index=i, total=total)
         final_path = output_dir / final_name
         temp_path.rename(final_path)
-        for name in tensors:
+        for name in tensor_names:
             weight_map[name] = final_name
         total_size += shard_bytes
         final_paths.append(final_path)

@@ -5,36 +5,13 @@ from pathlib import Path
 import pytest
 
 MO_TESTS_DIR = Path(__file__).parent
-MOJO_TEST_TIMEOUT_SECONDS = int(
-    os.getenv("MOGEMMA_MOJO_TEST_TIMEOUT_SECONDS", "90")
-)
-RUN_UNSTABLE_MOJO_TESTS = (
-    os.getenv("MOGEMMA_RUN_UNSTABLE_MOJO_TESTS", "0") == "1"
-)
-UNSTABLE_MOJO_TESTS = {"test_layers.mojo"}
+MOJO_TEST_TIMEOUT_SECONDS = int(os.getenv("MOGEMMA_MOJO_TEST_TIMEOUT_SECONDS", "90"))
+RUN_UNSTABLE_MOJO_TESTS = os.getenv("MOGEMMA_RUN_UNSTABLE_MOJO_TESTS", "0") == "1"
+UNSTABLE_MOJO_TESTS = {"unit/test_layers.mojo"}
+MOJO_TEST_CASES = sorted(str(path.relative_to(MO_TESTS_DIR)) for path in MO_TESTS_DIR.rglob("test_*.mojo"))
 
 
-@pytest.mark.parametrize(
-    "test_file",
-    [
-        "test_layers.mojo",
-        "test_model.mojo",
-        "test_moe_model.mojo",
-        "test_moe_core.mojo",
-        "test_moe_hydration.mojo",
-        "test_moe_layers.mojo",
-        "test_moe_forward.mojo",
-        "test_ops.mojo",
-        "test_arena.mojo",
-        "test_arena_init.mojo",
-        "test_vision_model.mojo",
-        "test_vision_encoder.mojo",
-        "test_gpu_attention.mojo",
-        "test_gpu_ops.mojo",
-        "test_gpu_context.mojo",
-        "test_gpu_forward.mojo",
-    ],
-)
+@pytest.mark.parametrize("test_file", MOJO_TEST_CASES)
 def test_mojo_unit_tests(test_file: str) -> None:
     if test_file in UNSTABLE_MOJO_TESTS and not RUN_UNSTABLE_MOJO_TESTS:
         pytest.skip(
@@ -46,13 +23,7 @@ def test_mojo_unit_tests(test_file: str) -> None:
     cmd = ["mojo", "-I", str(MO_TESTS_DIR.parent), str(test_path)]
     try:
         # Use -I src/mo to include the mogemma module.
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=MOJO_TEST_TIMEOUT_SECONDS,
-            check=False,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=MOJO_TEST_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""
         stderr = exc.stderr or ""
@@ -63,6 +34,4 @@ def test_mojo_unit_tests(test_file: str) -> None:
             f"stderr:\n{stderr}"
         )
 
-    assert (
-        result.returncode == 0
-    ), f"Mojo test {test_file} failed:\n{result.stdout}\n{result.stderr}"
+    assert result.returncode == 0, f"Mojo test {test_file} failed:\n{result.stdout}\n{result.stderr}"

@@ -70,9 +70,10 @@ class GenerationConfig:
     model_path: Path | str = "google/gemma-4-E4B-it"
     """Path to the local Gemma 4 model weights or Google model ID.
 
-    Defaults to the instruction-tuned E4B variant — the latest small multimodal
-    model (text + image + audio) suitable for chat-style generation out of the
-    box. Use the 26B-A4B MoE or 31B dense for heavier reasoning workloads.
+    Defaults to the instruction-tuned E4B variant — the latest small text/image
+    runtime family available through the public GCS catalog. Audio input is
+    recognized but not implemented in this runtime. Use the 26B-A4B MoE or 31B
+    dense for heavier reasoning once their runtime status is validated locally.
     """
 
     cache_path: Path | str | None = None

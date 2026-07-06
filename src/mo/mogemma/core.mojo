@@ -106,10 +106,10 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
 @always_inline
 def _append_tensor(mut ptrs: List[Int], t: TensorInfo):
     if t.is_quantized:
-        ptrs.append(Int(t.i8_ptr))
+        ptrs.append(t.i8_ptr)
     else:
-        ptrs.append(Int(t.ptr))
-    ptrs.append(Int(t.scale_ptr))
+        ptrs.append(t.ptr)
+    ptrs.append(t.scale_ptr)
     ptrs.append(t.shape_0)
     ptrs.append(t.shape_1)
 
@@ -163,8 +163,8 @@ struct Appender:
         self.list = []
 
     def append(mut self, t: TensorInfo):
-        self.list.append(Int(t.ptr))
-        self.list.append(Int(t.scale_ptr))
+        self.list.append(t.ptr)
+        self.list.append(t.scale_ptr)
         self.list.append(t.shape_0)
         self.list.append(t.shape_1)
 
@@ -188,8 +188,8 @@ struct Hydrator:
 
     def next(mut self) -> TensorInfo:
         var t = TensorInfo()
-        t.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr[self.offset])
-        t.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr[self.offset + 1])
+        t.ptr = self.ptr[self.offset]
+        t.scale_ptr = self.ptr[self.offset + 1]
         t.shape_0 = self.ptr[self.offset + 2]
         t.shape_1 = self.ptr[self.offset + 3]
         self.offset += 4
@@ -224,7 +224,6 @@ struct MemoryArena:
         if Int(self.ptr) != 0:
             var p = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.ptr))
             p.free()
-            self.ptr = ArenaPtr(unsafe_from_address=0)
             self.size = 0
 
 
@@ -691,12 +690,21 @@ def _init_model_impl_mojo(
     var vision_num_heads = 0
     var vision_intermediate_size = 0
     var image_token_id = 0
+    var global_head_dim = head_dim
+    var num_global_kv_heads = num_kv_heads
 
     if Int(py=builtins.len(architecture_overrides_obj)) > 0:
+        if builtins.bool(architecture_overrides_obj.get("head_dim")):
+            head_dim = Int(py=architecture_overrides_obj["head_dim"])
+            global_head_dim = head_dim
         if builtins.bool(architecture_overrides_obj.get("max_seq_len")):
             max_seq_len = Int(py=architecture_overrides_obj["max_seq_len"])
         if builtins.bool(architecture_overrides_obj.get("window_size")):
             window_size = Int(py=architecture_overrides_obj["window_size"])
+        if builtins.bool(architecture_overrides_obj.get("global_head_dim")):
+            global_head_dim = Int(py=architecture_overrides_obj["global_head_dim"])
+        if builtins.bool(architecture_overrides_obj.get("num_global_key_value_heads")):
+            num_global_kv_heads = Int(py=architecture_overrides_obj["num_global_key_value_heads"])
         if builtins.bool(architecture_overrides_obj.get("partial_rotary_factor")):
             partial_rotary_factor = Float32(py=architecture_overrides_obj["partial_rotary_factor"])
         if builtins.bool(architecture_overrides_obj.get("k_eq_v")):
@@ -757,9 +765,31 @@ def _init_model_impl_mojo(
             for i in range(num_layers):
                 layer_types_list[i] = UInt8(Int(py=lt_obj[i]))
 
+    var layer_head_dims_np = np.zeros(num_layers, dtype=np.int64)
+    var layer_kv_heads_np = np.zeros(num_layers, dtype=np.int64)
+    var layer_kv_strides_np = np.zeros(num_layers, dtype=np.int64)
+    var has_variable_head_dims = False
+    for i in range(num_layers):
+        var layer_head_dim = head_dim
+        var layer_kv_heads = num_kv_heads
+        if layer_types_list[i] == LAYER_TYPE_FULL:
+            layer_head_dim = global_head_dim
+            layer_kv_heads = num_global_kv_heads
+        if layer_head_dim != head_dim or layer_kv_heads != num_kv_heads:
+            has_variable_head_dims = True
+        layer_head_dims_np[i] = layer_head_dim
+        layer_kv_heads_np[i] = layer_kv_heads
+        layer_kv_strides_np[i] = layer_head_dim * layer_kv_heads
+
     # Create KVCache
     var layer_types_ptr = UnsafePointer[UInt8, MutExternalOrigin](
         unsafe_from_address=Int(layer_types_list.unsafe_ptr())
+    )
+    var layer_head_dims_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(py=layer_head_dims_np.__array_interface__["data"][0])
+    )
+    var layer_kv_heads_ptr = UnsafePointer[Int64, MutExternalOrigin](
+        unsafe_from_address=Int(py=layer_kv_heads_np.__array_interface__["data"][0])
     )
     var kv_cache = KVCache(
         num_layers,
@@ -768,11 +798,14 @@ def _init_model_impl_mojo(
         window_size,
         max_seq_len,
         layer_types_ptr,
+        layer_head_dims_ptr,
+        layer_kv_heads_ptr,
     )
 
     # Create RoPETables
     var rope_tables = RoPETables(
         head_dim,
+        global_head_dim,
         partial_rotary_factor,
         window_size,
         max_seq_len,
@@ -788,6 +821,12 @@ def _init_model_impl_mojo(
     py_dict["_rope_tables_ptr"] = Int(rope_tables_ptr)
 
     _ = layer_types_list
+    py_dict["global_head_dim"] = global_head_dim
+    py_dict["num_global_kv_heads"] = num_global_kv_heads
+    py_dict["layer_head_dims"] = layer_head_dims_np
+    py_dict["layer_kv_strides"] = layer_kv_strides_np
+    py_dict["_layer_kv_heads"] = layer_kv_heads_np
+    py_dict["has_variable_head_dims"] = 1 if has_variable_head_dims else 0
 
     # Build vision weights if vision layers are present
     py_dict["num_vision_layers"] = num_vision_layers
@@ -1052,6 +1091,8 @@ def init_model_with_options_mojo(
     var builtins = Python.import_module("builtins")
     var backend = device_selection_obj.get("backend")
     if builtins.bool(backend) and String(py=backend) == "gpu":
+        if Int(py=llm.get("has_variable_head_dims", 0)) != 0:
+            raise Error("GPU runtime for Gemma 4 12B variable-head attention is not implemented")
         _init_gpu_resources(llm)
     else:
         llm["_gpu_initialized"] = 0
@@ -1243,13 +1284,14 @@ def step_mojo(
                 model.ple_layers.append(ple_layers[i])
 
     var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
-    var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=0)
     var kv_map_local: List[Int64] = []
     if num_kv_sharing > 0:
         var kv_map_obj = llm["_kv_sharing_map"]
         for i in range(num_kv_sharing):
             kv_map_local.append(Int64(Int(py=kv_map_obj[i])))
-        kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
+    else:
+        kv_map_local.append(Int64(0))
+    var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
@@ -1293,7 +1335,7 @@ def step_mojo(
                 rope_tables_ptr[],
                 k_eq_v,
                 max_seq_len,
-                gpu_scratch_ptr[].ptr,
+                gpu_scratch_ptr[].data_ptr(),
                 num_experts,
                 has_ple_flag,
                 ple_dim,
@@ -1480,65 +1522,7 @@ def process_audio_mojo(
     Stores resulting audio embeddings in llm['audio_embeddings'] list.
     Returns the number of output tokens.
     """
-    var np = Python.import_module("numpy")
-    var builtins = Python.import_module("builtins")
-
-    var hidden_size = Int(py=llm["hidden_size"])
-    var num_frames = Int(py=num_frames_obj)
-
-    # Audio encoder config (read from llm dict)
-    var audio_hidden_size = Int(py=builtins.getattr(llm, "get")("audio_hidden_size", 0))
-    var audio_num_heads = Int(py=builtins.getattr(llm, "get")("audio_num_heads", 0))
-    var audio_intermediate_size = Int(py=builtins.getattr(llm, "get")("audio_intermediate_size", 0))
-    var n_mels = Int(py=builtins.getattr(llm, "get")("audio_n_mels", 80))
-
-    if audio_hidden_size == 0:
-        raise Error("No audio encoder configured")
-
-    var audio_head_dim = audio_hidden_size // audio_num_heads if audio_num_heads > 0 else 0
-
-    # Read features as float32 [n_mels, num_frames]
-    var features = np.asarray(features_obj, dtype=np.float32)
-    # Transpose to [num_frames, n_mels] for frame-by-frame processing
-    var features_t = np.ascontiguousarray(features.T)
-    var features_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=features_t.__array_interface__["data"][0])
-    )
-
-    var out_tokens = num_frames
-    var out_np = np.zeros(Python.tuple(out_tokens, hidden_size), dtype=np.float32)
-    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=out_np.__array_interface__["data"][0])
-    )
-
-    # Run audio encoder if audio weights are loaded
-    var has_audio_weights = builtins.bool(builtins.getattr(llm, "get")("_audio_tensor_pointers"))
-    if has_audio_weights:
-        var a_ptrs_obj = llm["_audio_tensor_pointers"]
-        var a_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
-            unsafe_from_address=Int(py=a_ptrs_obj.__array_interface__["data"][0])
-        )
-        # Hydrate AudioTowerWeights and call forward_audio_encoder
-        # TODO: audio weight hydration pending HF tensor name standardization
-        var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
-        if use_gpu:
-            # GPU path: forward_audio_encoder[GPUBackend] with weight streaming
-            # (blocked on audio weight hydration — same as CPU path)
-            pass
-        else:
-            # CPU path: forward_audio_encoder[CPUBackend]
-            # (blocked on audio weight hydration)
-            pass
-
-    # Store audio embeddings as individual token vectors
-    var audio_embeddings = llm["audio_embeddings"]
-    for t in range(out_tokens):
-        var token_emb = np.zeros(hidden_size, dtype=np.float32)
-        for d in range(hidden_size):
-            _ = token_emb.__setitem__(d, value=out_np[t][d])
-        audio_embeddings.append(token_emb)
-
-    return PythonObject(out_tokens)
+    raise Error("Audio input is recognized but not implemented for this Gemma 4 runtime")
 
 
 def step_with_embedding_mojo(
@@ -1626,7 +1610,7 @@ def step_with_embedding_mojo(
                 rope_tables_ptr[],
                 k_eq_v,
                 max_seq_len,
-                gpu_scratch_ptr[].ptr,
+                gpu_scratch_ptr[].data_ptr(),
                 stage_ptr[],
                 ctx_ptr[],
                 persistent_ptr[].get_ptrs(),
@@ -1729,58 +1713,8 @@ def generate_embeddings_mojo(
         var out_logits_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(out_logits.unsafe_ptr()))
 
         if use_gpu:
-            comptime if has_usable_gpu():
-                var ctx_ptr = UnsafePointer[GPUContext, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_context_ptr"])
-                )
-                var gpu_backend = GPUBackend(rebind[UnsafePointer[DeviceContext, MutAnyOrigin]](ctx_ptr))
-                var gpu_kv_cache_ptr = UnsafePointer[GPUKVCache, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_kv_cache_ptr"])
-                )
-                var gpu_scratch_ptr_obj = UnsafePointer[GPUScratch, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_scratch_ptr"])
-                )
-                var stage_ptr = UnsafePointer[WeightStage, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_weight_stage_ptr"])
-                )
-                var persistent_ptr = UnsafePointer[GPUPersistentBuffers, MutExternalOrigin](
-                    unsafe_from_address=Int(py=llm["_gpu_persistent_ptr"])
-                )
-
-                # Reset GPU KV cache for each sequence
-                gpu_kv_cache_ptr[].reset(ctx_ptr[])
-                ctx_ptr[].sync()
-
-                for t in range(actual_seq_len):
-                    var token_id = Int(py=seq_list[t])
-                    forward_gemma4_step(
-                        gpu_backend,
-                        out_logits_ptr,
-                        token_id,
-                        t,
-                        model,
-                        hidden_size,
-                        num_heads,
-                        num_kv_heads,
-                        head_dim,
-                        intermediate_size,
-                        vocab_size,
-                        gpu_kv_cache_ptr[],
-                        rope_tables_ptr[],
-                        k_eq_v,
-                        max_seq_len,
-                        gpu_scratch_ptr_obj[].ptr,
-                        stage_ptr[],
-                        ctx_ptr[],
-                        persistent_ptr[].get_ptrs(),
-                    )
-
-                    # Download hidden state from GPU scratch for mean-pooling
-                    # norm_out is at scratch_ptr + hidden_size
-                    var gpu_norm_ptr = gpu_scratch_ptr_obj[].ptr + hidden_size
-                    # Download to host via a simple copy (embeddings are small: hidden_size floats)
-                    for i in range(hidden_size):
-                        emb_acc_ptr.store(i, emb_acc_ptr.load(i) + gpu_norm_ptr.load(i))
+            # Current Mojo nightly shared-lib codegen segfaults on this GPU embedding path.
+            raise Error("GPU embedding generation is not available with this Mojo compiler")
         else:
             # Reset CPU KV cache for each sequence
             kv_cache_ptr[].reset()

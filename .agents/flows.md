@@ -29,17 +29,25 @@ Each flow has its own detailed spec and plan in its respective folder.
 *Parent PRD for the chapters above. Active while orbax-safetensors-conversion finishes the MoE path.*
 *Link: [./specs/gcs-orbax-migration/prd.md](./specs/gcs-orbax-migration/prd.md)*
 
-## [~] Flow: Orbax→Safetensors Conversion (Chapter 2)
-*In progress. Base / PLE / Vision / MoE Python iterators + sharded writer + config.json synthesis + hub integration + round-trip test all shipped. Remaining: Mojo-side MoE runtime (split into sub-flow) and manual 26B verification.*
+## [!] Flow: Orbax→Safetensors Conversion (Chapter 2)
+*Automated gates passed. Base / PLE / Vision / MoE Python iterators + sharded writer + config.json synthesis + hub integration + round-trip test are shipped; optional E2B live manual verification is deferred until a suitable checkpoint/cache host is available.*
 *Link: [./specs/orbax-safetensors-conversion/spec.md](./specs/orbax-safetensors-conversion/spec.md)*
 
-## [ ] Flow: MoE Mojo Runtime (Chapter 2b)
-*Planning. Mojo-side rewrite to consume the two-branch MoE safetensors contract: struct layout, hydration, GPU packer, router + packed-expert kernels, two-branch forward pass. Blocks live 26B-A4B-it inference.*
+## [!] Flow: MoE Mojo Runtime (Chapter 2b)
+*Mojo-side rewrite is implemented and synthetic Mojo/runtime gates pass. Remaining live 26B-A4B-it end-to-end parity and advisory benchmark gates are blocked on an available converted checkpoint/HF reference run.*
 *Link: [./specs/moe-mojo-runtime/spec.md](./specs/moe-mojo-runtime/spec.md)*
 
 ## [~] Flow: Fix Stale Defaults
 *Active. `EmbeddingConfig` default + every `tools/*.py` + `check-release` CI step reference models that are missing from `gs://gemma-data` after the hub migration. Unblocks package defaults and the release runbook. Landing directly on `fix/timeout` (PR #16) per user direction.*
 *Link: [./specs/fix-stale-defaults/spec.md](./specs/fix-stale-defaults/spec.md)*
+
+## [x] Flow: Gemma 4 Working Order Recovery
+*Archived 2026-07-06. Mojo nightly tests pass, Gemma 4 official/GCS/runtime support status is explicit for E2B/E4B/12B/31B/26B-A4B, 12B unified is recognized but runtime-gated, and false audio support now fails clearly. Actual 12B unified runtime moved to `gemma4-12b-unified-runtime`.*
+*Link: [./archive/gemma4-working-order-recovery/spec.md](./archive/gemma4-working-order-recovery/spec.md)*
+
+## [x] Flow: Gemma 4 12B Unified Runtime (Epic: mogemma-cpx)
+*Archived 2026-07-06. Local-safetensors CPU text runtime for `google/gemma-4-12B-it` is implemented after nested config normalization and CPU variable-head geometry. Unified image/audio inputs, GPU variable-head attention, GCS download, and Orbax conversion remain explicitly gated follow-up work.*
+*Link: [./archive/gemma4-12b-unified-runtime/spec.md](./archive/gemma4-12b-unified-runtime/spec.md)*
 
 ## [ ] Flow: GPU CI on Modal (Tier C)
 *Queued. Stand up Modal-based GPU runner for `test_gpu_*.mojo` on every PR + on-demand real-weight parity gates. Follow-on to `fix-stale-defaults`.*

@@ -1,5 +1,7 @@
 # Project Workflow
 
+<!-- truth: start -->
+
 ## Guiding Principles
 
 1. **Beads backend is the Source of Truth:** Prefer official Beads (`bd`), keep `br` as compatibility mode, and use `/flow:sync` to export task state to `spec.md` when needed.
@@ -90,7 +92,9 @@ All tasks follow a strict lifecycle.
    - **Do NOT edit `spec.md`** — Beads is source of truth.
 
 3. **Write Failing Tests (Red Phase):**
-   - Create a new test file (Python under `src/py/tests/test_*.py`; Mojo under `src/mo/tests/test_*.mojo`).
+   - Create a new test file under the appropriate boundary:
+     - Python: `src/py/tests/unit/` or `src/py/tests/integration/`
+     - Mojo: `src/mo/tests/unit/` or `src/mo/tests/integration/`
    - Write one or more unit tests that clearly define the expected behavior and acceptance criteria.
    - **CRITICAL:** Run the tests and confirm they fail as expected. Do not proceed until you have failing tests.
 
@@ -180,7 +184,7 @@ Repeated user corrections and validated repo-native commands are both high-signa
    - **Step 2.1: Determine Phase Scope:** Read `spec.md` to find the Git SHA of the previous phase's checkpoint. If none, scope is all changes since the first commit.
    - **Step 2.2: List Changed Files:** `git diff --name-only <previous_checkpoint_sha> HEAD`.
    - **Step 2.3: Verify and Create Tests:** For each code file (exclude `.json`, `.md`, `.yaml`):
-     - Verify a corresponding test file exists (Python → `src/py/tests/test_*.py`, Mojo → `src/mo/tests/test_*.mojo`).
+     - Verify a corresponding test file exists under the appropriate Python or Mojo `unit/` / `integration/` tree.
      - If missing, analyze existing test files for naming + style, then write tests validating the phase's `spec.md` tasks.
 
 3. **Execute Automated Tests with Proactive Debugging:**
@@ -299,7 +303,8 @@ For release preflight: `make check-release` (adds benchmarks + release-only chec
 
 ### Unit Testing
 
-- Every module must have corresponding tests. Python tests under `src/py/tests/test_*.py`; Mojo tests under `src/mo/tests/test_*.mojo`.
+- Every module must have corresponding tests. Python tests live under `src/py/tests/unit/` or
+  `src/py/tests/integration/`; Mojo tests live under `src/mo/tests/unit/` or `src/mo/tests/integration/`.
 - Use pytest fixtures for setup/teardown. Mock external dependencies where appropriate.
 - Test both success and failure cases.
 - Deterministic fixtures only — no unseeded random init for parity testing.
@@ -482,3 +487,4 @@ make pre-release version=0.2.0-alpha.1
 - Capture user corrections, missing defaults, and canonical repo commands so they stop being chat-only reminders.
 - Optimize for developer happiness (the downstream Python developer consuming `mogemma`).
 - Keep things simple and maintainable — complexity belongs in the runtime, not the API.
+<!-- truth: end -->

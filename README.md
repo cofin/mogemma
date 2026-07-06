@@ -6,7 +6,7 @@ Python/Mojo interface for Google Gemma 4.
 
 - **Embeddings** — Dense vector embeddings via a pure Mojo backend, using the pretrained E4B variant by default.
 - **Text generation** — Synchronous and async streaming with configurable sampling.
-- **Multimodal** — Native support for Gemma 4 vision (all variants) and audio (E2B/E4B) with zero-copy processing.
+- **Multimodal** — Gemma 4 text/image runtime paths with explicit support gates for audio, MTP, thinking, and 12B unified image/audio follow-up work.
 - **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
 - **OpenTelemetry** — Optional tracing instrumentation.
 
@@ -49,14 +49,14 @@ print(model.generate("Write a haiku about a robot discovering coffee:"))
 
 ### Multimodal Vision
 
-All Gemma 4 variants support vision inputs; the default (`google/gemma-4-E4B-it`) additionally accepts audio.
+The default (`google/gemma-4-E4B-it`) supports the current text/image runtime path. Audio inputs are recognized but intentionally rejected until the audio runtime is implemented.
 
 - Install `mogemma[vision]` to pass image file paths or raw image bytes directly.
 
 ```python
 from mogemma import SyncGemmaModel
 
-# Default model is google/gemma-4-E4B-it — multimodal out of the box
+# Default model is google/gemma-4-E4B-it
 model = SyncGemmaModel()
 
 response = model.generate("Describe this image in detail:", images=["input.jpg"])
@@ -91,13 +91,15 @@ print(embeddings.shape)  # (2, 768)
 
 ### Selecting a Model Variant
 
-Four Gemma 4 variants are supported (auto-detected from `config.json`):
+Official Gemma 4 model IDs are tracked separately from runtime and GCS availability:
 
-| Model ID | Description |
-|---|---|
-| `google/gemma-4-E2B-it` | Compact multimodal (text + image + audio), ~2B params |
-| `google/gemma-4-E4B-it` | **Default** for `SyncGemmaModel` / `AsyncGemmaModel` / `SyncEmbeddingModel` — latest small multimodal |
-| `google/gemma-4-26B-A4B-it` | MoE (128 experts, top-8), 4B active — heavier reasoning |
+| Model ID | Official | GCS download | Runtime status |
+|---|---:|---:|---|
+| `google/gemma-4-E2B-it` | Yes | Yes | Text/image supported; audio, MTP, and thinking are follow-up work |
+| `google/gemma-4-E4B-it` | Yes | Yes | **Default**; text/image supported; audio, MTP, and thinking are follow-up work |
+| `google/gemma-4-12B-it` | Yes | No | Local safetensors CPU text supported; unified image/audio inputs and GPU are follow-up work |
+| `google/gemma-4-31B-it` | Yes | No | Official dense model; runtime/download validation pending |
+| `google/gemma-4-26B-A4B-it` | Yes | Yes | MoE path exists; live parity and full runtime validation pending |
 
 Pretrained (non-instruction-tuned) E2B / E4B are listed in the Gemma 4 family but are not currently published to `gs://gemma-data`; `SyncEmbeddingModel` therefore defaults to the `-it` variant until pretrained ships.
 
