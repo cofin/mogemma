@@ -1,5 +1,7 @@
 # Tech Stack — mogemma
 
+<!-- truth: start -->
+
 Authoritative list of tech choices. Changes here must precede
 implementation changes. Cross-reference: `pyproject.toml` is the machine-
 readable source of truth for pins; this doc explains the why.
@@ -111,3 +113,4 @@ When this file needs to change:
 3. Refresh `.agents/knowledge/build-and-packaging.md` or related
    knowledge files if the change affects build or runtime.
 4. Validate in a clean venv + clean CI before merging.
+<!-- truth: end -->

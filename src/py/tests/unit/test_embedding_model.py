@@ -18,11 +18,6 @@ class TestSyncEmbeddingModelImport:
 
         assert M is SyncEmbeddingModel
 
-    def test_no_embedding_model_alias(self) -> None:
-        """EmbeddingModel alias was removed — importing it should fail."""
-        with pytest.raises((ImportError, AttributeError)):
-            from mogemma import EmbeddingModel  # noqa: F401
-
     def test_class_name(self) -> None:
         assert SyncEmbeddingModel.__name__ == "SyncEmbeddingModel"
 
@@ -84,31 +79,22 @@ class TestAsyncEmbeddingModelConfig:
 class TestAsyncEmbeddingModelProtocol:
     """Verify AsyncEmbeddingModel has the expected async methods."""
 
-    def test_has_embed(self) -> None:
-        assert inspect.iscoroutinefunction(AsyncEmbeddingModel.embed)
+    @pytest.mark.parametrize("method_name", ["embed", "embed_tokens"])
+    def test_async_methods_are_coroutines(self, method_name: str) -> None:
+        assert inspect.iscoroutinefunction(getattr(AsyncEmbeddingModel, method_name))
 
-    def test_has_embed_tokens(self) -> None:
-        assert inspect.iscoroutinefunction(AsyncEmbeddingModel.embed_tokens)
-
-    def test_has_aenter(self) -> None:
-        assert hasattr(AsyncEmbeddingModel, "__aenter__")
-
-    def test_has_aexit(self) -> None:
-        assert hasattr(AsyncEmbeddingModel, "__aexit__")
+    @pytest.mark.parametrize("method_name", ["__aenter__", "__aexit__"])
+    def test_async_context_manager_methods_exist(self, method_name: str) -> None:
+        assert hasattr(AsyncEmbeddingModel, method_name)
 
 
 class TestSyncEmbeddingModelProtocol:
     """Verify SyncEmbeddingModel has the expected sync methods."""
 
-    def test_has_embed(self) -> None:
-        assert callable(getattr(SyncEmbeddingModel, "embed", None))
+    @pytest.mark.parametrize("method_name", ["embed", "embed_tokens", "close"])
+    def test_sync_methods_are_callable(self, method_name: str) -> None:
+        assert callable(getattr(SyncEmbeddingModel, method_name, None))
 
-    def test_has_embed_tokens(self) -> None:
-        assert callable(getattr(SyncEmbeddingModel, "embed_tokens", None))
-
-    def test_has_close(self) -> None:
-        assert callable(getattr(SyncEmbeddingModel, "close", None))
-
-    def test_context_manager(self) -> None:
-        assert hasattr(SyncEmbeddingModel, "__enter__")
-        assert hasattr(SyncEmbeddingModel, "__exit__")
+    @pytest.mark.parametrize("method_name", ["__enter__", "__exit__"])
+    def test_sync_context_manager_methods_exist(self, method_name: str) -> None:
+        assert hasattr(SyncEmbeddingModel, method_name)

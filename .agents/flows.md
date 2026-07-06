@@ -41,6 +41,14 @@ Each flow has its own detailed spec and plan in its respective folder.
 *Active. `EmbeddingConfig` default + every `tools/*.py` + `check-release` CI step reference models that are missing from `gs://gemma-data` after the hub migration. Unblocks package defaults and the release runbook. Landing directly on `fix/timeout` (PR #16) per user direction.*
 *Link: [./specs/fix-stale-defaults/spec.md](./specs/fix-stale-defaults/spec.md)*
 
+## [x] Flow: Gemma 4 Working Order Recovery
+*Archived 2026-07-06. Mojo nightly tests pass, Gemma 4 official/GCS/runtime support status is explicit for E2B/E4B/12B/31B/26B-A4B, 12B unified is recognized but runtime-gated, and false audio support now fails clearly. Actual 12B unified runtime moved to `gemma4-12b-unified-runtime`.*
+*Link: [./archive/gemma4-working-order-recovery/spec.md](./archive/gemma4-working-order-recovery/spec.md)*
+
+## [~] Flow: Gemma 4 12B Unified Runtime (Epic: mogemma-cpx)
+*Planned. Next implementation slice for `google/gemma-4-12B-it`: local-safetensors text runtime first, nested config normalization, CPU variable-head attention geometry, explicit image/audio gates, and support-matrix update after green tests.*
+*Link: [./specs/gemma4-12b-unified-runtime/spec.md](./specs/gemma4-12b-unified-runtime/spec.md)*
+
 ## [ ] Flow: GPU CI on Modal (Tier C)
 *Queued. Stand up Modal-based GPU runner for `test_gpu_*.mojo` on every PR + on-demand real-weight parity gates. Follow-on to `fix-stale-defaults`.*
 

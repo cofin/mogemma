@@ -168,7 +168,7 @@ struct WeightStage(Movable):
             return self._offset
         var start = self._offset
         var dst = self.host_buf.unsafe_ptr() + start
-        var src = tensor.ptr
+        var src = tensor.data_ptr()
         for i in range(num_elements):
             dst.store(i, src.load(i))
         self._offset += num_elements
@@ -271,7 +271,7 @@ def _upload_persistent(mut ctx: GPUContext, tensor: TensorInfo) raises -> Device
     var host_buf = ctx.allocate_host_buffer[DType.float32](num_elements)
     # Copy from mmap source to pinned host buffer
     var dst = host_buf.unsafe_ptr()
-    var src = tensor.ptr
+    var src = tensor.data_ptr()
     for i in range(num_elements):
         dst.store(i, src.load(i))
     # Upload to device
@@ -328,9 +328,9 @@ struct GPUPersistentBuffers(Movable):
     def get_ptrs(self) -> PersistentBuffers:
         """Returns a backend-agnostic PersistentBuffers struct containing device pointers."""
         return PersistentBuffers(
-            embed_ptr=self.embed_buf.unsafe_ptr(),
-            norm_ptr=self.norm_buf.unsafe_ptr(),
-            lm_head_ptr=self.lm_head_buf.unsafe_ptr(),
+            embed_ptr=Int(self.embed_buf.unsafe_ptr()),
+            norm_ptr=Int(self.norm_buf.unsafe_ptr()),
+            lm_head_ptr=Int(self.lm_head_buf.unsafe_ptr()),
             embed_elements=self.embed_elements,
             lm_head_elements=self.lm_head_elements,
             norm_elements=self.norm_elements,
@@ -414,8 +414,8 @@ struct GPUKVCache(KVCacheTrait, Movable):
     # Device-resident storage
     var k_cache: DeviceBuffer[DType.float32]
     var v_cache: DeviceBuffer[DType.float32]
-    var k_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var v_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var k_ptr: Int
+    var v_ptr: Int
 
     @always_inline
     def get_layer_type(self, layer: Int) -> UInt8:
@@ -435,11 +435,11 @@ struct GPUKVCache(KVCacheTrait, Movable):
 
     @always_inline
     def get_k_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
-        return self.k_ptr
+        return UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=self.k_ptr)
 
     @always_inline
     def get_v_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
-        return self.v_ptr
+        return UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=self.v_ptr)
 
     @always_inline
     def get_attention_range(self, layer: Int, pos: Int) -> IntPair:
@@ -502,8 +502,8 @@ struct GPUKVCache(KVCacheTrait, Movable):
         var alloc_size = total_elements if total_elements > 0 else 1
         self.k_cache = ctx.allocate_buffer[DType.float32](alloc_size)
         self.v_cache = ctx.allocate_buffer[DType.float32](alloc_size)
-        self.k_ptr = self.k_cache.unsafe_ptr()
-        self.v_ptr = self.v_cache.unsafe_ptr()
+        self.k_ptr = Int(self.k_cache.unsafe_ptr())
+        self.v_ptr = Int(self.v_cache.unsafe_ptr())
 
     def __init__(out self, *, deinit take: Self):
         self.num_layers = take.num_layers
@@ -560,7 +560,7 @@ struct GPUScratch(Movable):
     """
 
     var buf: DeviceBuffer[DType.float32]
-    var ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var ptr: Int
     var size: Int
 
     def __init__(
@@ -583,12 +583,16 @@ struct GPUScratch(Movable):
         var emb_len = hidden_size * 180 + max_seq_len * num_heads * 2
         self.size = step_len if step_len > emb_len else emb_len
         self.buf = ctx.allocate_buffer[DType.float32](self.size)
-        self.ptr = self.buf.unsafe_ptr()
+        self.ptr = Int(self.buf.unsafe_ptr())
 
     def __init__(out self, *, deinit take: Self):
         self.buf = take.buf^
         self.ptr = take.ptr
         self.size = take.size
+
+    @always_inline
+    def data_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=self.ptr)
 
 
 # ── Layer Weight Upload Functions ─────────────────────────────────────────────

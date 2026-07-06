@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import json
+import weakref
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -22,7 +25,6 @@ from mogemma.orbax_loader import OrbaxLoader
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-    from pathlib import Path
 
 
 # E2B-it shapes, shrunk for fast synthetic tests but preserving axis roles.
@@ -281,6 +283,34 @@ class TestWriteSharded:
         ]
         written = _write_sharded(tmp_path, iter(tensors), shard_size_bytes=10 * 1024)
         assert len(written) == 2
+
+    def test_flushed_shards_do_not_retain_array_dicts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After a shard flush, only tensor names should be retained for the final index."""
+        from safetensors import numpy as safetensors_numpy  # type: ignore[import-untyped]
+
+        first_array_ref: weakref.ReferenceType[np.ndarray] | None = None
+        save_calls = 0
+
+        def fake_save_file(current: dict[str, np.ndarray], path: str) -> None:
+            nonlocal save_calls
+            save_calls += 1
+            if save_calls == 2:
+                gc.collect()
+                assert first_array_ref is not None
+                assert first_array_ref() is None
+            Path(path).write_bytes(b"stub")
+
+        def tensor_iter() -> Iterator[tuple[str, np.ndarray]]:
+            nonlocal first_array_ref
+            first = np.ones((64, 64), dtype=np.float32)
+            first_array_ref = weakref.ref(first)
+            yield "first", first
+            second = np.ones((64, 64), dtype=np.float32)
+            yield "second", second
+
+        monkeypatch.setattr(safetensors_numpy, "save_file", fake_save_file)
+
+        _write_sharded(tmp_path, tensor_iter(), shard_size_bytes=20 * 1024)
 
 
 # E2B-it PLE axis roles (shrunk): embeddings are (V, L, ple_dim).

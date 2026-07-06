@@ -190,23 +190,16 @@ class TestStreamingHelpers:
 
 
 class TestAutoLoaderRoutesToOrbax:
-    """auto_loader should return OrbaxLoader for Orbax directories."""
+    """auto_loader should reject raw Orbax for runtime loading."""
 
-    def test_auto_loader_returns_orbax(self, tmp_path: Path) -> None:
+    def test_auto_loader_rejects_raw_orbax_runtime_loading(self, tmp_path: Path) -> None:
         (tmp_path / "ocdbt.process_0").mkdir()
         (tmp_path / "manifest.ocdbt").write_bytes(b"")
 
         from mogemma.loader import auto_loader
 
-        fake_kvstore = MagicMock()
-        fake_kvstore.list.return_value.result.return_value = []
-        fake_ts = MagicMock()
-        fake_ts.KvStore.open.return_value.result.return_value = fake_kvstore
-
-        with patch.dict("sys.modules", {"tensorstore": fake_ts}):
-            loader = auto_loader(tmp_path)
-
-        assert isinstance(loader, OrbaxLoader)
+        with pytest.raises(RuntimeError, match=r"convert.*safetensors"):
+            auto_loader(tmp_path)
 
     def test_auto_loader_errors_mention_both_formats(self, tmp_path: Path) -> None:
         from mogemma.loader import auto_loader

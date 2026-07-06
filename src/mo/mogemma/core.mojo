@@ -106,10 +106,10 @@ def _tensor_from_meta(meta_obj: PythonObject, scale_obj: PythonObject) -> Tensor
 @always_inline
 def _append_tensor(mut ptrs: List[Int], t: TensorInfo):
     if t.is_quantized:
-        ptrs.append(Int(t.i8_ptr))
+        ptrs.append(t.i8_ptr)
     else:
-        ptrs.append(Int(t.ptr))
-    ptrs.append(Int(t.scale_ptr))
+        ptrs.append(t.ptr)
+    ptrs.append(t.scale_ptr)
     ptrs.append(t.shape_0)
     ptrs.append(t.shape_1)
 
@@ -163,8 +163,8 @@ struct Appender:
         self.list = []
 
     def append(mut self, t: TensorInfo):
-        self.list.append(Int(t.ptr))
-        self.list.append(Int(t.scale_ptr))
+        self.list.append(t.ptr)
+        self.list.append(t.scale_ptr)
         self.list.append(t.shape_0)
         self.list.append(t.shape_1)
 
@@ -188,8 +188,8 @@ struct Hydrator:
 
     def next(mut self) -> TensorInfo:
         var t = TensorInfo()
-        t.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr[self.offset])
-        t.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr[self.offset + 1])
+        t.ptr = self.ptr[self.offset]
+        t.scale_ptr = self.ptr[self.offset + 1]
         t.shape_0 = self.ptr[self.offset + 2]
         t.shape_1 = self.ptr[self.offset + 3]
         self.offset += 4
@@ -224,7 +224,6 @@ struct MemoryArena:
         if Int(self.ptr) != 0:
             var p = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=Int(self.ptr))
             p.free()
-            self.ptr = ArenaPtr(unsafe_from_address=0)
             self.size = 0
 
 
@@ -1243,13 +1242,14 @@ def step_mojo(
                 model.ple_layers.append(ple_layers[i])
 
     var num_kv_sharing = Int(py=builtins.getattr(llm, "get")("num_kv_sharing_layers", 0))
-    var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=0)
     var kv_map_local: List[Int64] = []
     if num_kv_sharing > 0:
         var kv_map_obj = llm["_kv_sharing_map"]
         for i in range(num_kv_sharing):
             kv_map_local.append(Int64(Int(py=kv_map_obj[i])))
-        kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
+    else:
+        kv_map_local.append(Int64(0))
+    var kv_map_ptr = UnsafePointer[Int64, MutExternalOrigin](unsafe_from_address=Int(kv_map_local.unsafe_ptr()))
 
     var use_gpu = Int(py=llm.get("_gpu_initialized", 0)) != 0
     if use_gpu:
@@ -1293,7 +1293,7 @@ def step_mojo(
                 rope_tables_ptr[],
                 k_eq_v,
                 max_seq_len,
-                gpu_scratch_ptr[].ptr,
+                gpu_scratch_ptr[].data_ptr(),
                 num_experts,
                 has_ple_flag,
                 ple_dim,
@@ -1480,65 +1480,7 @@ def process_audio_mojo(
     Stores resulting audio embeddings in llm['audio_embeddings'] list.
     Returns the number of output tokens.
     """
-    var np = Python.import_module("numpy")
-    var builtins = Python.import_module("builtins")
-
-    var hidden_size = Int(py=llm["hidden_size"])
-    var num_frames = Int(py=num_frames_obj)
-
-    # Audio encoder config (read from llm dict)
-    var audio_hidden_size = Int(py=builtins.getattr(llm, "get")("audio_hidden_size", 0))
-    var audio_num_heads = Int(py=builtins.getattr(llm, "get")("audio_num_heads", 0))
-    var audio_intermediate_size = Int(py=builtins.getattr(llm, "get")("audio_intermediate_size", 0))
-    var n_mels = Int(py=builtins.getattr(llm, "get")("audio_n_mels", 80))
-
-    if audio_hidden_size == 0:
-        raise Error("No audio encoder configured")
-
-    var audio_head_dim = audio_hidden_size // audio_num_heads if audio_num_heads > 0 else 0
-
-    # Read features as float32 [n_mels, num_frames]
-    var features = np.asarray(features_obj, dtype=np.float32)
-    # Transpose to [num_frames, n_mels] for frame-by-frame processing
-    var features_t = np.ascontiguousarray(features.T)
-    var features_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=features_t.__array_interface__["data"][0])
-    )
-
-    var out_tokens = num_frames
-    var out_np = np.zeros(Python.tuple(out_tokens, hidden_size), dtype=np.float32)
-    var out_ptr = UnsafePointer[Float32, MutExternalOrigin](
-        unsafe_from_address=Int(py=out_np.__array_interface__["data"][0])
-    )
-
-    # Run audio encoder if audio weights are loaded
-    var has_audio_weights = builtins.bool(builtins.getattr(llm, "get")("_audio_tensor_pointers"))
-    if has_audio_weights:
-        var a_ptrs_obj = llm["_audio_tensor_pointers"]
-        var a_ptrs_ptr = UnsafePointer[Int, MutExternalOrigin](
-            unsafe_from_address=Int(py=a_ptrs_obj.__array_interface__["data"][0])
-        )
-        # Hydrate AudioTowerWeights and call forward_audio_encoder
-        # TODO: audio weight hydration pending HF tensor name standardization
-        var use_gpu = Int(py=builtins.getattr(llm, "get")("_gpu_initialized", 0)) != 0
-        if use_gpu:
-            # GPU path: forward_audio_encoder[GPUBackend] with weight streaming
-            # (blocked on audio weight hydration — same as CPU path)
-            pass
-        else:
-            # CPU path: forward_audio_encoder[CPUBackend]
-            # (blocked on audio weight hydration)
-            pass
-
-    # Store audio embeddings as individual token vectors
-    var audio_embeddings = llm["audio_embeddings"]
-    for t in range(out_tokens):
-        var token_emb = np.zeros(hidden_size, dtype=np.float32)
-        for d in range(hidden_size):
-            _ = token_emb.__setitem__(d, value=out_np[t][d])
-        audio_embeddings.append(token_emb)
-
-    return PythonObject(out_tokens)
+    raise Error("Audio input is recognized but not implemented for this Gemma 4 runtime")
 
 
 def step_with_embedding_mojo(
@@ -1626,7 +1568,7 @@ def step_with_embedding_mojo(
                 rope_tables_ptr[],
                 k_eq_v,
                 max_seq_len,
-                gpu_scratch_ptr[].ptr,
+                gpu_scratch_ptr[].data_ptr(),
                 stage_ptr[],
                 ctx_ptr[],
                 persistent_ptr[].get_ptrs(),

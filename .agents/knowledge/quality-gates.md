@@ -62,9 +62,26 @@ When adding `# noqa`, `# type: ignore`, or similar:
 
 ## Test matrix
 
-- pytest: `src/py/tests/*` + `src/mo/tests/*` (mojo test harness).
+- pytest: `src/py/tests/unit/`, `src/py/tests/integration/`, and `src/mo/tests/test_mojo.py` (recursive Mojo harness).
 - `PYTHONPATH` includes `src/py`.
 - `anyio` for async tests (not asyncio-specific).
+
+Python tests are intentionally split by boundary:
+
+- `unit/`: pure Python unit and API behavior, mocked hub/storage, parser/config helpers, preprocessing helpers.
+- `integration/`: conversion, Orbax/tensorstore interaction, native Mojo extension contracts, workflow/tool smoke tests,
+  live GCS probes, or real-checkpoint parity gates.
+
+Avoid tests that only assert old code is absent (`not hasattr`, source grep for retired branches, or removed-step checks).
+Keep negative tests when they verify current behavior, such as validation errors or unsupported runtime gates.
+
+Mojo tests follow the same boundary:
+
+- `src/mo/tests/unit/`: pure CPU/runtime structs, operators, layers, MoE, vision, and algorithm behavior.
+- `src/mo/tests/integration/`: Python-object initialization, GPU-gated infrastructure, GPU kernels, and hardware-sensitive
+  forward paths.
+
+The Python harness at `src/mo/tests/test_mojo.py` recursively discovers `.mojo` files under both directories.
 
 ## Known flaky tests
 

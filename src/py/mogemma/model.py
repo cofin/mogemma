@@ -84,9 +84,14 @@ class Gemma4Variant(str, Enum):
     """Enumeration of supported Gemma 4 architectural variants."""
 
     DENSE_31B = "gemma4_dense_31b"
+    DENSE_12B_UNIFIED = "gemma4_dense_12b_unified"
     DENSE_E2B = "gemma4_dense_e2b"
     DENSE_E4B = "gemma4_dense_e4b"
     MOE_26B_A4B = "gemma4_moe_26b"
+
+
+_GEMMA4_12B_UNSUPPORTED_RUNTIME_MESSAGE = "Gemma 4 12B unified multimodal runtime is recognized but not implemented."
+_AUDIO_UNSUPPORTED_RUNTIME_MESSAGE = "Audio input is recognized but not implemented for this Gemma 4 runtime."
 
 
 def _resolve_model_path(raw_model_path: str | Path, cache_path: str | Path | None = None) -> Path:
@@ -115,6 +120,14 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
 
     config = json.loads(config_path.read_text())
 
+    architectures = config.get("architectures", [])
+    if (
+        config.get("model_type") == "gemma4_unified"
+        or config.get("text_config", {}).get("model_type") == "gemma4_unified_text"
+        or (isinstance(architectures, list) and "Gemma4UnifiedForConditionalGeneration" in architectures)
+    ):
+        return Gemma4Variant.DENSE_12B_UNIFIED
+
     if config.get("num_local_experts", config.get("num_experts", 0)) > 0:
         return Gemma4Variant.MOE_26B_A4B
 
@@ -124,6 +137,17 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
         return Gemma4Variant.DENSE_E4B
 
     return Gemma4Variant.DENSE_31B
+
+
+def _raise_for_unsupported_gemma4_runtime(model_path: Path | None) -> None:
+    if model_path is None:
+        return
+    try:
+        variant = _detect_gemma4_variant(model_path)
+    except FileNotFoundError:
+        return
+    if variant is Gemma4Variant.DENSE_12B_UNIFIED:
+        raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_RUNTIME_MESSAGE)
 
 
 def _parse_gemma4_architecture(model_dir: Path) -> tuple[dict[str, int | float], list[int]]:
@@ -297,6 +321,8 @@ def _initialize_llm(  # noqa: PLR0913
     architecture_overrides: dict[str, int | float] | None = None,
     model_path: Path | None = None,
 ) -> object:
+    _raise_for_unsupported_gemma4_runtime(model_path)
+
     if _core is None:
         raise RuntimeError(_core_unavailable_message(model_type))
 
@@ -682,6 +708,9 @@ class SyncGemmaModel:
         system_prompt: str | None = None,
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
+        if audio is not None:
+            raise RuntimeError(_AUDIO_UNSUPPORTED_RUNTIME_MESSAGE)
+
         tokenizer = self._ensure_tokenizer()
         prompt_to_encode = (
             _format_gemma4_prompt(prompt, system_prompt=system_prompt) if self._instruction_tuned else prompt

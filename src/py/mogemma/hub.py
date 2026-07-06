@@ -8,10 +8,13 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import obstore as obs
 from obstore.store import GCSStore, LocalStore
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +213,26 @@ class HubManager:
         destination.write_bytes(data)
 
     @staticmethod
+    def _write_stream(destination: Path, chunks: Iterable[bytes | bytearray | memoryview]) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("wb") as file:
+            for chunk in chunks:
+                file.write(bytes(chunk))
+
+    @staticmethod
+    async def _write_stream_async(destination: Path, chunks: object) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("wb") as file:
+            if hasattr(chunks, "__aiter__"):
+                async_chunks = cast("AsyncIterable[bytes | bytearray | memoryview]", chunks)
+                async for chunk in async_chunks:
+                    file.write(bytes(chunk))
+            else:
+                sync_chunks = cast("Iterable[bytes | bytearray | memoryview]", chunks)
+                for chunk in sync_chunks:
+                    file.write(bytes(chunk))
+
+    @staticmethod
     def _is_within_cache_root(path: Path, cache_root: Path) -> bool:
         """Return ``True`` when *path* resolves under *cache_root*."""
         try:
@@ -338,14 +361,12 @@ class HubManager:
     def _download_file(self, store: GCSStore, remote_path: str, dest: Path) -> None:
         """Download a single object from GCS to *dest*."""
         result = obs.get(store, remote_path)
-        data = bytes(result.bytes())
-        self._write_file(dest, data)
+        self._write_stream(dest, cast("Iterable[bytes | bytearray | memoryview]", result.stream()))
 
     async def _download_file_async(self, store: GCSStore, remote_path: str, dest: Path) -> None:
         """Async variant of :meth:`_download_file`."""
         result = await obs.get_async(store, remote_path)
-        data = bytes(await result.bytes_async())
-        await asyncio.to_thread(self._write_file, dest, data)
+        await self._write_stream_async(dest, result.stream())
 
     def _finalize_download(
         self, clean_id: str, local_dir: Path, staging_dir: Path, *, tokenizer_required: bool

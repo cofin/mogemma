@@ -1,5 +1,7 @@
 # Product
 
+<!-- truth: start -->
+
 ## Vision
 
 `mogemma` is a high-performance Python library for running Google's **Gemma 4**
@@ -65,3 +67,4 @@ not the active development target.
   clearly between Python-layer and Mojo-layer failures and suggest fixes.
 - **Semantic versioning.** Bumped via `bump-my-version`; release notes
   explain migration steps when needed.
+<!-- truth: end -->

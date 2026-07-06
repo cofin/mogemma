@@ -1,0 +1,23 @@
+{
+  "flow_id": "gemma4-12b-unified-runtime",
+  "type": "feature",
+  "status": "planned",
+  "beads_epic_id": "mogemma-cpx",
+  "created_at": "2026-07-06T00:00:00Z",
+  "updated_at": "2026-07-06T00:00:00Z",
+  "description": "Implement text-first local runtime support for the official Gemma 4 12B unified architecture, including nested config parsing, variable sliding/full head dimensions, CPU Mojo contracts, explicit image/audio gates, and support metadata updates.",
+  "files_analyzed": [
+    ".agents/research/gemma4-working-order-20260705/research.md",
+    ".agents/specs/gemma4-working-order-recovery/spec.md",
+    "src/py/mogemma/model.py",
+    "src/py/mogemma/model_support.py",
+    "src/py/mogemma/convert.py",
+    "src/py/mogemma/hub.py",
+    "src/py/tests/test_variant_detection.py",
+    "src/py/tests/test_mojo_core_gemma4_contract.py",
+    "src/mo/mogemma/core.mojo",
+    "src/mo/mogemma/model.mojo",
+    "src/mo/mogemma/layers.mojo",
+    "src/mo/mogemma/gpu_context.mojo"
+  ]
+}

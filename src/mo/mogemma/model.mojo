@@ -49,26 +49,39 @@ trait KVCacheTrait:
 
 @fieldwise_init
 struct PersistentBuffers(Copyable, ImplicitlyCopyable, Movable):
-    """Container for persistent GPU buffer pointers.
+    """Container for persistent GPU buffer addresses.
 
-    On CPU path, these will be null pointers. On GPU path, they point to
-    long-lived DeviceBuffers for embeddings, norm, and LM head.
+    On CPU path, these are zero addresses. On GPU path, they point to
+    long-lived DeviceBuffers for embeddings, norm, and LM head. Storing
+    addresses avoids constructing null UnsafePointer values on newer Mojo.
     """
 
-    var embed_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var norm_ptr: UnsafePointer[Float32, MutAnyOrigin]
-    var lm_head_ptr: UnsafePointer[Float32, MutAnyOrigin]
+    var embed_ptr: Int
+    var norm_ptr: Int
+    var lm_head_ptr: Int
     var embed_elements: Int
     var lm_head_elements: Int
     var norm_elements: Int
 
     def __init__(out self):
-        self.embed_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
-        self.norm_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
-        self.lm_head_ptr = UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=0)
+        self.embed_ptr = 0
+        self.norm_ptr = 0
+        self.lm_head_ptr = 0
         self.embed_elements = 0
         self.lm_head_elements = 0
         self.norm_elements = 0
+
+    @always_inline
+    def embed_data_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=self.embed_ptr)
+
+    @always_inline
+    def norm_data_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=self.norm_ptr)
+
+    @always_inline
+    def lm_head_data_ptr(self) -> UnsafePointer[Float32, MutAnyOrigin]:
+        return UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=self.lm_head_ptr)
 
 
 # Model Weight Definitions for Gemma 4
@@ -76,38 +89,50 @@ struct PersistentBuffers(Copyable, ImplicitlyCopyable, Movable):
 
 @fieldwise_init
 struct TensorInfo(Copyable, ImplicitlyCopyable, Movable):
-    """Represents the metadata and memory pointer for a single model tensor."""
+    """Represents metadata and memory addresses for a single model tensor."""
 
-    var ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var scale_ptr: UnsafePointer[Float32, MutExternalOrigin]
-    var i8_ptr: UnsafePointer[Int8, MutExternalOrigin]
+    var ptr: Int
+    var scale_ptr: Int
+    var i8_ptr: Int
     var is_quantized: Bool
     var shape_0: Int
     var shape_1: Int
 
     def __init__(out self, p: Int, s0: Int, s1: Int):
-        self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=p)
-        self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
-        self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=0)
+        self.ptr = p
+        self.scale_ptr = 0
+        self.i8_ptr = 0
         self.is_quantized = False
         self.shape_0 = s0
         self.shape_1 = s1
 
     def __init__(out self):
-        self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
-        self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
-        self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=0)
+        self.ptr = 0
+        self.scale_ptr = 0
+        self.i8_ptr = 0
         self.is_quantized = False
         self.shape_0 = 0
         self.shape_1 = 0
 
     def __init__(out self, i8_p: Int, scale_p: Int, s0: Int, s1: Int):
-        self.ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=0)
-        self.scale_ptr = UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=scale_p)
-        self.i8_ptr = UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=i8_p)
+        self.ptr = 0
+        self.scale_ptr = scale_p
+        self.i8_ptr = i8_p
         self.is_quantized = True
         self.shape_0 = s0
         self.shape_1 = s1
+
+    @always_inline
+    def data_ptr(self) -> UnsafePointer[Float32, MutExternalOrigin]:
+        return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.ptr)
+
+    @always_inline
+    def scale_data_ptr(self) -> UnsafePointer[Float32, MutExternalOrigin]:
+        return UnsafePointer[Float32, MutExternalOrigin](unsafe_from_address=self.scale_ptr)
+
+    @always_inline
+    def i8_data_ptr(self) -> UnsafePointer[Int8, MutExternalOrigin]:
+        return UnsafePointer[Int8, MutExternalOrigin](unsafe_from_address=self.i8_ptr)
 
 
 @fieldwise_init
@@ -169,7 +194,7 @@ struct ModelWeights(Movable):
         B: ComputeBackend
     ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin],):
         var hidden_size = self.embed_tokens.shape_1
-        var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
+        var src_ptr = self.embed_tokens.data_ptr() + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
 
 
@@ -306,7 +331,7 @@ struct MoEModelWeights(Movable):
         B: ComputeBackend
     ](self, mut backend: B, token_id: Int, out_ptr: UnsafePointer[Float32, MutAnyOrigin],):
         var hidden_size = self.embed_tokens.shape_1
-        var src_ptr = self.embed_tokens.ptr + token_id * hidden_size
+        var src_ptr = self.embed_tokens.data_ptr() + token_id * hidden_size
         backend.copy(out_ptr, src_ptr, hidden_size)
 
 

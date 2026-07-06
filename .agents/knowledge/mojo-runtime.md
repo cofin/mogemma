@@ -15,8 +15,11 @@
 
 ### `TensorInfo`
 
-- Holds weight pointer + shape + quantization metadata.
-- Fields: `ptr: UnsafePointer[Float32, MutExternalOrigin]`, `i8_ptr`, `scale_ptr` (for int8 quant), `is_quantized: Bool`, shape integers.
+- Holds weight address + shape + quantization metadata.
+- Fields: `ptr: Int`, `i8_ptr: Int`, `scale_ptr: Int` (for int8 quant), `is_quantized: Bool`, shape integers.
+- Pointer accessors such as `data_ptr()`, `scale_data_ptr()`, and
+  `i8_data_ptr()` reconstruct `UnsafePointer` values at use sites. This avoids
+  constructing null `UnsafePointer` values, which current Mojo rejects.
 
 ### `LayerWeights` (base transformer layer)
 
@@ -92,6 +95,8 @@ step_mojo(llm, input_ids, ...)               # FFI entry
 - Python hands pointers as `int`. Mojo reconstructs via `UnsafePointer(unsafe_from_address=Int(py=...))`.
 - Pointer origin type: `MutExternalOrigin` for Python-owned memory, `MutAnyOrigin` for inside-Mojo derived pointers.
 - The `llm` dict pattern: opaque handles stored as `Int(heap_ptr)` in a Python dict; Mojo retrieves via `unsafe_from_address`.
+- Nullable pointer-like state is represented as `0` integer addresses in Mojo
+  structs. Do not store nullable `UnsafePointer` fields.
 
 ## Backend trait
 

@@ -56,7 +56,7 @@ test: ## Run all tests
 	@uv run pytest src/py/tests src/mo/tests
 
 .PHONY: lint
-lint: ## Lint and format code (Python, Mojo)
+lint: ## Run non-mutating lint and type checks
 	@echo "${INFO} Linting Python (ruff)..."
 	@uv run ruff check src/py
 	@uv run ruff format --check src/py
@@ -66,9 +66,17 @@ lint: ## Lint and format code (Python, Mojo)
 	@echo "${INFO} Type checking Python (pyright)..."
 	@export PYTHONPATH=$PYTHONPATH:$(pwd)/src/py
 	@uv run pyright
+	@echo "${INFO} Checking Mojo compile..."
+	@uv run mojo -I src/mo src/mo/tests/unit/test_model_structs.mojo >/dev/null
+	@echo "${OK} Lint complete"
+
+.PHONY: format
+format: ## Run mutating Python and Mojo formatters
+	@echo "${INFO} Formatting Python (ruff)..."
+	@uv run ruff format src/py
 	@echo "${INFO} Formatting Mojo..."
 	@uv run mojo format --line-length 120 src/mo
-	@echo "${OK} Lint complete"
+	@echo "${OK} Format complete"
 
 .PHONY: check-release
 check-release: ## Run release preflight checks (lint + tests)

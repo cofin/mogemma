@@ -521,7 +521,7 @@ def _write_sharded(
     # Streaming pass: buffer tensors per-shard, flush to a temp filename when the
     # buffer would otherwise exceed *shard_size_bytes*. A single tensor that is
     # already larger than the threshold is allowed to occupy its own shard.
-    temp_shards: list[tuple[Path, dict[str, np.ndarray], int]] = []
+    temp_shards: list[tuple[Path, list[str], int]] = []
     current: dict[str, np.ndarray] = {}
     current_bytes = 0
 
@@ -530,8 +530,9 @@ def _write_sharded(
         if not current:
             return
         temp_path = output_dir / _TEMP_SHARD_FMT.format(index=len(temp_shards) + 1)
+        tensor_names = list(current)
         save_file(current, str(temp_path))
-        temp_shards.append((temp_path, dict(current), current_bytes))
+        temp_shards.append((temp_path, tensor_names, current_bytes))
         current = {}
         current_bytes = 0
 
@@ -558,11 +559,11 @@ def _write_sharded(
     weight_map: dict[str, str] = {}
     total_size = 0
     final_paths: list[Path] = []
-    for i, (temp_path, tensors, shard_bytes) in enumerate(temp_shards, start=1):
+    for i, (temp_path, tensor_names, shard_bytes) in enumerate(temp_shards, start=1):
         final_name = _FINAL_SHARD_FMT.format(index=i, total=total)
         final_path = output_dir / final_name
         temp_path.rename(final_path)
-        for name in tensors:
+        for name in tensor_names:
             weight_map[name] = final_name
         total_size += shard_bytes
         final_paths.append(final_path)

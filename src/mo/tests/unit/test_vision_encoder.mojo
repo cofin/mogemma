@@ -1,6 +1,6 @@
 from std.collections import List
 from std.memory import UnsafePointer
-from testing import assert_almost_equal
+from std.testing import assert_almost_equal
 from mogemma.model import VisionLayerWeights, VisionModelWeights, TensorInfo
 from mogemma.ops import gelu, average_pool_2d, CPUBackend
 from mogemma.layers import forward_vision_attention, forward_vision_encoder

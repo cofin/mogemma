@@ -216,7 +216,11 @@ def auto_loader(model_path: str | Path) -> ModelLoader:
     from mogemma.orbax_loader import OrbaxLoader  # noqa: PLC0415
 
     if OrbaxLoader.can_load(path):
-        return OrbaxLoader(path)
+        msg = (
+            f"Raw Orbax/OCDBT checkpoint loading is disabled for runtime use at {path}. "
+            "Convert the checkpoint to safetensors first with convert_orbax_to_safetensors()."
+        )
+        raise RuntimeError(msg)
 
     msg = (
         f"No supported model format found in {path}. "

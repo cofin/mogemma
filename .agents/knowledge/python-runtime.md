@@ -8,6 +8,10 @@
 - Model-id normalization: strip `google/`, `gemma-` → `gemma`, lowercase.
 - HF path uses obstore `HTTPStore` (not the official `huggingface_hub` client — avoids extra dep).
 - HF doesn't expose bucket listing: must read `model.safetensors.index.json` to enumerate shards.
+- Large object downloads stream through obstore `GetResult.stream()` for both
+  sync and async paths. `obstore.get_async()` returns a `GetResult`; the
+  returned `BytesStream` supports async iteration, so no `stream_async()` branch
+  is needed.
 - Staging pattern: download to `staging_dir`, validate, `staging_dir.rename(local_dir)` atomically.
 - Post-download hook: `_finalize_download` converts Orbax → safetensors if needed.
 
@@ -51,6 +55,11 @@ transforms them to HF-style safetensors the runtime can load.
 
 - Classes: `SyncGemmaModel`, `AsyncGemmaModel`, `SyncEmbeddingModel`, `AsyncEmbeddingModel`.
 - Lazy tokenizer init: fail-fast on first `.generate()` if sentencepiece model is missing.
+- Gemma 4 model support metadata lives in `model_support.py` and separates
+  official Google model ids, GCS availability, and local runtime support.
+- Gemma 4 12B unified configs are recognized as
+  `DENSE_12B_UNIFIED`, but generation/embedding initialization raises before
+  Mojo tensor loading until the dedicated 12B runtime lands.
 - Error taxonomy (explicit, never silent):
   - `ModelNotFoundError`
   - Tokenizer-missing error
@@ -71,8 +80,11 @@ No silent fallback — each miss logs the miss and moves to the next tier.
 
 ## `audio.py`
 
-- Computes log-mel spectrograms for audio inputs (E2B/E4B).
-- Float32 output tensors, passed to Mojo via FFI.
+- Computes log-mel spectrograms for future audio inputs.
+- Current generation runtime rejects `audio=` before tokenization with
+  "Audio input is recognized but not implemented for this Gemma 4 runtime."
+  The Mojo `process_audio_mojo()` entry point raises the same class of explicit
+  unsupported-runtime error.
 
 ## `backends.py`
 

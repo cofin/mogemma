@@ -191,9 +191,9 @@ def test_persistent_buffers() raises:
         var norm = TensorInfo(Int(norm_data.unsafe_ptr()), 4, 1)
 
         var persistent = PersistentBuffers(
-            embed_ptr=UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=Int(embed.ptr)),
-            norm_ptr=UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=Int(norm.ptr)),
-            lm_head_ptr=UnsafePointer[Float32, MutAnyOrigin](unsafe_from_address=Int(head.ptr)),
+            embed_ptr=embed.ptr,
+            norm_ptr=norm.ptr,
+            lm_head_ptr=head.ptr,
             embed_elements=32,
             lm_head_elements=32,
             norm_elements=4,

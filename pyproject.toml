@@ -145,8 +145,7 @@ known-first-party = ["mogemma", "tests"]
 split-on-trailing-comma = false
 
 [tool.ruff.lint.per-file-ignores]
-"src/py/tests/test_*.py" = [
-    "ANN202",
+"src/py/tests/**/test_*.py" = [
     "ARG001",
     "D100",
     "D101",
@@ -182,7 +181,7 @@ split-on-trailing-comma = false
 [tool.mypy]
 exclude = ["tmp/", ".tmp/"]
 packages = ["mogemma", "tests"]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 warn_unused_ignores = false
 

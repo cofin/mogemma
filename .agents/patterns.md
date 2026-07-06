@@ -19,6 +19,7 @@
   - Standard Mojo GPU API: `std.gpu.host` for context and buffers.
   - Trait-based backends: `trait ComputeBackend` with `@staticmethod def` for CPU, and explicit `GPUBackend` for kernel launches requiring `DeviceContext`.
   - Contiguous Memory Allocation: Use single contiguous arena + per-layer offsets for KV caches to avoid allocation sprawl.
+- **OrbaxLoader Stub:** Use `OrbaxLoader.__new__(cls)` stub pattern (populating `.model_path` only) to expose `_enumerate_tensor_names` and `_open_tensor` without triggering eager loads. (from: orbax-safetensors-conversion)
 
 ## Gemma Model Patterns
 
@@ -27,6 +28,7 @@
 - **Deterministic Validation:** Use `temperature=0, top_k=1` for factual contract checks; stochastic decoding masks regressions.
 - **Multimodal FFI:** Use `step_with_embedding` abstraction to inject pre-computed vision/audio vectors directly into the decoder.
 - **Hybrid KV Cache:** Gemma 4 uses hybrid sliding-window + global attention; ring buffer implementation for windowed entries is valid without special causal masking after initial wrap.
+- **PLE Norm Layout:** Post-layer PLE norm is `layer_N.post_per_layer_input_norm.scale` (shape `(1536,)`), not the global `embedder.per_layer_projection_norm.scale` (shape `(256,)`). (from: orbax-safetensors-conversion)
 
 ## GPU Forward Path Patterns
 
@@ -52,17 +54,30 @@
   - **UnsafePointer Origins:** Always specify origins for `UnsafePointer` (e.g., `MutExternalOrigin` for heap, `MutAnyOrigin` for widened pointers).
   - **Type Erasure:** Use `rebind[TargetType](value)` to cast between compatible types, especially when passing GPU handles between Python and Mojo.
   - **List Transfer:** Use `^` (transfer operator) when returning a `List` from a function to avoid implicit copy errors.
+  - **HostBuffer Pointer Retrieval:** In modern Mojo, `HostBuffer.unsafe_ptr()` returns an `UnsafePointer` directly. Legacy `.value()` accessors do not compile; perform pointer arithmetic, `load`, and `store` directly on the returned pointer. (from: orbax-safetensors-conversion)
+  - **Address-backed nullable pointers:** Do not construct null `UnsafePointer` values. Store nullable tensor/device pointers as integer addresses on structs and reconstruct `UnsafePointer` values only at nonzero use sites. (from: gemma4-working-order-recovery)
 - **FFI Memory Safety:** Keep references to converted numpy arrays in Python to prevent GC before Mojo consumption.
 - **HuggingFace Shard Discovery:** HF doesn't support bucket listing; parse `model.safetensors.index.json` instead.
 - **HuggingFace URL Normalization:** When using `obstore.store.HTTPStore`, ensure the base URL does *not* have a trailing slash (e.g., `.../resolve/main`) to avoid double-slash 404 errors (`.../resolve/main//file`) from Hugging Face.
-- **Gemma 4 Default Selection:** `GenerationConfig` / `EmbeddingConfig` default to `google/gemma-4-E4B-it` — the latest small multimodal variant (text + image + audio, PLE). Users select the 26B-A4B MoE or 31B dense explicitly when they want more capacity.
+- **Obstore download streaming:** `obstore.get()` and `obstore.get_async()` both return `GetResult`; call `result.stream()` and iterate the returned `BytesStream` rather than materializing `bytes_async()` for large downloads. (from: gemma4-working-order-recovery)
+- **Gemma 4 Default Selection:** `GenerationConfig` / `EmbeddingConfig` default to `google/gemma-4-E4B-it` — the latest small text/image PLE variant available through the public GCS catalog. Audio is recognized but not implemented in this runtime.
 - **Gemma 4 Vision Cropping:** Target budgets must be cropped to largest multiple of `patch_size` (16) after resizing (e.g., 280 -> 272).
 - **Beads FK Constraints:** Large Beads DBs may hit foreign key corruption; favor markdown-only tracking for rapid feature development if instability occurs.
+- **Orbax GCS config.json Missing:** GCS does not ship `config.json` for E2B-it checkpoints; the conversion process must synthesize it. (from: orbax-safetensors-conversion)
+- **E2B-it Disk Space Budget:** E2B-it checkpoints are ~17GB; budget disk space carefully when managing multi-variant local workflows. (from: orbax-safetensors-conversion)
+- **Contract Resolution via Consumer:** When cross-language FFI contracts are ambiguous from loader code, read the forward-pass consumer tensor shapes (e.g. `vec_mat_mul` and `rms_norm` parameters) to determine the layout. (from: orbax-safetensors-conversion)
 
 ## Testing Patterns
 
 - **Pytest-Mojo:** Use `pytest` to drive Mojo tests via the standard CLI.
 - **Contract Tests:** Cross-language boundaries tested via `test_altup_contract.mojo` style.
+- **Python test layout:** Keep Python tests under `src/py/tests/unit/` for pure unit/API behavior and
+  `src/py/tests/integration/` for filesystem-heavy, native-extension, live-network, workflow, or real-checkpoint paths.
+- **Mojo test layout:** Keep Mojo tests under `src/mo/tests/unit/` for pure CPU/runtime/kernel-shape behavior and
+  `src/mo/tests/integration/` for Python interop, GPU-gated, native-boundary, or hardware-sensitive paths. The
+  `src/mo/tests/test_mojo.py` pytest harness discovers `.mojo` modules recursively.
+- **No absence-only scar tests:** Do not keep tests whose main assertion is that retired TDD scaffolding, deleted
+  methods, stale source text, or old branches are absent. Prefer positive behavior contracts and real error-path tests.
 
 ## Context for AI Assistants
 
