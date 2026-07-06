@@ -45,9 +45,9 @@ Each flow has its own detailed spec and plan in its respective folder.
 *Archived 2026-07-06. Mojo nightly tests pass, Gemma 4 official/GCS/runtime support status is explicit for E2B/E4B/12B/31B/26B-A4B, 12B unified is recognized but runtime-gated, and false audio support now fails clearly. Actual 12B unified runtime moved to `gemma4-12b-unified-runtime`.*
 *Link: [./archive/gemma4-working-order-recovery/spec.md](./archive/gemma4-working-order-recovery/spec.md)*
 
-## [~] Flow: Gemma 4 12B Unified Runtime (Epic: mogemma-cpx)
-*Active. Local-safetensors CPU text runtime for `google/gemma-4-12B-it` is implemented after nested config normalization and CPU variable-head geometry. Unified image/audio inputs, GPU variable-head attention, GCS download, and Orbax conversion remain explicitly gated follow-up work.*
-*Link: [./specs/gemma4-12b-unified-runtime/spec.md](./specs/gemma4-12b-unified-runtime/spec.md)*
+## [x] Flow: Gemma 4 12B Unified Runtime (Epic: mogemma-cpx)
+*Archived 2026-07-06. Local-safetensors CPU text runtime for `google/gemma-4-12B-it` is implemented after nested config normalization and CPU variable-head geometry. Unified image/audio inputs, GPU variable-head attention, GCS download, and Orbax conversion remain explicitly gated follow-up work.*
+*Link: [./archive/gemma4-12b-unified-runtime/spec.md](./archive/gemma4-12b-unified-runtime/spec.md)*
 
 ## [ ] Flow: GPU CI on Modal (Tier C)
 *Queued. Stand up Modal-based GPU runner for `test_gpu_*.mojo` on every PR + on-demand real-weight parity gates. Follow-on to `fix-stale-defaults`.*
