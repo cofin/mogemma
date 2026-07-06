@@ -26,6 +26,10 @@ def test_known_gcs_models_include_current_public_catalog_entries() -> None:
     assert expected.issubset(KNOWN_GCS_MODELS)
 
 
+def test_known_gcs_models_exclude_12b_without_live_gcs_proof() -> None:
+    assert "google/gemma-4-12B-it" not in KNOWN_GCS_MODELS
+
+
 def test_make_gcs_store_returns_obstore_gcs_store() -> None:
     from obstore.store import GCSStore
 
@@ -330,3 +334,12 @@ def test_has_model_files_accepts_safetensors_when_orbax_artifacts_are_also_prese
     assert HubManager._has_safetensors(tmp_path) is True
     assert HubManager._has_orbax(tmp_path) is True
     assert HubManager._has_model_files(tmp_path) is True
+
+
+def test_12b_remote_download_is_not_overclaimed_without_gcs_objects(tmp_path: Path) -> None:
+    hub = _hub(tmp_path)
+    with (
+        patch.object(HubManager, "_list_remote_files", return_value=[]),
+        pytest.raises(HubManager.ModelNotFoundError, match="No objects found"),
+    ):
+        hub.resolve_model("google/gemma-4-12B-it", download_if_missing=True, strict=True)

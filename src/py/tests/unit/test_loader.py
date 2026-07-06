@@ -77,6 +77,29 @@ def _make_safetensors_file(path: Path, tensors: dict[str, tuple[list[int], str, 
     path.write_bytes(header_size + header_bytes + b"".join(data_parts))
 
 
+def test_auto_loader_accepts_local_12b_safetensors_directory(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(
+        json.dumps({
+            "architectures": ["Gemma4UnifiedForConditionalGeneration"],
+            "model_type": "gemma4_unified",
+            "text_config": {"model_type": "gemma4_unified_text", "num_hidden_layers": 48, "hidden_size": 3840},
+        })
+    )
+    _make_safetensors_file(
+        tmp_path / "model.safetensors",
+        {"model.embed_tokens.weight": ([2], "F32", np.array([1.0, 2.0], dtype=np.float32).tobytes())},
+    )
+
+    loader = auto_loader(tmp_path)
+    try:
+        metadata = loader.get_tensor_metadata()
+    finally:
+        loader.close()
+
+    assert isinstance(loader, SafetensorsLoader)
+    assert "model.embed_tokens.weight" in metadata
+
+
 @pytest.mark.parametrize(
     ("dtype_str", "raw", "expected_dtype"),
     [

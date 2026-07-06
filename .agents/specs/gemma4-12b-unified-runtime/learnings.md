@@ -22,3 +22,12 @@
 - **Learnings:**
   - Patterns: Store the detected Gemma 4 variant on `SyncGemmaModel` so stream-time modality gates do not need to re-read config files.
   - Gotchas: `_initialize_llm()` uses `_core.init_model_with_options()` when available, so CPU text-init tests should assert the core init path rather than only `backend.init_model()`.
+
+## [2026-07-06 04:35] - Phase 4 Task 4: 12B Loader and Inventory Boundaries
+
+- **Implemented:** Local Gemma 4 12B safetensors directories are accepted by `auto_loader()`, `google/gemma-4-12B-it` remains excluded from `KNOWN_GCS_MODELS` without live GCS proof, and unknown unified Orbax keys now raise before conversion is overclaimed.
+- **Files changed:** `src/py/mogemma/convert.py`, `src/py/tests/unit/test_loader.py`, `src/py/tests/unit/test_hub.py`, `src/py/tests/integration/test_convert.py`.
+- **Commit:** recorded in Beads task closure
+- **Learnings:**
+  - Patterns: Keep 12B text support local-safetensors-first until a real tensor inventory validates remote and Orbax layouts.
+  - Gotchas: blocked: no local 12B checkpoint was available in `MOGEMMA_12B_LOCAL`, so no `12b-inventory.txt` artifact was generated.

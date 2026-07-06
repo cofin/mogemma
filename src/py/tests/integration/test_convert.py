@@ -95,6 +95,12 @@ class TestVariantDetection:
         keys = ["embedder.per_layer_embeddings", "layer_0.mlp.router_logits.w"]
         assert _variant_from_keys(keys) == "moe"
 
+    def test_unified_12b_orbax_inventory_requires_validation(self) -> None:
+        with pytest.raises(
+            ValueError, match="Gemma 4 12B unified Orbax conversion requires a validated tensor inventory"
+        ):
+            _variant_from_keys(["unified_encoder.some_new_tensor"])
+
 
 class TestLayerCount:
     """`_layer_count` extracts the number of transformer layers from key names."""

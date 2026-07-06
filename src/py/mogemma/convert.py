@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 Variant = Literal["base", "ple", "moe"]
 
 _LAYER_KEY_RE = re.compile(r"^layer_(\d+)\.")
+_UNIFIED_12B_ORBAX_PREFIXES = ("unified_encoder.",)
+_UNIFIED_12B_ORBAX_MESSAGE = "Gemma 4 12B unified Orbax conversion requires a validated tensor inventory"
 
 
 def _variant_from_keys(keys: list[str]) -> Variant:
@@ -42,8 +44,12 @@ def _variant_from_keys(keys: list[str]) -> Variant:
     Detection rules:
     - ``moe`` if any ``router_logits`` tensor is present (takes priority).
     - ``ple`` if ``embedder.per_layer_embeddings`` is present.
+    - raise if keys look like the unknown Gemma 4 12B unified Orbax family.
     - ``base`` otherwise.
     """
+    has_unified_12b = any(key.startswith(_UNIFIED_12B_ORBAX_PREFIXES) for key in keys)
+    if has_unified_12b:
+        raise ValueError(_UNIFIED_12B_ORBAX_MESSAGE)
     has_router = any("router_logits" in k for k in keys)
     if has_router:
         return "moe"
