@@ -46,7 +46,7 @@ Each flow has its own detailed spec and plan in its respective folder.
 *Link: [./archive/gemma4-working-order-recovery/spec.md](./archive/gemma4-working-order-recovery/spec.md)*
 
 ## [~] Flow: Gemma 4 12B Unified Runtime (Epic: mogemma-cpx)
-*Planned. Next implementation slice for `google/gemma-4-12B-it`: local-safetensors text runtime first, nested config normalization, CPU variable-head attention geometry, explicit image/audio gates, and support-matrix update after green tests.*
+*Active. Local-safetensors CPU text runtime for `google/gemma-4-12B-it` is implemented after nested config normalization and CPU variable-head geometry. Unified image/audio inputs, GPU variable-head attention, GCS download, and Orbax conversion remain explicitly gated follow-up work.*
 *Link: [./specs/gemma4-12b-unified-runtime/spec.md](./specs/gemma4-12b-unified-runtime/spec.md)*
 
 ## [ ] Flow: GPU CI on Modal (Tier C)

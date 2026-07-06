@@ -31,3 +31,13 @@
 - **Learnings:**
   - Patterns: Keep 12B text support local-safetensors-first until a real tensor inventory validates remote and Orbax layouts.
   - Gotchas: blocked: no local 12B checkpoint was available in `MOGEMMA_12B_LOCAL`, so no `12b-inventory.txt` artifact was generated.
+
+## [2026-07-06 05:05] - Phase 5 Task 5: Docs and Final Verification
+
+- **Implemented:** README and knowledge docs now state that Gemma 4 12B is official, local-safetensors CPU text runtime is supported, and unified image/audio, GPU, GCS download, and Orbax conversion remain follow-up gates.
+- **Files changed:** `README.md`, `.agents/knowledge/gemma4-models.md`, `.agents/knowledge/python-runtime.md`, `.agents/flows.md`.
+- **Commit:** recorded in Beads task closure
+- **Verification:** `make build`, `make lint`, `uv run pytest -q src/py/tests`, and `uv run pytest -q src/mo/tests/test_mojo.py` passed.
+- **Learnings:**
+  - Patterns: Keep official status, GCS availability, and local runtime support as separate claims in docs.
+  - Gotchas: `make lint` still emits existing Mojo `MutExternalOrigin` / `UnsafeAnyOrigin` deprecation warnings but exits 0; these warnings are not part of this 12B text support slice.

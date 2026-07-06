@@ -10,7 +10,7 @@ the conceptual map.
 |---|---|---|---|---|---|
 | **E2B** (`DENSE_E2B`) | ~2B | 2B | 128K | text + image + audio | Dense, PLE, double-wide MLP (4x) |
 | **E4B** (`DENSE_E4B`) | ~4B | 4B | 128K | text + image + audio | Dense, PLE, standard MLP (8x) |
-| **12B** (`DENSE_12B_UNIFIED`) | 12B | 12B | TBD from official config | text + image + audio | Dense unified encoder-free multimodal architecture; recognized and runtime-gated |
+| **12B** (`DENSE_12B_UNIFIED`) | 12B | 12B | 256K | text + image + audio | Dense unified encoder-free multimodal architecture; local CPU text runtime supported, unified image/audio gated |
 | **31B** (`DENSE_31B`) | 31B | 31B | 256K | text + image | Dense, no PLE |
 | **26B-A4B** (`MOE_26B_A4B`) | 26B | ~4B | 256K | text + image | MoE (128 experts, top-8) + dense branch |
 
@@ -127,10 +127,14 @@ Inspect live checkpoint value before wiring into Mojo forward.
   Image patches and audio frames are fed through a unified encoder-free model
   path, so the existing `vision_config`/`audio` side-tower assumptions cannot
   simply be reused.
-- Mogemma currently recognizes this architecture in
-  `_detect_gemma4_variant()` and rejects runtime initialization before Mojo
-  tensor loading. The next implementation flow must add a dedicated 12B config,
-  conversion, and runtime contract before flipping support status.
+- Mogemma recognizes this architecture in `_detect_gemma4_variant()` and
+  supports local-safetensors CPU text initialization after the dedicated 12B
+  config and variable-head runtime contracts pass.
+- `google/gemma-4-12B-it` is not listed in `KNOWN_GCS_MODELS` until a live GCS
+  probe proves checkpoint availability. Remote download and Orbax conversion
+  remain gated without a validated 12B tensor inventory.
+- Unified image/audio inputs and GPU variable-head attention are explicitly
+  rejected until follow-up runtime work lands.
 
 ## KV cache
 

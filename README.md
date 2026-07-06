@@ -6,7 +6,7 @@ Python/Mojo interface for Google Gemma 4.
 
 - **Embeddings** — Dense vector embeddings via a pure Mojo backend, using the pretrained E4B variant by default.
 - **Text generation** — Synchronous and async streaming with configurable sampling.
-- **Multimodal** — Gemma 4 text/image runtime paths with explicit support gates for audio, MTP, thinking, and 12B unified multimodal follow-up work.
+- **Multimodal** — Gemma 4 text/image runtime paths with explicit support gates for audio, MTP, thinking, and 12B unified image/audio follow-up work.
 - **Google Cloud Storage** — Automatic model download from Google's `gemma-data` bucket.
 - **OpenTelemetry** — Optional tracing instrumentation.
 
@@ -97,7 +97,7 @@ Official Gemma 4 model IDs are tracked separately from runtime and GCS availabil
 |---|---:|---:|---|
 | `google/gemma-4-E2B-it` | Yes | Yes | Text/image supported; audio, MTP, and thinking are follow-up work |
 | `google/gemma-4-E4B-it` | Yes | Yes | **Default**; text/image supported; audio, MTP, and thinking are follow-up work |
-| `google/gemma-4-12B-it` | Yes | No | Recognized as unified multimodal; runtime intentionally gated |
+| `google/gemma-4-12B-it` | Yes | No | Local safetensors CPU text supported; unified image/audio inputs and GPU are follow-up work |
 | `google/gemma-4-31B-it` | Yes | No | Official dense model; runtime/download validation pending |
 | `google/gemma-4-26B-A4B-it` | Yes | Yes | MoE path exists; live parity and full runtime validation pending |
 

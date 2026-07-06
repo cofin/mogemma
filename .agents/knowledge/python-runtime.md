@@ -57,9 +57,10 @@ transforms them to HF-style safetensors the runtime can load.
 - Lazy tokenizer init: fail-fast on first `.generate()` if sentencepiece model is missing.
 - Gemma 4 model support metadata lives in `model_support.py` and separates
   official Google model ids, GCS availability, and local runtime support.
-- Gemma 4 12B unified configs are recognized as
-  `DENSE_12B_UNIFIED`, but generation/embedding initialization raises before
-  Mojo tensor loading until the dedicated 12B runtime lands.
+- Gemma 4 12B unified configs are recognized as `DENSE_12B_UNIFIED`. Local
+  safetensors CPU text generation initialization is supported; embeddings, GPU
+  variable-head generation, and unified image/audio inputs remain explicitly
+  gated.
 - Error taxonomy (explicit, never silent):
   - `ModelNotFoundError`
   - Tokenizer-missing error
