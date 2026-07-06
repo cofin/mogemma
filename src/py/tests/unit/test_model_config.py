@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+import mogemma.model as model_module
 from mogemma.backends import resolve_device_selection
 from mogemma.config import EmbeddingConfig, GenerationConfig
 from mogemma.hub import KNOWN_GCS_MODELS
@@ -22,6 +22,7 @@ from mogemma.model_support import GEMMA4_MODEL_SUPPORT, OFFICIAL_GEMMA4_MODELS, 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
 KVMemoryCase = tuple[int, list[str], int, int, int, int, int]
 
@@ -157,16 +158,17 @@ def test_official_support_is_separate_from_gcs_availability(model_id: str) -> No
     assert model_id not in KNOWN_GCS_MODELS
 
 
-def test_12b_support_metadata_is_recognized_but_runtime_unsupported() -> None:
+def test_12b_support_metadata_tracks_text_only_cpu_runtime() -> None:
     support = get_gemma4_model_support("google/gemma-4-12B-it")
 
     assert support.variant == "gemma4_dense_12b_unified"
     assert support.official is True
     assert support.gcs_available is False
-    assert support.text is RuntimeSupport.UNSUPPORTED
+    assert support.text is RuntimeSupport.SUPPORTED
     assert support.image is RuntimeSupport.UNSUPPORTED
     assert support.audio is RuntimeSupport.UNSUPPORTED
     assert support.unified_multimodal is RuntimeSupport.REQUIRES_FOLLOWUP
+    assert "Text-only CPU runtime is implemented" in support.notes
 
 
 @pytest.mark.parametrize("model_id", ["google/gemma-4-E2B-it", "google/gemma-4-E4B-it"])
@@ -229,11 +231,11 @@ def test_detect_gemma4_variant_requires_config_json(tmp_path: Path) -> None:
 
 
 class _FakeLoader:
-    model_path = Path("fake-12b")
+    def __init__(self, model_path: Path) -> None:
+        self.model_path = model_path
 
     def get_tensor_metadata(self) -> dict[str, tuple[int, tuple[int, ...], str]]:
-        msg = "12B runtime gate should run before tensor metadata loading"
-        raise AssertionError(msg)
+        return {"token_embedding.weight": (0, (10, 4), "float32")}
 
     def close(self) -> None:
         pass
@@ -241,13 +243,60 @@ class _FakeLoader:
 
 class _FakeBackend:
     backend_id = "fake"
+    init_called = False
 
     def init_model(self, _metadata: object) -> object:
-        msg = "12B runtime gate should run before Mojo init"
-        raise AssertionError(msg)
+        self.init_called = True
+        return {"arch": "gemma4", "variant": "gemma4_dense_12b_unified"}
 
 
-def test_12b_unified_runtime_is_rejected_before_mojo_init(tmp_path: Path) -> None:
+class _FakeCore:
+    init_called = False
+    received_overrides: dict[str, object] | None = None
+
+    def init_model_with_options(
+        self,
+        _metadata: dict[str, tuple[int, tuple[int, ...], str]],
+        overrides: dict[str, object],
+        _descriptor: dict[str, object],
+    ) -> object:
+        self.init_called = True
+        self.received_overrides = overrides
+        return {"arch": "gemma4", "variant": "gemma4_dense_12b_unified"}
+
+
+def test_12b_text_runtime_reaches_core_after_geometry_support(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_config(
+        tmp_path,
+        {
+            "architectures": ["Gemma4UnifiedForConditionalGeneration"],
+            "model_type": "gemma4_unified",
+            "text_config": {"hidden_size": 3840, "num_hidden_layers": 48},
+        },
+    )
+    core = _FakeCore()
+    monkeypatch.setattr(model_module, "_core", core)
+
+    llm = _initialize_llm(
+        _FakeLoader(tmp_path),
+        _FakeBackend(),  # type: ignore[arg-type]
+        device_selection=resolve_device_selection("cpu"),
+        model_type="generation",
+        model_path=tmp_path,
+    )
+
+    assert isinstance(llm, dict)
+    assert llm["variant"] == "gemma4_dense_12b_unified"
+    assert llm["device_backend"] == "cpu"
+    assert llm["device_selection"] == resolve_device_selection("cpu").as_runtime_descriptor()
+    assert llm["architecture_overrides"]["hidden_size"] == 3840
+    assert llm["architecture_overrides"]["num_layers"] == 48
+    assert core.init_called is True
+    assert core.received_overrides is not None
+    assert core.received_overrides["hidden_size"] == 3840
+
+
+def test_12b_embedding_runtime_remains_unsupported(tmp_path: Path) -> None:
     _write_config(
         tmp_path,
         {
@@ -257,11 +306,31 @@ def test_12b_unified_runtime_is_rejected_before_mojo_init(tmp_path: Path) -> Non
         },
     )
 
-    with pytest.raises(RuntimeError, match="Gemma 4 12B unified multimodal runtime is recognized but not implemented"):
+    with pytest.raises(RuntimeError, match="Gemma 4 12B unified embedding runtime is recognized but not implemented"):
         _initialize_llm(
-            _FakeLoader(),
+            _FakeLoader(tmp_path),
             _FakeBackend(),  # type: ignore[arg-type]
             device_selection=resolve_device_selection("cpu"),
+            model_type="embedding",
+            model_path=tmp_path,
+        )
+
+
+def test_12b_gpu_generation_runtime_remains_unsupported(tmp_path: Path) -> None:
+    _write_config(
+        tmp_path,
+        {
+            "architectures": ["Gemma4UnifiedForConditionalGeneration"],
+            "model_type": "gemma4_unified",
+            "text_config": {"hidden_size": 3840, "num_hidden_layers": 48},
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="GPU runtime for Gemma 4 12B variable-head attention is not implemented"):
+        _initialize_llm(
+            _FakeLoader(tmp_path),
+            _FakeBackend(),  # type: ignore[arg-type]
+            device_selection=resolve_device_selection("gpu", gpu_available=True),
             model_type="generation",
             model_path=tmp_path,
         )

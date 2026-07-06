@@ -13,3 +13,12 @@
 - **Learnings:**
   - Patterns: Prefer tensor-projected dimensions (`q_proj.shape_0`, cache layer stride) over global `num_heads * head_dim` in attention code when layer geometry can vary.
   - Gotchas: GPU KV cache still mirrors a uniform stride layout; variable CPU geometry must raise before GPU resource initialization.
+
+## [2026-07-06 04:05] - Phase 3 Task 3: 12B Text-Only Runtime Gate
+
+- **Implemented:** Python runtime gating now permits Gemma 4 12B generation initialization on CPU, keeps 12B embeddings unsupported, keeps 12B GPU generation explicitly gated, and rejects 12B image/audio inputs before hydrator work.
+- **Files changed:** `src/py/mogemma/model.py`, `src/py/mogemma/model_support.py`, `src/py/tests/unit/test_model_config.py`, `src/py/tests/unit/test_media.py`.
+- **Commit:** recorded in Beads task closure
+- **Learnings:**
+  - Patterns: Store the detected Gemma 4 variant on `SyncGemmaModel` so stream-time modality gates do not need to re-read config files.
+  - Gotchas: `_initialize_llm()` uses `_core.init_model_with_options()` when available, so CPU text-init tests should assert the core init path rather than only `backend.init_model()`.

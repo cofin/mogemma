@@ -20,7 +20,7 @@ from mogemma.hydration import (
     ImageInput,
     select_token_budget,
 )
-from mogemma.model import SyncGemmaModel
+from mogemma.model import Gemma4Variant, SyncGemmaModel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -262,3 +262,25 @@ def test_generation_rejects_audio_before_tokenization() -> None:
 
     with pytest.raises(RuntimeError, match="Audio input is recognized but not implemented"):
         next(model.generate_stream("describe this", audio=[np.zeros(16000, dtype=np.float32)]))
+
+
+def test_generation_rejects_12b_audio_before_tokenization() -> None:
+    model = object.__new__(SyncGemmaModel)
+    model._variant = Gemma4Variant.DENSE_12B_UNIFIED
+
+    with pytest.raises(RuntimeError, match="Gemma 4 12B unified audio input is recognized but not implemented"):
+        next(model.generate_stream("describe this", audio=[np.zeros(16000, dtype=np.float32)]))
+
+
+def test_generation_rejects_12b_images_before_hydration(monkeypatch: pytest.MonkeyPatch) -> None:
+    model = object.__new__(SyncGemmaModel)
+    model._variant = Gemma4Variant.DENSE_12B_UNIFIED
+
+    def _fail_hydrate(self: ImageHydrator, images: object) -> object:
+        msg = "12B image gate should run before ImageHydrator"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(ImageHydrator, "hydrate", _fail_hydrate)
+
+    with pytest.raises(RuntimeError, match="Gemma 4 12B unified image input is recognized but not implemented"):
+        next(model.generate_stream("describe this", images=[np.zeros((280, 280, 3), dtype=np.uint8)]))

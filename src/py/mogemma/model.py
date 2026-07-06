@@ -90,7 +90,10 @@ class Gemma4Variant(str, Enum):
     MOE_26B_A4B = "gemma4_moe_26b"
 
 
-_GEMMA4_12B_UNSUPPORTED_RUNTIME_MESSAGE = "Gemma 4 12B unified multimodal runtime is recognized but not implemented."
+_GEMMA4_12B_UNSUPPORTED_EMBEDDING_MESSAGE = "Gemma 4 12B unified embedding runtime is recognized but not implemented."
+_GEMMA4_12B_UNSUPPORTED_GPU_MESSAGE = "GPU runtime for Gemma 4 12B variable-head attention is not implemented"
+_GEMMA4_12B_UNSUPPORTED_IMAGE_MESSAGE = "Gemma 4 12B unified image input is recognized but not implemented."
+_GEMMA4_12B_UNSUPPORTED_AUDIO_MESSAGE = "Gemma 4 12B unified audio input is recognized but not implemented."
 _AUDIO_UNSUPPORTED_RUNTIME_MESSAGE = "Audio input is recognized but not implemented for this Gemma 4 runtime."
 _ConfigScalar = int | float | str
 
@@ -140,15 +143,25 @@ def _detect_gemma4_variant(model_dir: Path) -> Gemma4Variant:
     return Gemma4Variant.DENSE_31B
 
 
-def _raise_for_unsupported_gemma4_runtime(model_path: Path | None) -> None:
+def _maybe_detect_gemma4_variant(model_path: Path | None) -> Gemma4Variant | None:
     if model_path is None:
-        return
+        return None
     try:
-        variant = _detect_gemma4_variant(model_path)
+        return _detect_gemma4_variant(model_path)
     except FileNotFoundError:
+        return None
+
+
+def _raise_for_unsupported_gemma4_runtime(
+    model_path: Path | None, *, model_type: str, device_selection: DeviceSelection
+) -> None:
+    variant = _maybe_detect_gemma4_variant(model_path)
+    if variant is not Gemma4Variant.DENSE_12B_UNIFIED:
         return
-    if variant is Gemma4Variant.DENSE_12B_UNIFIED:
-        raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_RUNTIME_MESSAGE)
+    if model_type == "embedding":
+        raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_EMBEDDING_MESSAGE)
+    if device_selection.backend == "gpu":
+        raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_GPU_MESSAGE)
 
 
 def _gemma4_text_config(config: dict[str, object]) -> dict[str, object]:
@@ -388,7 +401,7 @@ def _initialize_llm(  # noqa: PLR0913
     architecture_overrides: dict[str, int | float] | None = None,
     model_path: Path | None = None,
 ) -> object:
-    _raise_for_unsupported_gemma4_runtime(model_path)
+    _raise_for_unsupported_gemma4_runtime(model_path, model_type=model_type, device_selection=device_selection)
 
     if _core is None:
         raise RuntimeError(_core_unavailable_message(model_type))
@@ -710,6 +723,7 @@ class SyncGemmaModel:
         # Resolve model path (Hub or local)
         self.model_path = _resolve_model_path(config.model_path, config.cache_path)
         self._loader = auto_loader(self.model_path)
+        self._variant = _maybe_detect_gemma4_variant(self.model_path)
         self._instruction_tuned = _is_instruction_tuned_model(self.model_path, config.model_path)
         self._backend = _resolve_generation_backend(self._device_selection.effective_device)
         self._backend_id = self._backend.backend_id
@@ -775,8 +789,13 @@ class SyncGemmaModel:
         system_prompt: str | None = None,
     ) -> Generator[str, None, None]:
         """Generate text as a stream of tokens."""
+        is_12b_unified = getattr(self, "_variant", None) is Gemma4Variant.DENSE_12B_UNIFIED
         if audio is not None:
+            if is_12b_unified:
+                raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_AUDIO_MESSAGE)
             raise RuntimeError(_AUDIO_UNSUPPORTED_RUNTIME_MESSAGE)
+        if images is not None and is_12b_unified:
+            raise RuntimeError(_GEMMA4_12B_UNSUPPORTED_IMAGE_MESSAGE)
 
         tokenizer = self._ensure_tokenizer()
         prompt_to_encode = (

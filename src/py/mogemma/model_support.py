@@ -81,7 +81,7 @@ GEMMA4_MODEL_SUPPORT: dict[str, Gemma4ModelSupport] = {
         variant="gemma4_dense_12b_unified",
         official=True,
         gcs_available="google/gemma-4-12B-it" in KNOWN_GCS_MODELS,
-        text=RuntimeSupport.UNSUPPORTED,
+        text=RuntimeSupport.SUPPORTED,
         image=RuntimeSupport.UNSUPPORTED,
         audio=RuntimeSupport.UNSUPPORTED,
         moe=RuntimeSupport.UNSUPPORTED,
@@ -89,9 +89,7 @@ GEMMA4_MODEL_SUPPORT: dict[str, Gemma4ModelSupport] = {
         mtp=RuntimeSupport.REQUIRES_FOLLOWUP,
         thinking=RuntimeSupport.REQUIRES_FOLLOWUP,
         unified_multimodal=RuntimeSupport.REQUIRES_FOLLOWUP,
-        notes=(
-            "Official unified encoder-free multimodal architecture; recognized but runtime support is not implemented."
-        ),
+        notes="Text-only CPU runtime is implemented; unified image/audio inputs remain explicitly gated.",
     ),
     "google/gemma-4-31B-it": Gemma4ModelSupport(
         model_id="google/gemma-4-31B-it",
